@@ -37,9 +37,26 @@ class Config:
         "eipc-biometric-template-protection-secret-key-2026"
     )
 
-    # Face recognition engine configuration
-    FACE_MODEL_NAME = "EIPC-ArcFace-Embedder"
-    FACE_MODEL_VERSION = "1.0.0"
+    # Face recognition engine configuration.
+    # NOTE: The current embedder is a development placeholder, NOT a trained face model.
+    # Templates are tagged with this name/version so they can be re-enrolled once a real
+    # model (e.g. OpenCV SFace / InsightFace ArcFace) is integrated.
+    FACE_MODEL_NAME = "EIPC-Placeholder-Embedder"
+    FACE_MODEL_VERSION = "0.1.0-dev"
+
+    # Simulation mode accepts named biometric signatures, raw embedding vectors and
+    # client-supplied quality metrics. It exists only for demos and automated tests and
+    # MUST be disabled (ALLOW_SIMULATED_BIOMETRICS=0) for any deployment with real employees.
+    ALLOW_SIMULATED_BIOMETRICS = os.environ.get("ALLOW_SIMULATED_BIOMETRICS", "1") == "1"
+
+    # Kiosks may not choose their own event timestamps; the server clock is authoritative.
+    ALLOW_CLIENT_EVENT_TIMESTAMPS = False
+
+    # A recognition result must be confirmed within this window or the employee rescans.
+    RECOGNITION_TOKEN_MAX_AGE_SECONDS = int(os.environ.get("RECOGNITION_TOKEN_MAX_AGE_SECONDS", "90"))
+
+    # Signed cookie that binds a provisioned browser/device to one attendance station.
+    STATION_COOKIE_NAME = "eipc_station"
     # Cosine similarity threshold (0.0 to 1.0) - validated for pilot
     RECOGNITION_MATCH_THRESHOLD = float(os.environ.get("RECOGNITION_MATCH_THRESHOLD", "0.78"))
     RECOGNITION_UNCERTAIN_THRESHOLD = float(os.environ.get("RECOGNITION_UNCERTAIN_THRESHOLD", "0.62"))
@@ -63,4 +80,7 @@ class TestConfig(Config):
     SQLALCHEMY_DATABASE_URI = "sqlite:///:memory:"
     SECRET_KEY = "test-secret-key"
     DUPLICATE_EVENT_COOLDOWN_SECONDS = 60
+    ALLOW_SIMULATED_BIOMETRICS = True
+    # Tests replay events at fixed historical times (shift, overnight and 24h scenarios).
+    ALLOW_CLIENT_EVENT_TIMESTAMPS = True
 

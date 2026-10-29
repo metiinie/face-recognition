@@ -3,7 +3,7 @@ JSON REST API endpoints for Station Kiosks, HR Management, Scheduling, Reporting
 Security/RBAC enforcement, and Automated Acceptance Tests (AT-01 through AT-26).
 """
 from datetime import datetime, date
-from flask import Blueprint, request, jsonify, Response
+from flask import Blueprint, request, jsonify, Response, current_app
 from backend.database import db, transactional_session
 from backend.database.models import (
     User,
@@ -40,7 +40,12 @@ from backend.face_enrollment.service import (
     enroll_employee_face,
     revoke_employee_templates,
 )
-from backend.stations.service import register_station, verify_trusted_station
+from backend.stations.service import (
+    register_station,
+    verify_trusted_station,
+    resolve_station_from_binding,
+)
+from backend.security.tokens import issue_recognition_token, verify_recognition_token
 from backend.shifts.service import (
     create_shift_template,
     assign_shift_to_employee,
@@ -85,6 +90,35 @@ def _extract_station_credentials(data: dict) -> tuple[str | int | None, str | No
     return station_id_or_code, station_token
 
 
+def _resolve_station(data: dict):
+    """
+    Establish the originating station from trusted configuration only (AT-24):
+      1. Dedicated devices send their station code + secret token (headers or body).
+      2. Browser kiosks carry the signed binding cookie set by admin provisioning.
+    A bare station code from the browser is never trusted on its own.
+    """
+    st_code, st_token = _extract_station_credentials(data)
+    if st_token:
+        return verify_trusted_station(st_code, st_token)
+    cookie = request.cookies.get(current_app.config.get("STATION_COOKIE_NAME", "eipc_station"))
+    if cookie:
+        return resolve_station_from_binding(cookie)
+    if st_code:
+        return verify_trusted_station(st_code, None)  # audited rejection
+    return None, "This device is not provisioned as an attendance station."
+
+
+def _client_event_time(data: dict):
+    """Kiosk-supplied timestamps are only honoured when explicitly enabled (tests)."""
+    if not current_app.config.get("ALLOW_CLIENT_EVENT_TIMESTAMPS", False):
+        return None
+    if data.get("occurred_at_utc"):
+        return datetime.fromisoformat(data["occurred_at_utc"])
+    if data.get("occurred_at_local"):
+        return local_to_utc(datetime.fromisoformat(data["occurred_at_local"]))
+    return None
+
+
 @api_bp.route("/auth/login", methods=["POST"])
 def api_login():
     data = request.get_json(silent=True) or {}
@@ -110,8 +144,7 @@ def api_station_scan():
     employee & current open session status WITHOUT creating an attendance event.
     """
     data = request.get_json(silent=True) or {}
-    st_code, st_token = _extract_station_credentials(data)
-    station, st_err = verify_trusted_station(st_code, st_token)
+    station, st_err = _resolve_station(data)
     if st_err:
         return jsonify({"error": st_err, "code": "STATION_UNAUTHORIZED"}), 403
 
@@ -182,6 +215,10 @@ def api_station_scan():
             "arrival_status": open_sess.arrival_status,
         } if open_sess else None,
         "recommended_action": "CHECK_OUT" if open_sess else "CHECK_IN",
+        # Short-lived proof that the server recognized this employee at this station.
+        "recognition_token": issue_recognition_token(
+            emp.id, station.id, rec_result["recognition_score"]
+        ),
         "station": {
             "id": station.id,
             "station_code": station.station_code,
@@ -199,8 +236,7 @@ def api_station_confirm():
     cannot arbitrarily forge another employee's ID without matching biometrics.
     """
     data = request.get_json(silent=True) or {}
-    st_code, st_token = _extract_station_credentials(data)
-    station, st_err = verify_trusted_station(st_code, st_token)
+    station, st_err = _resolve_station(data)
     if st_err:
         return jsonify({"error": st_err, "code": "STATION_UNAUTHORIZED"}), 403
 
@@ -213,40 +249,66 @@ def api_station_confirm():
     if not emp:
         return jsonify({"error": "Employee not found.", "code": "EMPLOYEE_NOT_FOUND"}), 404
 
-    # AT-24: If biometric payload or signature is included, verify it matches the claimed employee_id
-    if data.get("biometric_signature") or data.get("image_base64") or data.get("embedding_vector"):
-        rec = recognize_face_candidate(data, decrypt_embedding)
-        if not rec["matched"] or not rec["employee"] or rec["employee"].id != emp.id:
-            record_audit_log(
-                action="EMPLOYEE_IMPERSONATION_BLOCKED",
-                target_type="EMPLOYEE",
-                target_id=emp.employee_number,
-                reason="Confirmed employee_id did not match verified biometric identity (AT-24)",
-                station_id=station.id,
-                commit=True,
-            )
+    # AT-24: the confirmed employee must be the one the server just recognized at this station.
+    def _impersonation_blocked(reason: str):
+        record_audit_log(
+            action="EMPLOYEE_IMPERSONATION_BLOCKED",
+            target_type="EMPLOYEE",
+            target_id=emp.employee_number,
+            reason=reason,
+            station_id=station.id,
+            commit=True,
+        )
+        return jsonify({
+            "recorded": False,
+            "error": "Biometric verification mismatch: confirmed employee ID does not match scanned face.",
+            "code": "IDENTITY_MISMATCH_IMPERSONATION",
+        }), 403
+
+    recognition_token = data.get("recognition_token")
+    has_biometric = any(data.get(k) for k in ("biometric_signature", "image_base64", "embedding_vector"))
+
+    if recognition_token:
+        payload, tok_err = verify_recognition_token(
+            recognition_token, current_app.config.get("RECOGNITION_TOKEN_MAX_AGE_SECONDS", 90)
+        )
+        if tok_err:
             return jsonify({
-                "error": "Biometric verification mismatch: confirmed employee ID does not match scanned face.",
-                "code": "IDENTITY_MISMATCH_IMPERSONATION",
+                "recorded": False,
+                "error_code": tok_err,
+                "error": "Your face scan has expired or is invalid. Please scan again.",
             }), 403
+        if payload.get("e") != emp.id or payload.get("s") != station.id:
+            return _impersonation_blocked("Recognition token issued for a different employee or station (AT-24)")
+        rec_score = float(payload.get("r") or 0.0)
+    elif has_biometric:
+        rec = recognize_face_candidate(data, decrypt_embedding)
+        if rec["status"] == "EMPLOYEE_INACTIVE" and rec["employee"] and rec["employee"].id == emp.id:
+            return jsonify({
+                "recorded": False,
+                "error_code": "EMPLOYEE_INACTIVE",
+                "error": rec["message"],
+            }), 403
+        if not rec["matched"] or not rec["employee"] or rec["employee"].id != emp.id:
+            return _impersonation_blocked("Confirmed employee_id did not match verified biometric identity (AT-24)")
         rec_score = rec["recognition_score"]
     else:
-        rec_score = float(data.get("recognition_score", 0.95))
-
-    occurred_at = None
-    if data.get("occurred_at_utc"):
-        occurred_at = datetime.fromisoformat(data["occurred_at_utc"])
-    elif data.get("occurred_at_local"):
-        occurred_at = local_to_utc(datetime.fromisoformat(data["occurred_at_local"]))
+        return jsonify({
+            "recorded": False,
+            "error_code": "RECOGNITION_PROOF_REQUIRED",
+            "error": "Please scan your face before confirming attendance.",
+        }), 401
 
     result, err_code, err_msg = confirm_attendance_action(
         employee_id=emp.id,
         station=station,
         event_type=event_type,
         recognition_score=rec_score,
-        occurred_at=occurred_at,
+        occurred_at=_client_event_time(data),
         capture_method="BIOMETRIC",
-        simulate_db_failure=bool(data.get("simulate_db_failure", False)),
+        simulate_db_failure=bool(
+            current_app.config.get("TESTING") and data.get("simulate_db_failure", False)
+        ),
     )
 
     if err_code:
@@ -280,8 +342,7 @@ def api_station_request_review():
     Journey B & C: Submit an unresolved recognition or invalid check-out issue to HR Review Queue.
     """
     data = request.get_json(silent=True) or {}
-    st_code, st_token = _extract_station_credentials(data)
-    station, st_err = verify_trusted_station(st_code, st_token)
+    station, st_err = _resolve_station(data)
     if st_err:
         return jsonify({"error": st_err, "code": "STATION_UNAUTHORIZED"}), 403
 

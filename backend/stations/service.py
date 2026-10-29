@@ -7,6 +7,24 @@ import secrets
 from backend.database import db, transactional_session
 from backend.database.models import AttendanceStation, Department, utc_now
 from backend.audit.service import record_audit_log
+from backend.security.tokens import read_station_binding, station_token_fingerprint
+
+
+def resolve_station_from_binding(cookie_value: str | None) -> tuple[AttendanceStation | None, str | None]:
+    """
+    Resolve the station from the signed device-binding cookie set during admin provisioning.
+    Rotating a station's secret token or deactivating it invalidates the binding.
+    """
+    station_id, fingerprint = read_station_binding(cookie_value)
+    if not station_id:
+        return None, "This device is not provisioned as an attendance station."
+
+    station = db.session.get(AttendanceStation, station_id)
+    if not station or fingerprint != station_token_fingerprint(station.station_secret_token):
+        return None, "This device's station binding is no longer valid. Ask an administrator to re-provision it."
+    if station.status != "ACTIVE":
+        return None, f"Attendance station '{station.station_code}' is currently {station.status}."
+    return station, None
 
 
 def register_station(

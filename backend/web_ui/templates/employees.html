@@ -86,7 +86,7 @@
   <div class="card">
     <h3>Enroll, Replace or Revoke Biometric Face Template (AT-03)</h3>
     <p style="font-size:0.84rem; color:#64748b;">
-      Templates are encrypted at rest using Fernet AES-128-CBC + HMAC and tagged with model/version metadata (<code>EIPC-ArcFace-Embedder v1.0.0</code>). Unusable captures are rejected automatically.
+      Templates are encrypted at rest (Fernet: AES-128-CBC + HMAC) and tagged with model/version metadata (<code>{{ config.FACE_MODEL_NAME }} {{ config.FACE_MODEL_VERSION }}</code>) so they can be re-enrolled when the recognition model changes. Unusable captures are rejected automatically.
     </p>
     <form method="POST" action="{{ url_for('web_ui.employees_screen') }}">
       <input type="hidden" name="form_action" value="enroll_face">

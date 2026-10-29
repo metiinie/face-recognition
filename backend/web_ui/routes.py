@@ -11,6 +11,7 @@ of the Implementation Blueprint:
 from datetime import datetime, date
 from flask import (
     Blueprint,
+    current_app,
     render_template,
     request,
     redirect,
@@ -59,7 +60,8 @@ from backend.face_enrollment.service import (
     enroll_employee_face,
     revoke_employee_templates,
 )
-from backend.stations.service import register_station
+from backend.stations.service import register_station, resolve_station_from_binding
+from backend.security.tokens import issue_station_binding
 from backend.shifts.service import (
     create_shift_template,
     assign_shift_to_employee,
@@ -131,21 +133,88 @@ def logout_page():
 @web_ui_bp.route("/")
 @web_ui_bp.route("/station")
 def station_kiosk():
-    stations = AttendanceStation.query.filter_by(status="ACTIVE").order_by(AttendanceStation.id.asc()).all()
-    selected_code = request.args.get("station_code")
-    active_station = None
-    if selected_code:
-        active_station = AttendanceStation.query.filter_by(station_code=selected_code).first()
-    if not active_station and stations:
-        active_station = stations[0]
+    """
+    The kiosk's station identity comes only from the signed binding cookie set by an
+    administrator via /station/provision. No station secrets are rendered into the page.
+    """
+    cookie = request.cookies.get(current_app.config.get("STATION_COOKIE_NAME", "eipc_station"))
+    active_station, binding_error = (None, None)
+    if cookie:
+        active_station, binding_error = resolve_station_from_binding(cookie)
 
-    enrolled_employees = Employee.query.order_by(Employee.employee_number.asc()).all()
+    allow_sim = current_app.config.get("ALLOW_SIMULATED_BIOMETRICS", False)
+    enrolled_employees = (
+        Employee.query.order_by(Employee.employee_number.asc()).all() if allow_sim else []
+    )
     return render_template(
         "station_kiosk.html",
-        stations=stations,
         active_station=active_station,
+        binding_error=binding_error,
+        allow_sim=allow_sim,
         enrolled_employees=enrolled_employees,
     )
+
+
+@web_ui_bp.route("/station/provision", methods=["GET", "POST"])
+@admin_required
+def station_provision():
+    """
+    Administrator binds this browser/device to one departmental station (trusted configuration).
+    The admin session is cleared afterwards so the kiosk is never left logged in.
+    """
+    user = get_current_user()
+    cookie_name = current_app.config.get("STATION_COOKIE_NAME", "eipc_station")
+
+    if request.method == "POST":
+        if request.form.get("form_action") == "unbind":
+            record_audit_log(
+                action="STATION_DEVICE_UNBOUND",
+                target_type="STATION_DEVICE",
+                actor_user_id=user.id,
+                actor_username=user.username,
+                commit=True,
+            )
+            resp = redirect(url_for("web_ui.station_provision"))
+            resp.delete_cookie(cookie_name)
+            flash("This device is no longer bound to a station.", "info")
+            return resp
+
+        code = (request.form.get("station_code") or "").strip().upper()
+        station = AttendanceStation.query.filter_by(station_code=code).first()
+        if not station or station.status != "ACTIVE":
+            flash("Select an active station to provision.", "danger")
+            return redirect(url_for("web_ui.station_provision"))
+
+        record_audit_log(
+            action="STATION_DEVICE_PROVISIONED",
+            target_type="STATION",
+            target_id=station.station_code,
+            details={"user_agent": request.headers.get("User-Agent", "")[:200]},
+            actor_user_id=user.id,
+            actor_username=user.username,
+            station_id=station.id,
+            commit=True,
+        )
+        resp = redirect(url_for("web_ui.station_kiosk"))
+        resp.set_cookie(
+            cookie_name,
+            issue_station_binding(station),
+            max_age=365 * 24 * 3600,
+            httponly=True,
+            samesite="Strict",
+            secure=request.is_secure,
+        )
+        session.clear()
+        flash(
+            f"This device is now station {station.station_code}. The administrator session was signed out.",
+            "success",
+        )
+        return resp
+
+    current_cookie = request.cookies.get(cookie_name)
+    bound_station, _ = resolve_station_from_binding(current_cookie) if current_cookie else (None, None)
+    stations = AttendanceStation.query.filter_by(status="ACTIVE").order_by(AttendanceStation.station_code.asc()).all()
+    return render_template("station_provision.html", stations=stations, bound_station=bound_station)
 
 
 # ==============================================================================

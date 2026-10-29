@@ -8,7 +8,7 @@ import hashlib
 import json
 from cryptography.fernet import Fernet
 from flask import current_app
-from backend.database import transactional_session
+from backend.database import db, transactional_session
 from backend.database.models import Employee, FaceTemplate, utc_now
 from backend.face_engine.recognizer import analyze_and_extract_embedding
 from backend.audit.service import record_audit_log
@@ -48,7 +48,7 @@ def enroll_employee_face(
     Validate image quality, extract embedding, encrypt at rest, replace prior active templates,
     and save a new FaceTemplate record with model/version metadata (AT-03).
     """
-    employee = Employee.query.get(employee_id)
+    employee = db.session.get(Employee, employee_id)
     if not employee:
         return None, "Employee not found."
 
@@ -122,7 +122,7 @@ def revoke_employee_templates(
     if not reason or not reason.strip():
         return 0, "A revocation reason is required."
 
-    employee = Employee.query.get(employee_id)
+    employee = db.session.get(Employee, employee_id)
     if not employee:
         return 0, "Employee not found."
 

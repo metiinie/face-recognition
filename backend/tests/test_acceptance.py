@@ -191,10 +191,12 @@ def test_AT_07_deactivate_employee_blocks_attendance_preserves_history(client, a
             "station_token": "trusted-token-st-ict-01",
             "employee_id": 1,
             "event_type": "CHECK_OUT",
+            "biometric_signature": "FACE_SIG_EIPC-EMP-001",
             "occurred_at_local": "2026-03-02T17:05:00",
         },
     )
     assert blocked.status_code == 403
+    assert blocked.get_json()["error_code"] == "EMPLOYEE_INACTIVE"
 
     # Verify historical session remains intact
     with app.app_context():
@@ -206,11 +208,8 @@ def test_AT_07_deactivate_employee_blocks_attendance_preserves_history(client, a
 # B. ATTENDANCE TESTS (AT-08 to AT-14)
 # ==============================================================================
 
-def test_AT_08_and_AT_09_check_in_and_check_out_lifecycle(client, app):
-    """
-    AT-08: Recognized employee confirms Check-in -> 1 check-in event and 1 open session created.
-    AT-09: Employee confirms Check-out with open session -> 1 check-out event recorded and session closed.
-    """
+def test_AT_08_recognized_employee_confirms_check_in(client, app):
+    """AT-08: Recognized employee confirms Check-in -> 1 check-in event and 1 open session created."""
     ci = client.post(
         "/api/station/confirm",
         json={
@@ -225,6 +224,25 @@ def test_AT_08_and_AT_09_check_in_and_check_out_lifecycle(client, app):
     assert ci.status_code == 201
     ci_data = ci.get_json()["attendance"]
     assert ci_data["session_status"] == "OPEN"
+    with app.app_context():
+        assert AttendanceSession.query.filter_by(employee_id=1).count() == 1
+        assert AttendanceEvent.query.filter_by(employee_id=1, event_type="CHECK_IN").count() == 1
+
+
+def test_AT_09_employee_confirms_check_out_with_open_session(client, app):
+    """AT-09: Employee confirms Check-out with open session -> 1 check-out event recorded and session closed."""
+    ci = client.post(
+        "/api/station/confirm",
+        json={
+            "station_code": "ST-ICT-01",
+            "station_token": "trusted-token-st-ict-01",
+            "employee_id": 1,
+            "event_type": "CHECK_IN",
+            "biometric_signature": "FACE_SIG_EIPC-EMP-001",
+            "occurred_at_local": "2026-03-03T07:58:00",
+        },
+    )
+    ci_data = ci.get_json()["attendance"]
 
     co = client.post(
         "/api/station/confirm",
@@ -268,11 +286,8 @@ def test_AT_10_check_out_without_open_session_rejected(client, app):
         assert AttendanceEvent.query.count() == 0
 
 
-def test_AT_11_and_AT_12_duplicate_and_double_click_prevention(client, app):
-    """
-    AT-11: Repeated frames or rapid duplicate requests occur -> Duplicate attendance events prevented.
-    AT-12: Double-clicks or concurrent requests -> Database integrity maintained; no contradictory sessions.
-    """
+def test_AT_11_repeated_frames_or_rapid_duplicate_requests_prevented(client, app):
+    """AT-11: Repeated frames or rapid duplicate requests occur -> Duplicate attendance events prevented."""
     payload = {
         "station_code": "ST-ICT-01",
         "station_token": "trusted-token-st-ict-01",
@@ -284,11 +299,23 @@ def test_AT_11_and_AT_12_duplicate_and_double_click_prevention(client, app):
     first = client.post("/api/station/confirm", json=payload)
     assert first.status_code == 201
 
-    # Immediate second click 5 seconds later
     payload_dup = dict(payload, occurred_at_local="2026-03-05T08:00:05")
     second = client.post("/api/station/confirm", json=payload_dup)
     assert second.status_code == 409
     assert second.get_json()["error_code"] == "DUPLICATE_EVENT_PREVENTED"
+
+
+def test_AT_12_double_click_or_concurrent_requests_no_contradictory_sessions(client, app):
+    """AT-12: Double-clicks or concurrent requests -> Database integrity maintained; no contradictory sessions."""
+    payload = {
+        "station_code": "ST-ICT-01",
+        "station_token": "trusted-token-st-ict-01",
+        "employee_id": 1,
+        "event_type": "CHECK_IN",
+        "biometric_signature": "FACE_SIG_EIPC-EMP-001",
+        "occurred_at_local": "2026-03-05T08:00:00",
+    }
+    client.post("/api/station/confirm", json=payload)
 
     # Attempt another check-in 10 minutes later while session is still OPEN
     payload_later = dict(payload, occurred_at_local="2026-03-05T08:10:00")
@@ -357,12 +384,8 @@ def test_AT_14_employee_forgets_to_check_out_flagged_without_invented_time(clien
 # C. SCHEDULING TESTS (AT-15 to AT-20)
 # ==============================================================================
 
-def test_AT_15_and_AT_16_arrival_window_and_lateness_calculation(client):
-    """
-    AT-15: Regular employee checks in within approved arrival window (08:00 + 15m grace) -> ON_TIME.
-    AT-16: Employee checks in after approved cutoff (08:25) -> Marked LATE.
-    """
-    # Employee 1 checks in at 08:12 (within 15-min grace period for 08:00 shift)
+def test_AT_15_regular_employee_checks_in_within_arrival_window(client):
+    """AT-15: Regular employee checks in within approved arrival window (08:00 + 15m grace) -> ON_TIME."""
     r1 = client.post(
         "/api/station/confirm",
         json={
@@ -378,7 +401,9 @@ def test_AT_15_and_AT_16_arrival_window_and_lateness_calculation(client):
     assert r1.get_json()["attendance"]["arrival_status"] == "ON_TIME"
     assert r1.get_json()["attendance"]["late_minutes"] == 0
 
-    # Employee 2 checks in at 08:25 (10 mins past the 08:15 grace cutoff -> 25 mins late from 08:00)
+
+def test_AT_16_employee_checks_in_after_approved_cutoff_marked_late(client):
+    """AT-16: Employee checks in after approved cutoff (08:25) -> Marked LATE."""
     r2 = client.post(
         "/api/station/confirm",
         json={

@@ -8,3 +8,4 @@ Werkzeug>=3.0.1
 numpy>=1.26.0
 Pillow>=10.2.0
 pytest>=8.0.0
+

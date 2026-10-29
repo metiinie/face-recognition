@@ -71,22 +71,19 @@ def authenticate_user(username: str, password: str) -> tuple[User | None, str | 
 
 
 def get_current_user() -> User | None:
-    """Retrieve currently authenticated User from session or request header."""
-    if hasattr(g, "_current_user"):
-        return g._current_user
-
+    """
+    Retrieve the currently authenticated User from the session.
+    Deliberately not cached on `flask.g`: an app context can outlive a single request
+    (e.g. under test clients), which would leak a signed-out user into later requests.
+    """
     user_id = session.get("user_id")
     if not user_id:
-        g._current_user = None
         return None
 
     user = db.session.get(User, user_id)
     if not user or user.status != "ACTIVE":
         session.clear()
-        g._current_user = None
         return None
-
-    g._current_user = user
     return user
 
 

@@ -1,0 +1,44 @@
+{% extends "base.html" %}
+{% block title %}Provision Attendance Station Device{% endblock %}
+
+{% block content %}
+<div style="max-width: 640px; margin: 2rem auto;">
+  <div class="card">
+    <h3>Provision This Device as an Attendance Station</h3>
+    <p style="font-size:0.88rem; color:#475569;">
+      Binds this browser to one departmental station using a signed, HTTP-only cookie.
+      The station identity then comes from this trusted configuration, never from what the kiosk page sends (AT-24).
+      Your administrator session is signed out automatically after provisioning.
+    </p>
+
+    {% if bound_station %}
+      <div class="alert alert-info">
+        Currently bound to <strong>{{ bound_station.station_code }}</strong> — {{ bound_station.name }} ({{ bound_station.location }}).
+      </div>
+    {% endif %}
+
+    <form method="POST" action="{{ url_for('web_ui.station_provision') }}">
+      <input type="hidden" name="form_action" value="bind">
+      <div class="form-group">
+        <label for="station_code">Station</label>
+        <select name="station_code" id="station_code" required>
+          {% for st in stations %}
+            <option value="{{ st.station_code }}">
+              {{ st.station_code }} — {{ st.name }} ({{ st.department.code if st.department else '' }}, {{ st.location }})
+            </option>
+          {% endfor %}
+        </select>
+      </div>
+      <button type="submit" class="btn btn-primary">Bind This Device &amp; Open Kiosk</button>
+    </form>
+
+    {% if bound_station %}
+      <form method="POST" action="{{ url_for('web_ui.station_provision') }}" style="margin-top:0.75rem;">
+        <input type="hidden" name="form_action" value="unbind">
+        <button type="submit" class="btn btn-outline btn-sm">Unbind This Device</button>
+      </form>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}
+

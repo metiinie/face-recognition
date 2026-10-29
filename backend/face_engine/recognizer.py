@@ -101,8 +101,11 @@ def analyze_and_extract_embedding(capture_payload: dict) -> dict:
     min_bright = current_app.config.get("MIN_IMAGE_BRIGHTNESS", 45.0)
     max_bright = current_app.config.get("MAX_IMAGE_BRIGHTNESS", 235.0)
     min_sharp = current_app.config.get("MIN_IMAGE_SHARPNESS", 35.0)
+    allow_sim = current_app.config.get("ALLOW_SIMULATED_BIOMETRICS", False)
 
-    quality_override = capture_payload.get("quality_metrics") or {}
+    # Client-supplied quality metrics are only trusted in simulation mode; otherwise
+    # quality is always measured from the captured image itself.
+    quality_override = (capture_payload.get("quality_metrics") or {}) if allow_sim else {}
     brightness = float(quality_override.get("brightness", 128.0))
     sharpness = float(quality_override.get("sharpness", 85.0))
     face_detected = bool(quality_override.get("face_detected", True))
@@ -137,10 +140,10 @@ def analyze_and_extract_embedding(capture_payload: dict) -> dict:
                 "embedding": None,
             }
 
-    # 2. Check explicit signature or vector (used by kiosk presets or enrolled templates)
-    if capture_payload.get("biometric_signature"):
+    # 2. Named signatures / raw vectors are simulation-only inputs (demo kiosk & tests).
+    if allow_sim and capture_payload.get("biometric_signature"):
         embedding = generate_deterministic_embedding(str(capture_payload["biometric_signature"]))
-    elif capture_payload.get("embedding_vector"):
+    elif allow_sim and capture_payload.get("embedding_vector"):
         vec = capture_payload["embedding_vector"]
         if isinstance(vec, list) and len(vec) == EMBEDDING_DIM:
             embedding = [float(x) for x in vec]

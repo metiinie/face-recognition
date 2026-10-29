@@ -9,7 +9,8 @@ from backend.database import db, transactional_session
 from backend.database.models import (
     Role, User, Department, Employee, FaceTemplate, AttendanceStation,
     ShiftTemplate, ShiftAssignment, ScheduleException, AttendanceSession,
-    AttendanceEvent, ReviewCase, AttendanceCorrection, AuditLog, PolicySignoff
+    AttendanceEvent, ReviewCase, AttendanceCorrection, AuditLog, PolicySignoff,
+    utc_now,
 )
 
 
@@ -61,7 +62,7 @@ def export_full_backup_snapshot() -> dict:
     ]
     snapshot = {
         "schema_version": "1.0.0-eipc-v1",
-        "exported_at": datetime.utcnow().isoformat(),
+        "exported_at": utc_now().isoformat(),
         "tables": {}
     }
     for key, model_cls in models_order:
