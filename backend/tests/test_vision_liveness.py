@@ -83,3 +83,4 @@ def test_csrf_protection_blocks_unauthorized_post_when_enabled(client):
         assert resp_with_token.status_code in {200, 302}
     finally:
         client.application.config["CSRF_ENABLED_IN_TEST"] = False
+
