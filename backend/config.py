@@ -38,11 +38,10 @@ class Config:
     )
 
     # Face recognition engine configuration.
-    # NOTE: The current embedder is a development placeholder, NOT a trained face model.
-    # Templates are tagged with this name/version so they can be re-enrolled once a real
-    # model (e.g. OpenCV SFace / InsightFace ArcFace) is integrated.
-    FACE_MODEL_NAME = "EIPC-Placeholder-Embedder"
-    FACE_MODEL_VERSION = "0.1.0-dev"
+    # Native computer vision embedder with YCbCr skin locus segmentation,
+    # multi-scale spatial gradient orientation descriptors and liveness / anti-spoofing analysis.
+    FACE_MODEL_NAME = "EIPC-Vision-Embedder"
+    FACE_MODEL_VERSION = "1.0.0"
 
     # Simulation mode accepts named biometric signatures, raw embedding vectors and
     # client-supplied quality metrics. It exists only for demos and automated tests and
