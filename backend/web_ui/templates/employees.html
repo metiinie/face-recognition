@@ -14,6 +14,7 @@
   <div class="card">
     <h3>Register New Employee (AT-01 / AT-02)</h3>
     <form method="POST" action="{{ url_for('web_ui.employees_screen') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="form_action" value="create_employee">
       <div class="form-row">
         <div class="form-group">
@@ -89,6 +90,7 @@
       Templates are encrypted at rest (Fernet: AES-128-CBC + HMAC) and tagged with model/version metadata (<code>{{ config.FACE_MODEL_NAME }} {{ config.FACE_MODEL_VERSION }}</code>) so they can be re-enrolled when the recognition model changes. Unusable captures are rejected automatically.
     </p>
     <form method="POST" action="{{ url_for('web_ui.employees_screen') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="form_action" value="enroll_face">
       <div class="form-row">
         <div class="form-group">
@@ -114,6 +116,7 @@
 
     <hr style="margin:1rem 0; border:0; border-top:1px solid #e2e8f0;">
     <form method="POST" action="{{ url_for('web_ui.employees_screen') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="form_action" value="revoke_face">
       <div class="form-row">
         <div class="form-group">
@@ -210,6 +213,7 @@
             </td>
             <td>
               <form method="POST" action="{{ url_for('web_ui.employees_screen') }}" style="display:inline;">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <input type="hidden" name="form_action" value="toggle_status">
                 <input type="hidden" name="employee_id" value="{{ emp.id }}">
                 {% if emp.status == 'ACTIVE' %}

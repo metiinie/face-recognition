@@ -8,6 +8,7 @@
     <p>Resolve unknown-face cases via documented manual HR entry, apply non-destructive attendance corrections with mandatory reasons, manage RBAC users, and review the immutable audit log.</p>
   </div>
   <form method="POST" action="{{ url_for('web_ui.users_review_audit_screen') }}">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <input type="hidden" name="form_action" value="flag_overdue_sessions">
     <button type="submit" class="btn btn-warning btn-sm">
       🔍 Scan & Flag Overdue Open Sessions (AT-14: Never Invents Check-Out)
@@ -23,6 +24,7 @@
       Used after verifying employee identity via college procedure. Tagged as <code>MANUAL_HR</code> so reports always distinguish manual entries from biometric scans.
     </p>
     <form method="POST" action="{{ url_for('web_ui.users_review_audit_screen') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="form_action" value="manual_attendance">
       <div class="form-row">
         <div class="form-group">
@@ -83,6 +85,7 @@
       Requires a mandatory reason. Preserves the original event in <code>attendance_events</code>, links the correction in <code>attendance_corrections</code>, and writes an audit record.
     </p>
     <form method="POST" action="{{ url_for('web_ui.users_review_audit_screen') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="form_action" value="correct_attendance">
       <div class="form-row">
         <div class="form-group">
@@ -159,6 +162,7 @@
             </td>
             <td>
               <form method="POST" action="{{ url_for('web_ui.users_review_audit_screen') }}" style="display:flex; gap:0.35rem;">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <input type="hidden" name="form_action" value="update_policy">
                 <input type="hidden" name="policy_id" value="{{ pol.id }}">
                 <input type="text" name="decision_notes" value="{{ pol.decision_notes or '' }}" placeholder="Policy notes" style="width:140px;">
@@ -181,6 +185,7 @@
   <h3>System User Accounts & Role-Based Access Control (Admin Only: AT-22)</h3>
   {% if current_user and current_user.role and current_user.role.name == 'ADMIN' %}
     <form method="POST" action="{{ url_for('web_ui.users_review_audit_screen') }}" class="form-row" style="align-items:end;">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="form_action" value="create_user">
       <div class="form-group">
         <label>Username *</label>
@@ -233,6 +238,7 @@
             <td>
               {% if current_user and current_user.role and current_user.role.name == 'ADMIN' and u.id != current_user.id %}
                 <form method="POST" action="{{ url_for('web_ui.users_review_audit_screen') }}" style="display:inline;">
+                  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                   <input type="hidden" name="form_action" value="toggle_user_status">
                   <input type="hidden" name="target_user_id" value="{{ u.id }}">
                   <button type="submit" class="btn btn-sm btn-outline">Toggle Active/Inactive</button>

@@ -22,6 +22,13 @@ def create_app(config_class=Config, seed_db: bool = True) -> Flask:
 
     db.init_app(app)
 
+    from backend.security.csrf import check_csrf, generate_csrf_token
+    app.before_request(check_csrf)
+
+    @app.context_processor
+    def inject_csrf():
+        return {"csrf_token": generate_csrf_token}
+
     from backend.web_ui.routes import web_ui_bp
     from backend.web_ui.api_routes import api_bp
 

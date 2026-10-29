@@ -125,12 +125,16 @@ def confirm_attendance_action(
                     f"within the {cooldown_sec}-second protection window.",
                 )
 
-            open_sess = (
+            # Query open session with row-level locking for concurrency protection on MySQL
+            sess_query = (
                 session.query(AttendanceSession)
                 .filter_by(employee_id=emp.id, status="OPEN")
                 .order_by(AttendanceSession.shift_start_at.desc(), AttendanceSession.id.desc())
-                .first()
             )
+            bind = session.get_bind()
+            if bind and bind.dialect.name == "mysql":
+                sess_query = sess_query.with_for_update()
+            open_sess = sess_query.first()
 
             if action == "CHECK_IN":
                 # Check if employee already has an open session
