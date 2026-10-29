@@ -1,0 +1,284 @@
+{% extends "base.html" %}
+{% block title %}Screen 6 — Users, Review, Corrections, Audit & Policy Sign-Off{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2>Screen 6 — Users, Unknown-Face Review, Corrections, Audit & Policy Sign-Off</h2>
+    <p>Resolve unknown-face cases via documented manual HR entry, apply non-destructive attendance corrections with mandatory reasons, manage RBAC users, and review the immutable audit log.</p>
+  </div>
+  <form method="POST" action="{{ url_for('web_ui.users_review_audit_screen') }}">
+    <input type="hidden" name="form_action" value="flag_overdue_sessions">
+    <button type="submit" class="btn btn-warning btn-sm">
+      🔍 Scan & Flag Overdue Open Sessions (AT-14: Never Invents Check-Out)
+    </button>
+  </form>
+</div>
+
+<div class="grid-2">
+  <!-- Authorized Manual HR Attendance Entry (Journey C) -->
+  <div class="card">
+    <h3>Authorized Manual HR Attendance Entry (Journey C)</h3>
+    <p style="font-size:0.84rem; color:#64748b;">
+      Used after verifying employee identity via college procedure. Tagged as <code>MANUAL_HR</code> so reports always distinguish manual entries from biometric scans.
+    </p>
+    <form method="POST" action="{{ url_for('web_ui.users_review_audit_screen') }}">
+      <input type="hidden" name="form_action" value="manual_attendance">
+      <div class="form-row">
+        <div class="form-group">
+          <label>Verified Employee *</label>
+          <select name="employee_id" required>
+            {% for emp in employees %}
+              <option value="{{ emp.id }}">{{ emp.employee_number }} — {{ emp.full_name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Department Station *</label>
+          <select name="station_id" required>
+            {% for st in stations %}
+              <option value="{{ st.id }}">{{ st.station_code }} — {{ st.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>Attendance Event Type *</label>
+          <select name="event_type" required>
+            <option value="CHECK_IN">CHECK_IN</option>
+            <option value="CHECK_OUT">CHECK_OUT</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Link to Open Review Case (Optional)</label>
+          <select name="review_case_id">
+            <option value="">-- Direct HR Entry --</option>
+            {% for rc in review_cases if rc.status == 'OPEN' %}
+              <option value="{{ rc.id }}">Case #{{ rc.id }} ({{ rc.claimed_employee_number or rc.case_type }})</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>Policy Identity Evidence Reference *</label>
+          <input type="text" name="evidence_reference" required placeholder="e.g. College Staff ID Card + Dept Head Sign-off #402">
+        </div>
+        <div class="form-group">
+          <label>Mandatory Reason *</label>
+          <input type="text" name="reason" required placeholder="e.g. Camera glare at Block C; physical ID verified by HR">
+        </div>
+      </div>
+      <button type="submit" class="btn btn-warning">Record Documented Manual Entry</button>
+    </form>
+  </div>
+
+  <!-- Non-Destructive Attendance Correction (AT-23) -->
+  <div class="card">
+    <h3>Correct Attendance Record (AT-23: Preserves Original Event)</h3>
+    <p style="font-size:0.84rem; color:#64748b;">
+      Requires a mandatory reason. Preserves the original event in <code>attendance_events</code>, links the correction in <code>attendance_corrections</code>, and writes an audit record.
+    </p>
+    <form method="POST" action="{{ url_for('web_ui.users_review_audit_screen') }}">
+      <input type="hidden" name="form_action" value="correct_attendance">
+      <div class="form-row">
+        <div class="form-group">
+          <label>Target Attendance Session *</label>
+          <select name="session_id" required>
+            {% for s in sessions %}
+              <option value="{{ s.id }}">
+                Session #{{ s.id }} — {{ s.employee.employee_number }} ({{ s.work_date }} | {{ s.status }})
+              </option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Correction Type *</label>
+          <select name="correction_type" required>
+            <option value="CHECK_IN_TIME">Correct Check-In Time</option>
+            <option value="CHECK_OUT_TIME">Correct Check-Out Time</option>
+            <option value="ADD_MISSING_CHECKOUT">Add Verified Missing Check-Out</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>Corrected Timestamp (Local EAT) *</label>
+          <input type="datetime-local" name="corrected_timestamp_local" required>
+        </div>
+        <div class="form-group">
+          <label>Supporting Document Ref *</label>
+          <input type="text" name="evidence_ref" value="HR-DISPUTE-FORM-2026" required>
+        </div>
+      </div>
+
+      <div class="form-group">
+        <label>Mandatory Correction Reason (AT-23) *</label>
+        <input type="text" name="reason" required placeholder="Explain why this attendance timestamp is being corrected...">
+      </div>
+      <button type="submit" class="btn btn-primary">Apply Audited Correction</button>
+    </form>
+  </div>
+</div>
+
+<!-- Section 8: Operational Policies Sign-Off Checklist -->
+<div class="card">
+  <h3>Section 8 — Operational Policy & Requirements Sign-Off Checklist</h3>
+  <div class="table-responsive">
+    <table>
+      <thead>
+        <tr>
+          <th>Code</th>
+          <th>Policy Area</th>
+          <th>Operational Requirement</th>
+          <th>Status</th>
+          <th>Decision Notes / Approved By</th>
+          <th>Update Sign-Off</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for pol in policies %}
+          <tr>
+            <td><strong>{{ pol.policy_code }}</strong></td>
+            <td>{{ pol.title }}</td>
+            <td style="max-width:300px; font-size:0.82rem;">{{ pol.description }}</td>
+            <td>
+              {% if pol.status == 'CONFIRMED' %}
+                <span class="badge badge-success">CONFIRMED</span>
+              {% else %}
+                <span class="badge badge-warning">PENDING</span>
+              {% endif %}
+            </td>
+            <td style="font-size:0.82rem;">
+              {{ pol.decision_notes or '—' }}
+              {% if pol.confirmed_by %}<br><small><strong>By:</strong> {{ pol.confirmed_by }}</small>{% endif %}
+            </td>
+            <td>
+              <form method="POST" action="{{ url_for('web_ui.users_review_audit_screen') }}" style="display:flex; gap:0.35rem;">
+                <input type="hidden" name="form_action" value="update_policy">
+                <input type="hidden" name="policy_id" value="{{ pol.id }}">
+                <input type="text" name="decision_notes" value="{{ pol.decision_notes or '' }}" placeholder="Policy notes" style="width:140px;">
+                <select name="status">
+                  <option value="CONFIRMED" {% if pol.status == 'CONFIRMED' %}selected{% endif %}>CONFIRMED</option>
+                  <option value="PENDING_CONFIRMATION" {% if pol.status != 'CONFIRMED' %}selected{% endif %}>PENDING</option>
+                </select>
+                <button type="submit" class="btn btn-sm btn-primary">Save</button>
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- User Accounts & Role Permissions (AT-21, AT-22) -->
+<div class="card">
+  <h3>System User Accounts & Role-Based Access Control (Admin Only: AT-22)</h3>
+  {% if current_user and current_user.role and current_user.role.name == 'ADMIN' %}
+    <form method="POST" action="{{ url_for('web_ui.users_review_audit_screen') }}" class="form-row" style="align-items:end;">
+      <input type="hidden" name="form_action" value="create_user">
+      <div class="form-group">
+        <label>Username *</label>
+        <input type="text" name="username" required placeholder="new_hr_user">
+      </div>
+      <div class="form-group">
+        <label>Full Name *</label>
+        <input type="text" name="full_name" required placeholder="Full Name">
+      </div>
+      <div class="form-group">
+        <label>Role *</label>
+        <select name="role_name">
+          {% for r in roles %}
+            <option value="{{ r.name }}">{{ r.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Password *</label>
+        <input type="password" name="password" required placeholder="Min 6 chars">
+      </div>
+      <div class="form-group">
+        <button type="submit" class="btn btn-primary">Create User</button>
+      </div>
+    </form>
+  {% endif %}
+
+  <div class="table-responsive">
+    <table>
+      <thead>
+        <tr>
+          <th>Username</th>
+          <th>Full Name</th>
+          <th>Role</th>
+          <th>Permitted Actions</th>
+          <th>Status</th>
+          <th>Action</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for u in users %}
+          <tr>
+            <td><strong>{{ u.username }}</strong></td>
+            <td>{{ u.full_name }}</td>
+            <td><span class="badge badge-info">{{ u.role.name if u.role else 'NONE' }}</span></td>
+            <td><small>{{ u.role.permissions_csv if u.role else '' }}</small></td>
+            <td>
+              <span class="badge {% if u.status == 'ACTIVE' %}badge-success{% else %}badge-danger{% endif %}">{{ u.status }}</span>
+            </td>
+            <td>
+              {% if current_user and current_user.role and current_user.role.name == 'ADMIN' and u.id != current_user.id %}
+                <form method="POST" action="{{ url_for('web_ui.users_review_audit_screen') }}" style="display:inline;">
+                  <input type="hidden" name="form_action" value="toggle_user_status">
+                  <input type="hidden" name="target_user_id" value="{{ u.id }}">
+                  <button type="submit" class="btn btn-sm btn-outline">Toggle Active/Inactive</button>
+                </form>
+              {% else %}
+                <small style="color:#64748b;">Protected</small>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Immutable Audit Trail -->
+<div class="card">
+  <h3>Immutable Server Audit Trail (Append-Only History)</h3>
+  <div class="table-responsive">
+    <table>
+      <thead>
+        <tr>
+          <th>Log ID</th>
+          <th>Timestamp (EAT)</th>
+          <th>Actor</th>
+          <th>Action</th>
+          <th>Target</th>
+          <th>Reason</th>
+          <th>Details JSON</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for log in audit_logs %}
+          <tr>
+            <td>#{{ log.id }}</td>
+            <td>{{ utc_to_local(log.created_at).strftime('%Y-%m-%d %H:%M:%S') }}</td>
+            <td><strong>{{ log.actor_username }}</strong></td>
+            <td><span class="badge badge-neutral">{{ log.action }}</span></td>
+            <td>{{ log.target_type }}:{{ log.target_id or '' }}</td>
+            <td>{{ log.reason or '—' }}</td>
+            <td><code style="font-size:0.76rem;">{{ log.details_json or '' }}</code></td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+

@@ -1,0 +1,233 @@
+{% extends "base.html" %}
+{% block title %}Screen 2 — Employee Management & Biometric Enrollment{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2>Screen 2 — Employee Management & Biometric Enrollment</h2>
+    <p>Register employees, assign departments & job categories, manage encrypted face templates, and deactivate accounts while preserving history.</p>
+  </div>
+</div>
+
+<div class="grid-2">
+  <!-- Register New Employee Card (AT-01, AT-02) -->
+  <div class="card">
+    <h3>Register New Employee (AT-01 / AT-02)</h3>
+    <form method="POST" action="{{ url_for('web_ui.employees_screen') }}">
+      <input type="hidden" name="form_action" value="create_employee">
+      <div class="form-row">
+        <div class="form-group">
+          <label>Unique Employee Number *</label>
+          <input type="text" name="employee_number" required placeholder="e.g. EIPC-EMP-006">
+        </div>
+        <div class="form-group">
+          <label>Department *</label>
+          <select name="department_id" required>
+            {% for d in departments %}
+              <option value="{{ d.id }}">{{ d.code }} — {{ d.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>First Name *</label>
+          <input type="text" name="first_name" required placeholder="First Name">
+        </div>
+        <div class="form-group">
+          <label>Last Name *</label>
+          <input type="text" name="last_name" required placeholder="Last Name">
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>Job Category *</label>
+          <select name="job_category" required>
+            <option value="REGULAR_STAFF">REGULAR_STAFF (Academic / Admin)</option>
+            <option value="CLEANING_STAFF">CLEANING_STAFF (Sanitation)</option>
+            <option value="SECURITY_GUARD">SECURITY_GUARD (24h / Overnight)</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Initial Shift Schedule</label>
+          <select name="shift_template_id">
+            <option value="">-- Assign Later --</option>
+            {% for st in shift_templates %}
+              <option value="{{ st.id }}">{{ st.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>Phone Number</label>
+          <input type="text" name="phone" placeholder="+251-915-...">
+        </div>
+        <div class="form-group" style="justify-content:center;">
+          <label style="display:flex; align-items:center; gap:0.4rem; margin-top:1.1rem;">
+            <input type="checkbox" name="consent_verified" checked>
+            Biometric Privacy Notice & Consent Verified
+          </label>
+          <label style="display:flex; align-items:center; gap:0.4rem;">
+            <input type="checkbox" name="auto_enroll_face" checked>
+            Enroll Initial Face Template Immediately
+          </label>
+        </div>
+      </div>
+
+      <button type="submit" class="btn btn-primary">Register Employee</button>
+    </form>
+  </div>
+
+  <!-- Biometric Face Enrollment & Replacement Card (AT-03) -->
+  <div class="card">
+    <h3>Enroll, Replace or Revoke Biometric Face Template (AT-03)</h3>
+    <p style="font-size:0.84rem; color:#64748b;">
+      Templates are encrypted at rest using Fernet AES-128-CBC + HMAC and tagged with model/version metadata (<code>EIPC-ArcFace-Embedder v1.0.0</code>). Unusable captures are rejected automatically.
+    </p>
+    <form method="POST" action="{{ url_for('web_ui.employees_screen') }}">
+      <input type="hidden" name="form_action" value="enroll_face">
+      <div class="form-row">
+        <div class="form-group">
+          <label>Select Employee *</label>
+          <select name="employee_id" required>
+            {% for emp in employees %}
+              <option value="{{ emp.id }}">{{ emp.employee_number }} — {{ emp.full_name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Capture Quality Mode (Test AT-03)</label>
+          <select name="quality_mode">
+            <option value="GOOD">High Quality Verified Capture (Brightness 135, Sharpness 92)</option>
+            <option value="POOR_DARK">Simulate Unusable Dark Capture (Rejects per AT-03)</option>
+            <option value="BLURRY">Simulate Unusable Blurry Capture (Rejects per AT-03)</option>
+            <option value="OBSTRUCTED">Simulate Obstructed Face Capture (Rejects per AT-03)</option>
+          </select>
+        </div>
+      </div>
+      <button type="submit" class="btn btn-success">Enroll / Replace Face Template</button>
+    </form>
+
+    <hr style="margin:1rem 0; border:0; border-top:1px solid #e2e8f0;">
+    <form method="POST" action="{{ url_for('web_ui.employees_screen') }}">
+      <input type="hidden" name="form_action" value="revoke_face">
+      <div class="form-row">
+        <div class="form-group">
+          <label>Employee to Revoke Biometrics</label>
+          <select name="employee_id" required>
+            {% for emp in employees %}
+              <option value="{{ emp.id }}">{{ emp.employee_number }} — {{ emp.full_name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Revocation Reason *</label>
+          <input type="text" name="revoke_reason" required placeholder="e.g. Re-enrollment required / Consent withdrawn">
+        </div>
+      </div>
+      <button type="submit" class="btn btn-warning btn-sm">Revoke Active Face Templates</button>
+    </form>
+  </div>
+</div>
+
+<!-- Employee Directory & Search/Filter Card -->
+<div class="card">
+  <h3>Enrolled College Employees ({{ employees|length }})</h3>
+  <form method="GET" action="{{ url_for('web_ui.employees_screen') }}" class="form-row" style="align-items:end;">
+    <div class="form-group">
+      <label>Search Name or ID</label>
+      <input type="text" name="q" value="{{ search_q }}" placeholder="EIPC-EMP-...">
+    </div>
+    <div class="form-group">
+      <label>Department</label>
+      <select name="department_id">
+        <option value="">All Departments</option>
+        {% for d in departments %}
+          <option value="{{ d.id }}" {% if dept_filter == d.id %}selected{% endif %}>{{ d.name }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Job Category</label>
+      <select name="job_category">
+        <option value="">All Categories</option>
+        <option value="REGULAR_STAFF" {% if cat_filter == 'REGULAR_STAFF' %}selected{% endif %}>REGULAR_STAFF</option>
+        <option value="CLEANING_STAFF" {% if cat_filter == 'CLEANING_STAFF' %}selected{% endif %}>CLEANING_STAFF</option>
+        <option value="SECURITY_GUARD" {% if cat_filter == 'SECURITY_GUARD' %}selected{% endif %}>SECURITY_GUARD</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label>Status</label>
+      <select name="status">
+        <option value="">All Statuses</option>
+        <option value="ACTIVE" {% if status_filter == 'ACTIVE' %}selected{% endif %}>ACTIVE</option>
+        <option value="INACTIVE" {% if status_filter == 'INACTIVE' %}selected{% endif %}>INACTIVE</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <button type="submit" class="btn btn-primary">Filter</button>
+    </div>
+  </form>
+
+  <div class="table-responsive">
+    <table>
+      <thead>
+        <tr>
+          <th>Employee ID</th>
+          <th>Full Name</th>
+          <th>Department</th>
+          <th>Job Category</th>
+          <th>Biometric Template</th>
+          <th>Status</th>
+          <th>Action (AT-07)</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for emp in employees %}
+          {% set tmpl = emp.active_template %}
+          <tr>
+            <td><strong>{{ emp.employee_number }}</strong></td>
+            <td>{{ emp.full_name }}</td>
+            <td>{{ emp.department.name if emp.department else '—' }}</td>
+            <td><span class="badge badge-neutral">{{ emp.job_category }}</span></td>
+            <td>
+              {% if tmpl %}
+                <span class="badge badge-success">ENROLLED ({{ tmpl.model_version }} | Q:{{ tmpl.quality_score }})</span>
+              {% else %}
+                <span class="badge badge-danger">NOT ENROLLED</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if emp.status == 'ACTIVE' %}
+                <span class="badge badge-success">ACTIVE</span>
+              {% else %}
+                <span class="badge badge-danger">INACTIVE</span>
+              {% endif %}
+            </td>
+            <td>
+              <form method="POST" action="{{ url_for('web_ui.employees_screen') }}" style="display:inline;">
+                <input type="hidden" name="form_action" value="toggle_status">
+                <input type="hidden" name="employee_id" value="{{ emp.id }}">
+                {% if emp.status == 'ACTIVE' %}
+                  <input type="hidden" name="new_status" value="INACTIVE">
+                  <input type="hidden" name="reason" value="Deactivated via HR Portal (AT-07)">
+                  <button type="submit" class="btn btn-sm btn-danger">Deactivate</button>
+                {% else %}
+                  <input type="hidden" name="new_status" value="ACTIVE">
+                  <input type="hidden" name="reason" value="Reactivated via HR Portal">
+                  <button type="submit" class="btn btn-sm btn-success">Reactivate</button>
+                {% endif %}
+              </form>
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+

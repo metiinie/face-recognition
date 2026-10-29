@@ -1,0 +1,286 @@
+{% extends "base.html" %}
+{% block title %}Screen 5 — Schedule & Station Management{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2>Screen 5 — Configurable Schedules, Ethiopian Clock & Station Management</h2>
+    <p>Configure regular, sanitation, overnight & 24-hour guard shifts, assign effective-dated employee schedules, set holidays/leaves, and register departmental stations.</p>
+  </div>
+</div>
+
+<div class="grid-2">
+  <!-- Create Shift Template (Regular, Overnight, 24h Security Guard) -->
+  <div class="card">
+    <h3>Create Shift Template (AT-15 / AT-17 / AT-18)</h3>
+    <form method="POST" action="{{ url_for('web_ui.schedules_stations_screen') }}">
+      <input type="hidden" name="form_action" value="create_shift">
+      <div class="form-row">
+        <div class="form-group">
+          <label>Shift Template Name *</label>
+          <input type="text" name="name" required placeholder="e.g. Afternoon Workshop Shift">
+        </div>
+        <div class="form-group">
+          <label>Job Category *</label>
+          <select name="job_category">
+            <option value="REGULAR_STAFF">REGULAR_STAFF</option>
+            <option value="CLEANING_STAFF">CLEANING_STAFF</option>
+            <option value="SECURITY_GUARD">SECURITY_GUARD</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>Start Time (24h EAT) *</label>
+          <input type="time" name="start_time" value="08:00" required>
+        </div>
+        <div class="form-group">
+          <label>End Time (24h EAT) *</label>
+          <input type="time" name="end_time" value="17:00" required>
+        </div>
+        <div class="form-group">
+          <label>Grace Period (Minutes)</label>
+          <input type="number" name="grace_period_minutes" value="15" min="0" max="120">
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>Break Rules</label>
+          <input type="text" name="break_rules" value="60 min lunch break">
+        </div>
+        <div class="form-group" style="justify-content:center;">
+          <label style="display:flex; align-items:center; gap:0.4rem;">
+            <input type="checkbox" name="spans_midnight"> Overnight Shift Crossing Midnight (AT-17)
+          </label>
+          <label style="display:flex; align-items:center; gap:0.4rem;">
+            <input type="checkbox" name="is_24_hour"> 24-Hour Security Guard Shift (AT-18)
+          </label>
+          <label style="display:flex; align-items:center; gap:0.4rem;">
+            <input type="checkbox" name="hr_approved" checked> Ethiopian-Clock Conversion Approved by HR
+          </label>
+        </div>
+      </div>
+      <button type="submit" class="btn btn-primary">Save Shift Template</button>
+    </form>
+  </div>
+
+  <!-- Assign Effective-Dated Schedule to Employee (AT-19) -->
+  <div class="card">
+    <h3>Assign Effective-Dated Employee Schedule (AT-19)</h3>
+    <p style="font-size:0.84rem; color:#64748b;">
+      Schedule changes take effect on the specified date without rewriting prior attendance history.
+    </p>
+    <form method="POST" action="{{ url_for('web_ui.schedules_stations_screen') }}">
+      <input type="hidden" name="form_action" value="assign_shift">
+      <div class="form-row">
+        <div class="form-group">
+          <label>Employee *</label>
+          <select name="employee_id" required>
+            {% for emp in employees %}
+              <option value="{{ emp.id }}">{{ emp.employee_number }} — {{ emp.full_name }} ({{ emp.job_category }})</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Shift Template *</label>
+          <select name="shift_template_id" required>
+            {% for st in shift_templates %}
+              <option value="{{ st.id }}">{{ st.name }} [{{ st.ethiopian_time_display }}]</option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+
+      <div class="form-row">
+        <div class="form-group">
+          <label>Effective From *</label>
+          <input type="date" name="effective_from" required>
+        </div>
+        <div class="form-group">
+          <label>Effective To (Optional)</label>
+          <input type="date" name="effective_to">
+        </div>
+        <div class="form-group">
+          <label>Working Days (0=Mon..6=Sun)</label>
+          <input type="text" name="working_days" value="0,1,2,3,4">
+        </div>
+      </div>
+      <button type="submit" class="btn btn-success">Assign Schedule</button>
+    </form>
+  </div>
+</div>
+
+<!-- Configured Shift Templates Table -->
+<div class="card">
+  <h3>Configured Shift Templates & Ethiopian-Clock Conversion</h3>
+  <div class="table-responsive">
+    <table>
+      <thead>
+        <tr>
+          <th>Shift Name</th>
+          <th>Category</th>
+          <th>24h Time (EAT)</th>
+          <th>Ethiopian Clock Equivalent</th>
+          <th>Grace Period</th>
+          <th>Overnight / 24h</th>
+          <th>HR Approved</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for st in shift_templates %}
+          <tr>
+            <td><strong>{{ st.name }}</strong></td>
+            <td><span class="badge badge-neutral">{{ st.job_category }}</span></td>
+            <td>{{ st.start_time }} → {{ st.end_time }}</td>
+            <td><span class="badge badge-info">{{ st.ethiopian_time_display }}</span></td>
+            <td>{{ st.grace_period_minutes }} mins</td>
+            <td>
+              {% if st.is_24_hour %}
+                <span class="badge badge-warning">24-HOUR SHIFT (+1d)</span>
+              {% elif st.spans_midnight %}
+                <span class="badge badge-warning">OVERNIGHT (+1d)</span>
+              {% else %}
+                Same Calendar Day
+              {% endif %}
+            </td>
+            <td>
+              {% if st.hr_approved %}
+                <span class="badge badge-success">APPROVED</span>
+              {% else %}
+                <span class="badge badge-danger">PENDING</span>
+              {% endif %}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<div class="grid-2">
+  <!-- Holidays & Approved Leave Exceptions (AT-20) -->
+  <div class="card">
+    <h3>Holidays & Approved Leave Exceptions (AT-20)</h3>
+    <form method="POST" action="{{ url_for('web_ui.schedules_stations_screen') }}">
+      <input type="hidden" name="form_action" value="create_exception">
+      <div class="form-row">
+        <div class="form-group">
+          <label>Holiday / Exception Title *</label>
+          <input type="text" name="title" required placeholder="e.g. Adwa Victory Day / Approved Medical Leave">
+        </div>
+        <div class="form-group">
+          <label>Exception Type *</label>
+          <select name="exception_type">
+            <option value="PUBLIC_HOLIDAY">PUBLIC_HOLIDAY (College-Wide)</option>
+            <option value="APPROVED_LEAVE">APPROVED_LEAVE (Individual Employee)</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Employee (Leave Blank for College Holiday)</label>
+          <select name="employee_id">
+            <option value="">-- All College Staff --</option>
+            {% for emp in employees %}
+              <option value="{{ emp.id }}">{{ emp.employee_number }} — {{ emp.full_name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Start Date *</label>
+          <input type="date" name="start_date" required>
+        </div>
+        <div class="form-group">
+          <label>End Date *</label>
+          <input type="date" name="end_date" required>
+        </div>
+      </div>
+      <button type="submit" class="btn btn-primary btn-sm">Add Approved Exception</button>
+    </form>
+
+    <div class="table-responsive" style="margin-top:1rem;">
+      <table>
+        <thead>
+          <tr>
+            <th>Title</th>
+            <th>Type</th>
+            <th>Scope</th>
+            <th>Dates</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for ex in exceptions %}
+            <tr>
+              <td>{{ ex.title }}</td>
+              <td><span class="badge badge-info">{{ ex.exception_type }}</span></td>
+              <td>{{ ex.employee.employee_number if ex.employee else 'ALL STAFF' }}</td>
+              <td>{{ ex.start_date }} → {{ ex.end_date }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Departmental Attendance Stations Registration (AT-24) -->
+  <div class="card">
+    <h3>Departmental Attendance Stations & Trusted Tokens (AT-24)</h3>
+    <form method="POST" action="{{ url_for('web_ui.schedules_stations_screen') }}">
+      <input type="hidden" name="form_action" value="register_station">
+      <div class="form-row">
+        <div class="form-group">
+          <label>Unique Station Code *</label>
+          <input type="text" name="station_code" required placeholder="e.g. ST-ELECT-01">
+        </div>
+        <div class="form-group">
+          <label>Station Name *</label>
+          <input type="text" name="name" required placeholder="Electrical Dept Kiosk">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label>Assigned Department *</label>
+          <select name="department_id" required>
+            {% for d in departments %}
+              <option value="{{ d.id }}">{{ d.code }} — {{ d.name }}</option>
+            {% endfor %}
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Physical Location *</label>
+          <input type="text" name="location" required placeholder="Building D Entrance">
+        </div>
+      </div>
+      <button type="submit" class="btn btn-primary btn-sm">Register Departmental Station (Admin Only)</button>
+    </form>
+
+    <div class="table-responsive" style="margin-top:1rem;">
+      <table>
+        <thead>
+          <tr>
+            <th>Station Code</th>
+            <th>Name</th>
+            <th>Department</th>
+            <th>Location</th>
+            <th>Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for s in stations %}
+            <tr>
+              <td><strong>{{ s.station_code }}</strong></td>
+              <td>{{ s.name }}</td>
+              <td>{{ s.department.code if s.department else '—' }}</td>
+              <td>{{ s.location }}</td>
+              <td><span class="badge badge-success">{{ s.status }}</span></td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+{% endblock %}
+

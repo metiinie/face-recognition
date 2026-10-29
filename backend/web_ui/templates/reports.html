@@ -1,0 +1,198 @@
+{% extends "base.html" %}
+{% block title %}Screen 4 — Attendance Records & Reports{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2>Screen 4 — Attendance Records, Audit History & CSV Reports</h2>
+    <p>Search and filter attendance sessions, inspect raw immutable events, distinguish biometric vs. manual HR entries, and export filtered CSV reports.</p>
+  </div>
+  {% if current_user and current_user.has_permission('reports.export') %}
+    <a href="{{ url_for('api.api_export_csv', department_id=filters.department_id or '', employee_id=filters.employee_id or '', status=filters.status, arrival_status=filters.arrival_status, capture_method=filters.capture_method, date_from=filters.date_from, date_to=filters.date_to) }}"
+       class="btn btn-success">
+      ⬇ Export Filtered Results to CSV (AT-25)
+    </a>
+  {% endif %}
+</div>
+
+<!-- Multi-Criteria Search & Filter Form -->
+<div class="card">
+  <h3>Filter Attendance Sessions</h3>
+  <form method="GET" action="{{ url_for('web_ui.reports_screen') }}">
+    <div class="form-row">
+      <div class="form-group">
+        <label>Date From</label>
+        <input type="date" name="date_from" value="{{ filters.date_from }}">
+      </div>
+      <div class="form-group">
+        <label>Date To</label>
+        <input type="date" name="date_to" value="{{ filters.date_to }}">
+      </div>
+      <div class="form-group">
+        <label>Department</label>
+        <select name="department_id">
+          <option value="">All Departments</option>
+          {% for d in departments %}
+            <option value="{{ d.id }}" {% if filters.department_id == d.id %}selected{% endif %}>{{ d.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Employee</label>
+        <select name="employee_id">
+          <option value="">All Employees</option>
+          {% for e in employees %}
+            <option value="{{ e.id }}" {% if filters.employee_id == e.id %}selected{% endif %}>{{ e.employee_number }} — {{ e.full_name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+    </div>
+
+    <div class="form-row" style="align-items:end;">
+      <div class="form-group">
+        <label>Session Status</label>
+        <select name="status">
+          <option value="">All Session States</option>
+          <option value="OPEN" {% if filters.status == 'OPEN' %}selected{% endif %}>OPEN (Missing Check-Out)</option>
+          <option value="COMPLETED" {% if filters.status == 'COMPLETED' %}selected{% endif %}>COMPLETED</option>
+          <option value="INCOMPLETE_REVIEW" {% if filters.status == 'INCOMPLETE_REVIEW' %}selected{% endif %}>INCOMPLETE_REVIEW</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Arrival Punctuality</label>
+        <select name="arrival_status">
+          <option value="">All Arrivals</option>
+          <option value="ON_TIME" {% if filters.arrival_status == 'ON_TIME' %}selected{% endif %}>ON_TIME</option>
+          <option value="LATE" {% if filters.arrival_status == 'LATE' %}selected{% endif %}>LATE</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label>Verification Method (Journey C)</label>
+        <select name="capture_method">
+          <option value="">All Capture Methods</option>
+          <option value="BIOMETRIC" {% if filters.capture_method == 'BIOMETRIC' %}selected{% endif %}>BIOMETRIC (Face Verified)</option>
+          <option value="MANUAL_HR" {% if filters.capture_method == 'MANUAL_HR' %}selected{% endif %}>MANUAL_HR (HR Documented)</option>
+        </select>
+      </div>
+      <div class="form-group" style="flex-direction:row; gap:0.5rem;">
+        <button type="submit" class="btn btn-primary">Search Records</button>
+        <a href="{{ url_for('web_ui.reports_screen') }}" class="btn btn-outline">Clear</a>
+      </div>
+    </div>
+  </form>
+</div>
+
+<!-- Filtered Attendance Sessions -->
+<div class="card">
+  <h3>Filtered Attendance Sessions ({{ sessions|length }})</h3>
+  <div class="table-responsive">
+    <table>
+      <thead>
+        <tr>
+          <th>Session ID</th>
+          <th>Work Date</th>
+          <th>Employee</th>
+          <th>Dept / Category</th>
+          <th>Scheduled Shift (EAT)</th>
+          <th>Check-In Event</th>
+          <th>Check-Out Event</th>
+          <th>Verification Source</th>
+          <th>Punctuality</th>
+          <th>Session Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for s in sessions %}
+          {% set ci = s.check_in_event %}
+          {% set co = s.check_out_event %}
+          <tr>
+            <td>#{{ s.id }}</td>
+            <td><strong>{{ s.work_date }}</strong></td>
+            <td>{{ s.employee.employee_number }} — {{ s.employee.full_name }}</td>
+            <td>{{ s.employee.department.code if s.employee.department else '' }} / <small>{{ s.employee.job_category }}</small></td>
+            <td>{{ utc_to_local(s.shift_start_at).strftime('%Y-%m-%d %H:%M') }} → {{ utc_to_local(s.shift_end_at).strftime('%Y-%m-%d %H:%M') }}</td>
+            <td>
+              {% if ci %}
+                {{ utc_to_local(ci.occurred_at).strftime('%H:%M:%S') }}
+                <br><small>Station: {{ ci.station.station_code if ci.station else 'HR' }}</small>
+              {% else %}—{% endif %}
+            </td>
+            <td>
+              {% if co %}
+                {{ utc_to_local(co.occurred_at).strftime('%H:%M:%S') }}
+                <br><small>Station: {{ co.station.station_code if co.station else 'HR' }}</small>
+              {% else %}
+                <span class="badge badge-warning">NO CHECK-OUT</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if ci and ci.capture_method == 'MANUAL_HR' %}
+                <span class="badge badge-warning">MANUAL_HR</span>
+              {% else %}
+                <span class="badge badge-info">BIOMETRIC ({{ (ci.recognition_score * 100)|round(1) if (ci and ci.recognition_score) else 95 }}%)</span>
+              {% endif %}
+              {% if s.is_corrected %}
+                <span class="badge badge-danger" title="Corrected by HR; original event preserved">HR CORRECTED</span>
+              {% endif %}
+            </td>
+            <td>
+              {% if s.arrival_status == 'ON_TIME' %}
+                <span class="badge badge-success">ON_TIME</span>
+              {% else %}
+                <span class="badge badge-danger">LATE ({{ s.late_minutes }}m)</span>
+              {% endif %}
+            </td>
+            <td><span class="badge badge-neutral">{{ s.status }}</span></td>
+          </tr>
+        {% else %}
+          <tr><td colspan="10">No sessions found for the active filter criteria.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Raw Immutable Attendance Events History -->
+<div class="card">
+  <h3>Immutable Raw Attendance Events History (Preserves Original Events Prior to HR Corrections)</h3>
+  <div class="table-responsive">
+    <table>
+      <thead>
+        <tr>
+          <th>Event ID</th>
+          <th>Session ID</th>
+          <th>Employee</th>
+          <th>Event Type</th>
+          <th>Occurred At (EAT)</th>
+          <th>Station</th>
+          <th>Capture Method</th>
+          <th>Match Score</th>
+          <th>Manual Reason / Evidence</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for ev in raw_events %}
+          <tr>
+            <td>#{{ ev.id }}</td>
+            <td>#{{ ev.session_id }}</td>
+            <td>{{ ev.employee.employee_number }} — {{ ev.employee.full_name }}</td>
+            <td><span class="badge {% if ev.event_type == 'CHECK_IN' %}badge-success{% else %}badge-info{% endif %}">{{ ev.event_type }}</span></td>
+            <td>{{ utc_to_local(ev.occurred_at).strftime('%Y-%m-%d %H:%M:%S') }}</td>
+            <td>{{ ev.station.station_code if ev.station else '—' }}</td>
+            <td>
+              {% if ev.capture_method == 'BIOMETRIC' %}
+                <span class="badge badge-info">BIOMETRIC</span>
+              {% else %}
+                <span class="badge badge-warning">MANUAL_HR</span>
+              {% endif %}
+            </td>
+            <td>{{ (ev.recognition_score * 100)|round(1) ~ '%' if ev.recognition_score else 'N/A (Manual)' }}</td>
+            <td>{{ ev.manual_reason or '—' }} {% if ev.evidence_ref %}<small>[Ref: {{ ev.evidence_ref }}]</small>{% endif %}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}
+

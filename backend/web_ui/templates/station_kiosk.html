@@ -1,0 +1,160 @@
+{% extends "base.html" %}
+{% block title %}Screen 1 — Departmental Attendance Station{% endblock %}
+
+{% block content %}
+<div class="page-header">
+  <div>
+    <h2>Screen 1 — Departmental Attendance Station (Employee Kiosk)</h2>
+    <p>
+      Individual face scanning with explicit employee confirmation (Check-In / Check-Out).
+      Recognition identifies a candidate employee; attendance is only recorded upon explicit confirmation.
+    </p>
+  </div>
+  <form method="GET" action="{{ url_for('web_ui.station_kiosk') }}" style="display:flex; gap:0.5rem; align-items:center;">
+    <label for="station_code" style="font-size:0.85rem; font-weight:600;">Active Station:</label>
+    <select name="station_code" id="station_code" onchange="this.form.submit()">
+      {% for st in stations %}
+        <option value="{{ st.station_code }}" {% if active_station and active_station.id == st.id %}selected{% endif %}>
+          {{ st.station_code }} — {{ st.name }} ({{ st.department.code }})
+        </option>
+      {% endfor %}
+    </select>
+  </form>
+</div>
+
+{% if active_station %}
+<input type="hidden" id="station-code-input" value="{{ active_station.station_code }}">
+<input type="hidden" id="station-token-input" value="{{ active_station.station_secret_token }}">
+{% endif %}
+
+<div class="kiosk-wrapper">
+  <!-- Left Column: Live Camera Preview & Kiosk Test Harness -->
+  <div class="camera-box">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem;">
+      <span class="badge badge-info">
+        Station: {{ active_station.station_code if active_station else 'N/A' }} ({{ active_station.location if active_station else '' }})
+      </span>
+      <span id="camera-conn-badge" class="badge badge-success">CAMERA ONLINE</span>
+    </div>
+
+    <div class="video-viewport">
+      <video id="kiosk-video" autoplay playsinline muted></video>
+      <div class="face-guide-oval"></div>
+    </div>
+
+    <div id="scan-progress-banner" class="alert alert-info" style="text-align:left; margin-bottom:1rem;">
+      Position your face inside the green oval and scan. Poor lighting or obstructed faces will be rejected automatically.
+    </div>
+
+    <div style="background:#1e293b; border:1px solid #334155; border-radius:8px; padding:0.9rem; text-align:left;">
+      <div style="font-size:0.82rem; font-weight:600; color:#93c5fd; margin-bottom:0.55rem;">
+        🔬 Station Scan & Pilot Verification Controls (Journeys A, B & C):
+      </div>
+      <div class="form-row" style="margin-bottom:0.65rem;">
+        <div>
+          <label style="font-size:0.78rem; color:#cbd5e1;">Select Enrolled Employee to Simulate Scan:</label>
+          <select id="sim-employee-select" style="width:100%; margin-top:0.25rem;">
+            {% for emp in enrolled_employees %}
+              <option value="{{ emp.employee_number }}">
+                {{ emp.employee_number }} — {{ emp.full_name }} ({{ emp.job_category }} | {{ emp.status }})
+              </option>
+            {% endfor %}
+          </select>
+        </div>
+      </div>
+
+      <div style="display:flex; gap:0.5rem; flex-wrap:wrap;">
+        <button type="button" class="btn btn-success btn-sm" onclick="performStationScan('ENROLLED')">
+          📸 Scan Selected Enrolled Employee (AT-04)
+        </button>
+        <button type="button" class="btn btn-primary btn-sm" onclick="performStationScan('WEBCAM_FRAME')">
+          🎥 Capture Live Webcam Frame
+        </button>
+        <button type="button" class="btn btn-warning btn-sm" onclick="performStationScan('UNKNOWN')">
+          ❓ Scan Unregistered Person (AT-05)
+        </button>
+        <button type="button" class="btn btn-danger btn-sm" onclick="performStationScan('POOR_LIGHT')">
+          🌑 Simulate Poor Lighting (AT-06)
+        </button>
+        <button type="button" class="btn btn-danger btn-sm" onclick="performStationScan('OBSTRUCTED')">
+          😷 Simulate Obstructed/Blurry Face (AT-06)
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Right Column: Step 2 Explicit Employee Confirmation & Outcome -->
+  <div id="kiosk-decision-panel" class="confirmation-panel">
+    <h3>Step 2 — Identity Verification & Explicit Confirmation</h3>
+    <p style="font-size:0.86rem; color:#64748b;">
+      Per College Policy: A face match never automatically logs attendance. Please verify your identity below and explicitly choose <strong>Check-In</strong> or <strong>Check-Out</strong>.
+    </p>
+
+    <!-- Matched Employee Confirmation View (Journey A & B) -->
+    <div id="matched-identity-box" style="display:none; margin-top:1rem;">
+      <div style="background:#fff; border:1px solid #bbf7d0; border-radius:8px; padding:1rem; margin-bottom:1rem;">
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <h4 id="cand-name" style="margin:0; font-size:1.25rem; color:#166534;">—</h4>
+          <span id="cand-emp-num" class="badge badge-success">—</span>
+        </div>
+        <div style="font-size:0.86rem; color:#334155; margin-top:0.5rem;">
+          <div><strong>Department & Role:</strong> <span id="cand-dept">—</span></div>
+          <div><strong>Assigned Shift:</strong> <span id="cand-shift">—</span></div>
+          <div><strong>Recognition Match Score:</strong> <span id="cand-score">—</span></div>
+          <div style="margin-top:0.4rem;"><strong>Session Status:</strong> <span id="cand-session-badge" class="badge badge-info">—</span></div>
+        </div>
+      </div>
+
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:0.85rem; margin-bottom:0.85rem;">
+        <button type="button" class="btn btn-success btn-lg" onclick="confirmEmployeeAttendance('CHECK_IN')">
+          ✔ Confirm CHECK-IN
+        </button>
+        <button type="button" class="btn btn-primary btn-lg" onclick="confirmEmployeeAttendance('CHECK_OUT')">
+          🚪 Confirm CHECK-OUT
+        </button>
+      </div>
+
+      <button type="button" class="btn btn-outline btn-sm" onclick="resetKioskScan()" style="width:100%;">
+        Not You? Cancel & Reset Scan
+      </button>
+    </div>
+
+    <!-- Unknown Face / Failed Recognition View (Journey C) -->
+    <div id="unknown-retry-box" style="display:none; margin-top:1rem;">
+      <div style="background:#fff; border:1px solid #fecaca; border-radius:8px; padding:1rem; margin-bottom:1rem;">
+        <span id="retry-status-badge" class="badge badge-danger">RECOGNITION UNCERTAIN</span>
+        <p id="retry-message-text" style="font-size:0.92rem; color:#991b1b; margin:0.6rem 0;">
+          Identity could not be verified. No attendance event was created.
+        </p>
+        <p style="font-size:0.8rem; color:#64748b; margin:0;">
+          Privacy Notice: No employee or biometric data is exposed on failed scans.
+        </p>
+      </div>
+
+      <div style="background:#f8fafc; border:1px solid #cbd5e1; border-radius:8px; padding:0.9rem;">
+        <strong style="font-size:0.85rem;">Need HR Officer Assistance? (Journey C)</strong>
+        <div class="form-row" style="margin-top:0.5rem;">
+          <input type="text" id="claimed-emp-number" placeholder="Your Employee ID (e.g. EIPC-EMP-003)">
+          <input type="text" id="assistance-reason" placeholder="Reason (e.g. Camera glare / failed retry)">
+        </div>
+        <div style="display:flex; gap:0.5rem;">
+          <button type="button" class="btn btn-warning btn-sm" onclick="submitStationReviewRequest('UNKNOWN_FACE', 'CHECK_IN')">
+            Request HR Manual Verification
+          </button>
+          <button type="button" class="btn btn-outline btn-sm" onclick="resetKioskScan()">
+            Retry Camera Scan
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Transaction Outcome Banner -->
+    <div id="recorded-outcome-box" style="display:none; margin-top:1rem;"></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/kiosk.js') }}"></script>
+{% endblock %}
+

@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{% block title %}Face Recognition Attendance System{% endblock %} | {{ institution_name }}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+</head>
+<body>
+  <header class="navbar">
+    <div class="navbar-brand">
+      <h1>Ethio-Italy Polytechnic College — Dire Dawa</h1>
+      <span>Face Recognition-Based Attendance Management System (Version 1 Baseline)</span>
+    </div>
+
+    <nav class="nav-links">
+      <a href="{{ url_for('web_ui.station_kiosk') }}" class="{% if request.endpoint == 'web_ui.station_kiosk' %}active{% endif %}">
+        1. Attendance Station
+      </a>
+      {% if current_user %}
+        {% if current_user.has_permission('employees.manage') %}
+          <a href="{{ url_for('web_ui.employees_screen') }}" class="{% if request.endpoint == 'web_ui.employees_screen' %}active{% endif %}">
+            2. Employees & Enrollment
+          </a>
+        {% endif %}
+        <a href="{{ url_for('web_ui.hr_dashboard') }}" class="{% if request.endpoint == 'web_ui.hr_dashboard' %}active{% endif %}">
+          3. HR Dashboard
+        </a>
+        <a href="{{ url_for('web_ui.reports_screen') }}" class="{% if request.endpoint == 'web_ui.reports_screen' %}active{% endif %}">
+          4. Records & Reports
+        </a>
+        {% if current_user.has_permission('schedules.manage') %}
+          <a href="{{ url_for('web_ui.schedules_stations_screen') }}" class="{% if request.endpoint == 'web_ui.schedules_stations_screen' %}active{% endif %}">
+            5. Schedules & Stations
+          </a>
+        {% endif %}
+        <a href="{{ url_for('web_ui.users_review_audit_screen') }}" class="{% if request.endpoint == 'web_ui.users_review_audit_screen' %}active{% endif %}">
+          6. Users, Review & Audit
+        </a>
+      {% endif %}
+    </nav>
+
+    <div class="nav-meta">
+      <div class="clock-pill" title="Dire Dawa Local Time (UTC+3) & Ethiopian Clock">
+        🕒 {{ now_local_str }} | Eth: {{ eth_clock_now }}
+      </div>
+      {% if current_user %}
+        <span class="badge badge-info">{{ current_user.username }} ({{ current_user.role.name }})</span>
+        <a href="{{ url_for('web_ui.logout_page') }}" class="btn btn-sm btn-danger">Logout</a>
+      {% else %}
+        <a href="{{ url_for('web_ui.login_page') }}" class="btn btn-sm btn-outline" style="color:#1e293b;">HR / Admin Login</a>
+      {% endif %}
+    </div>
+  </header>
+
+  <main class="container">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+      {% if messages %}
+        {% for category, msg in messages %}
+          <div class="alert alert-{{ category }}">{{ msg }}</div>
+        {% endfor %}
+      {% endif %}
+    {% endwith %}
+
+    {% block content %}{% endblock %}
+  </main>
+
+  {% block scripts %}{% endblock %}
+</body>
+</html>
+
