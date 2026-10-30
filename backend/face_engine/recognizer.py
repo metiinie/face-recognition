@@ -144,7 +144,7 @@ def _extract_embedding_from_pil(img: Image.Image) -> tuple[list[float], dict]:
     elif moire_score > 1.0:
         spoof_detected = True
         spoof_type = "SCREEN_MOIRE_REPLAY_DETECTED"
-    elif chroma_sum < 2.8:
+    elif chroma_sum < 1.8:
         spoof_detected = True
         spoof_type = "PRINTED_PHOTO_DETECTED"
 

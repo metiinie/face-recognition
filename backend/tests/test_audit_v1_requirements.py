@@ -54,7 +54,9 @@ from backend.face_enrollment.service import (
 def _generate_synthetic_image(mode="normal", skin_color=(210, 160, 130), offset_x=0, offset_y=0, width=160, height=160):
     """
     Generate synthetic test images covering face detection, alignment, liveness, and corruption cases.
+    Uses deterministic pseudo-random state to ensure 100% test reproducibility.
     """
+    rng = np.random.RandomState(abs(int(skin_color[0]) * 1000 + int(skin_color[1]) * 100 + int(skin_color[2]) + offset_x * 37 + offset_y * 19) % 2147483647)
     arr = np.zeros((height, width, 3), dtype=np.uint8)
     arr[:, :] = [50, 50, 60]  # dark slate neutral background
 
@@ -78,7 +80,7 @@ def _generate_synthetic_image(mode="normal", skin_color=(210, 160, 130), offset_
                 in_f1 = ((x - f1_cx) / max(1, f_rx)) ** 2 + ((y - f_cy) / max(1, f_ry)) ** 2 <= 1.0
                 in_f2 = ((x - f2_cx) / max(1, f_rx)) ** 2 + ((y - f_cy) / max(1, f_ry)) ** 2 <= 1.0
                 if in_f1 or in_f2:
-                    noise = np.random.normal(0, 15.0, 3)
+                    noise = rng.normal(0, 15.0, 3)
                     arr[y, x] = np.clip(np.array(skin_color) + noise, 0, 255).astype(np.uint8)
     elif mode == "printed_photo":
         # Flat paper texture with zero subsurface chrominance dispersion
@@ -91,7 +93,7 @@ def _generate_synthetic_image(mode="normal", skin_color=(210, 160, 130), offset_
         for y in range(max(0, cy - ry), min(height, cy + ry)):
             for x in range(max(0, cx - rx), min(width, cx + rx)):
                 if ((x - cx) / max(1, rx)) ** 2 + ((y - cy) / max(1, ry)) ** 2 <= 1.0:
-                    noise = np.random.normal(0, 15.0, 3)
+                    noise = rng.normal(0, 15.0, 3)
                     arr[y, x] = np.clip(np.array(skin_color) + noise, 0, 255).astype(np.uint8)
         # Add glare hotspot
         arr[cy - 25 : cy + 25, cx - 25 : cx + 25] = [255, 255, 255]
@@ -109,7 +111,7 @@ def _generate_synthetic_image(mode="normal", skin_color=(210, 160, 130), offset_
         for y in range(max(0, cy - ry), min(height, cy + ry)):
             for x in range(max(0, cx - rx), min(width, cx + rx)):
                 if ((x - cx) / max(1, rx)) ** 2 + ((y - cy) / max(1, ry)) ** 2 <= 1.0:
-                    noise = np.random.normal(0, 15.0, 3)
+                    noise = rng.normal(0, 15.0, 3)
                     arr[y, x] = np.clip(np.array(skin_color) + noise, 0, 255).astype(np.uint8)
 
     img = Image.fromarray(arr)
