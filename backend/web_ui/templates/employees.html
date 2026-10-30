@@ -84,34 +84,91 @@
   </div>
 
   <!-- Biometric Face Enrollment & Replacement Card (AT-03) -->
-  <div class="card">
+  <div class="card" id="enrollment-card">
     <h3>Enroll, Replace or Revoke Biometric Face Template (AT-03)</h3>
     <p style="font-size:0.84rem; color:#64748b;">
-      Templates are encrypted at rest (Fernet: AES-128-CBC + HMAC) and tagged with model/version metadata (<code>{{ config.FACE_MODEL_NAME }} {{ config.FACE_MODEL_VERSION }}</code>) so they can be re-enrolled when the recognition model changes. Unusable captures are rejected automatically.
+      Templates are encrypted at rest (Fernet: AES-128-CBC + HMAC) and tagged with model/version metadata (<code>{{ config.FACE_MODEL_NAME }} {{ config.FACE_MODEL_VERSION }}</code>). Unusable captures are rejected automatically.
     </p>
-    <form method="POST" action="{{ url_for('web_ui.employees_screen') }}">
+
+    <form method="POST" action="{{ url_for('web_ui.employees_screen') }}" id="face-enroll-form">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="form_action" value="enroll_face">
+      <input type="hidden" name="image_base64" id="enroll_image_base64" value="">
+
       <div class="form-row">
-        <div class="form-group">
+        <div class="form-group" style="flex:1.5;">
           <label>Select Employee *</label>
-          <select name="employee_id" required>
+          <select name="employee_id" id="enroll_employee_id" required>
             {% for emp in employees %}
               <option value="{{ emp.id }}">{{ emp.employee_number }} — {{ emp.full_name }}</option>
             {% endfor %}
           </select>
         </div>
-        <div class="form-group">
-          <label>Capture Quality Mode (Test AT-03)</label>
-          <select name="quality_mode">
-            <option value="GOOD">High Quality Verified Capture (Brightness 135, Sharpness 92)</option>
-            <option value="POOR_DARK">Simulate Unusable Dark Capture (Rejects per AT-03)</option>
-            <option value="BLURRY">Simulate Unusable Blurry Capture (Rejects per AT-03)</option>
-            <option value="OBSTRUCTED">Simulate Obstructed Face Capture (Rejects per AT-03)</option>
-          </select>
+
+        <div class="form-group" style="flex:1;">
+          <label>Capture Method</label>
+          <div style="display:flex; gap:0.4rem; margin-top:0.25rem; flex-wrap:wrap;">
+            <button type="button" id="btn-mode-camera" class="btn btn-primary btn-sm" onclick="setEnrollMode('CAMERA')">📸 Live Camera</button>
+            <button type="button" id="btn-mode-upload" class="btn btn-outline btn-sm" onclick="setEnrollMode('UPLOAD')">📁 File Upload</button>
+            {% if config.ALLOW_SIMULATED_BIOMETRICS %}
+              <button type="button" id="btn-mode-sim" class="btn btn-outline btn-sm" onclick="setEnrollMode('SIM')">🧪 Simulation</button>
+            {% endif %}
+          </div>
         </div>
       </div>
-      <button type="submit" class="btn btn-success">Enroll / Replace Face Template</button>
+
+      <!-- Mode 1: Live Webcam Capture Box -->
+      <div id="enroll-camera-panel" style="margin: 0.75rem 0; padding:1rem; background:#0f172a; border-radius:10px; border:1px solid #334155; text-align:center;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem; flex-wrap:wrap; gap:0.5rem;">
+          <span id="enroll-cam-status" class="badge badge-neutral">CAMERA READY</span>
+          <div style="display:flex; gap:0.4rem;">
+            <button type="button" id="enroll-mirror-btn" class="btn btn-outline btn-sm" onclick="toggleEnrollMirror()" style="background:#1e293b; color:#93c5fd; border-color:#475569; padding:0.25rem 0.65rem; font-size:0.75rem;">🪞 Mirror: ON</button>
+            <button type="button" class="btn btn-primary btn-sm" onclick="startEnrollCamera()">Start Camera</button>
+          </div>
+        </div>
+
+        <div class="enroll-viewport" style="width:240px; height:240px; margin:0 auto; background:#1e293b; border:2px dashed #38bdf8; border-radius:10px; position:relative; overflow:hidden; display:flex; align-items:center; justify-content:center;">
+          <video id="enroll-video" autoplay playsinline muted style="width:100%; height:100%; object-fit:cover; transform:scaleX(-1);"></video>
+          <div class="face-guide-oval" style="width:140px; height:180px;"></div>
+        </div>
+
+        <div style="margin-top:0.75rem;">
+          <button type="button" class="btn btn-success" onclick="captureEnrollSnapshot()">📸 Snap Photo</button>
+        </div>
+      </div>
+
+      <!-- Mode 2: Photo File Upload Box -->
+      <div id="enroll-upload-panel" style="display:none; margin: 0.75rem 0; padding:1rem; background:#f8fafc; border-radius:10px; border:1px solid #cbd5e1;">
+        <label style="font-weight:600; font-size:0.86rem; color:#334155;">Upload Clear Face Image (.jpg, .jpeg, .png):</label>
+        <div style="margin-top:0.4rem;">
+          <input type="file" id="enroll-file-input" accept="image/jpeg,image/png,image/webp" onchange="handleEnrollFileSelected(event)">
+        </div>
+        <p style="font-size:0.75rem; color:#64748b; margin-top:0.35rem;">Ensure the face is centered, unobstructed, and well-lit.</p>
+      </div>
+
+      <!-- Mode 3: Simulation Presets Box (AT-03 tests) -->
+      <div id="enroll-sim-panel" style="display:none; margin: 0.75rem 0; padding:0.85rem; background:#1e293b; border-radius:8px; border:1px solid #334155;">
+        <label style="color:#93c5fd; font-size:0.82rem; font-weight:600;">Simulation Preset (Automated AT-03 Quality Testing):</label>
+        <select name="quality_mode" id="enroll-quality-mode" style="width:100%; margin-top:0.3rem;">
+          <option value="LIVE_CAPTURE">LIVE_CAPTURE (Use captured image)</option>
+          <option value="GOOD">High Quality Verified Capture (Brightness 135, Sharpness 92)</option>
+          <option value="POOR_DARK">Simulate Unusable Dark Capture (Rejects per AT-03)</option>
+          <option value="BLURRY">Simulate Unusable Blurry Capture (Rejects per AT-03)</option>
+          <option value="OBSTRUCTED">Simulate Obstructed Face Capture (Rejects per AT-03)</option>
+        </select>
+      </div>
+
+      <!-- Snapshot Preview -->
+      <div id="enroll-preview-box" style="display:none; margin:0.75rem 0; padding:0.85rem; background:#f0fdf4; border:1px solid #86efac; border-radius:8px; align-items:center; gap:1rem;">
+        <img id="enroll-preview-img" src="" alt="Captured Face" style="width:90px; height:90px; object-fit:cover; border-radius:8px; border:2px solid #16a34a;">
+        <div>
+          <div style="font-weight:600; color:#166534; font-size:0.9rem;">✔ Face Photo Captured (320x320)</div>
+          <div style="font-size:0.78rem; color:#4b5563; margin-top:0.2rem;">Ready to encrypt and register biometric template for selected employee.</div>
+          <button type="button" class="btn btn-outline btn-sm" onclick="clearEnrollSnapshot()" style="margin-top:0.4rem; padding:0.2rem 0.5rem; font-size:0.75rem;">Clear / Retake</button>
+        </div>
+      </div>
+
+      <button type="submit" class="btn btn-success" id="enroll-submit-btn">Enroll / Replace Face Template</button>
     </form>
 
     <hr style="margin:1rem 0; border:0; border-top:1px solid #e2e8f0;">
@@ -226,6 +283,9 @@
                   <button type="submit" class="btn btn-sm btn-success">Reactivate</button>
                 {% endif %}
               </form>
+              <button type="button" class="btn btn-sm btn-outline" onclick="selectEmployeeForEnroll('{{ emp.id }}')" title="Open camera to enroll biometrics" style="margin-left:0.35rem; padding:0.25rem 0.5rem; font-size:0.75rem;">
+                📸 Enroll
+              </button>
             </td>
           </tr>
         {% endfor %}
@@ -233,5 +293,152 @@
     </table>
   </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let enrollStream = null;
+let enrollMirrored = true;
+
+function setEnrollMode(mode) {
+  const camPanel = document.getElementById("enroll-camera-panel");
+  const upPanel = document.getElementById("enroll-upload-panel");
+  const simPanel = document.getElementById("enroll-sim-panel");
+  const qMode = document.getElementById("enroll-quality-mode");
+
+  if (camPanel) camPanel.style.display = mode === 'CAMERA' ? 'block' : 'none';
+  if (upPanel) upPanel.style.display = mode === 'UPLOAD' ? 'block' : 'none';
+  if (simPanel) simPanel.style.display = mode === 'SIM' ? 'block' : 'none';
+
+  const btnCam = document.getElementById("btn-mode-camera");
+  const btnUp = document.getElementById("btn-mode-upload");
+  const btnSim = document.getElementById("btn-mode-sim");
+
+  if (btnCam) btnCam.className = mode === 'CAMERA' ? 'btn btn-primary btn-sm' : 'btn btn-outline btn-sm';
+  if (btnUp) btnUp.className = mode === 'UPLOAD' ? 'btn btn-primary btn-sm' : 'btn btn-outline btn-sm';
+  if (btnSim) btnSim.className = mode === 'SIM' ? 'btn btn-primary btn-sm' : 'btn btn-outline btn-sm';
+
+  if (qMode) {
+    if (mode === 'SIM') {
+      if (qMode.value === 'LIVE_CAPTURE') qMode.value = 'GOOD';
+    } else {
+      qMode.value = 'LIVE_CAPTURE';
+    }
+  }
+}
+
+async function startEnrollCamera() {
+  const videoEl = document.getElementById("enroll-video");
+  const statusEl = document.getElementById("enroll-cam-status");
+  if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+    if (statusEl) {
+      statusEl.textContent = "CAMERA API UNAVAILABLE";
+      statusEl.className = "badge badge-danger";
+    }
+    return;
+  }
+  try {
+    enrollStream = await navigator.mediaDevices.getUserMedia({ video: { width: 480, height: 480 } });
+    if (videoEl) videoEl.srcObject = enrollStream;
+    if (statusEl) {
+      statusEl.textContent = "CAMERA ONLINE";
+      statusEl.className = "badge badge-success";
+    }
+  } catch (err) {
+    if (statusEl) {
+      statusEl.textContent = "CAMERA OFFLINE / DENIED";
+      statusEl.className = "badge badge-danger";
+    }
+  }
+}
+
+function toggleEnrollMirror() {
+  enrollMirrored = !enrollMirrored;
+  const videoEl = document.getElementById("enroll-video");
+  const btn = document.getElementById("enroll-mirror-btn");
+  if (videoEl) {
+    videoEl.style.transform = enrollMirrored ? "scaleX(-1)" : "scaleX(1)";
+  }
+  if (btn) {
+    btn.textContent = enrollMirrored ? "🪞 Mirror: ON" : "📷 Mirror: OFF";
+  }
+}
+
+function captureEnrollSnapshot() {
+  const videoEl = document.getElementById("enroll-video");
+  if (!videoEl || !videoEl.srcObject || videoEl.readyState < 2) {
+    alert("Please start the camera first.");
+    return;
+  }
+  const canvas = document.createElement("canvas");
+  canvas.width = 320;
+  canvas.height = 320;
+  const ctx = canvas.getContext("2d");
+  if (enrollMirrored) {
+    ctx.translate(canvas.width, 0);
+    ctx.scale(-1, 1);
+  }
+  ctx.drawImage(videoEl, 0, 0, 320, 320);
+  const dataUrl = canvas.toDataURL("image/jpeg", 0.92);
+  setEnrollPreview(dataUrl);
+}
+
+function handleEnrollFileSelected(e) {
+  const file = e.target.files && e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(evt) {
+    const img = new Image();
+    img.onload = function() {
+      const canvas = document.createElement("canvas");
+      canvas.width = 320;
+      canvas.height = 320;
+      const ctx = canvas.getContext("2d");
+      const side = Math.min(img.width, img.height);
+      const sx = (img.width - side) / 2;
+      const sy = (img.height - side) / 2;
+      ctx.drawImage(img, sx, sy, side, side, 0, 0, 320, 320);
+      setEnrollPreview(canvas.toDataURL("image/jpeg", 0.92));
+    };
+    img.src = evt.target.result;
+  };
+  reader.readAsDataURL(file);
+}
+
+function setEnrollPreview(dataUrl) {
+  const hiddenInput = document.getElementById("enroll_image_base64");
+  const previewBox = document.getElementById("enroll-preview-box");
+  const previewImg = document.getElementById("enroll-preview-img");
+  const qMode = document.getElementById("enroll-quality-mode");
+
+  if (hiddenInput) hiddenInput.value = dataUrl;
+  if (previewImg) previewImg.src = dataUrl;
+  if (previewBox) previewBox.style.display = "flex";
+  if (qMode) qMode.value = "LIVE_CAPTURE";
+}
+
+function clearEnrollSnapshot() {
+  const hiddenInput = document.getElementById("enroll_image_base64");
+  const previewBox = document.getElementById("enroll-preview-box");
+  const previewImg = document.getElementById("enroll-preview-img");
+  const fileInput = document.getElementById("enroll-file-input");
+
+  if (hiddenInput) hiddenInput.value = "";
+  if (previewImg) previewImg.src = "";
+  if (previewBox) previewBox.style.display = "none";
+  if (fileInput) fileInput.value = "";
+}
+
+function selectEmployeeForEnroll(empId) {
+  const sel = document.getElementById("enroll_employee_id");
+  if (sel) {
+    sel.value = empId;
+    const card = document.getElementById("enrollment-card");
+    if (card) card.scrollIntoView({ behavior: 'smooth' });
+    setEnrollMode('CAMERA');
+    startEnrollCamera();
+  }
+}
+</script>
 {% endblock %}
 

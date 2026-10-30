@@ -9,6 +9,7 @@ import pytest
 from backend import create_app
 from backend.config import TestConfig
 from backend.database import db
+from backend.database.models import Employee
 from backend.database.seed import seed_initial_data
 from backend.face_engine.recognizer import analyze_and_extract_embedding
 
@@ -83,4 +84,65 @@ def test_csrf_protection_blocks_unauthorized_post_when_enabled(client):
         assert resp_with_token.status_code in {200, 302}
     finally:
         client.application.config["CSRF_ENABLED_IN_TEST"] = False
+
+
+def test_enroll_face_via_html_form_with_image_base64(client):
+    """Verify HR can enroll an employee face using a live base64 image capture."""
+    # Log in as HR officer
+    client.post("/login", data={"username": "hr_officer", "password": "Hr@EIPC2026"})
+
+    b64_face = _create_synthetic_face_image_b64()
+    resp = client.post(
+        "/employees",
+        data={
+            "form_action": "enroll_face",
+            "employee_id": "1",
+            "image_base64": b64_face,
+            "quality_mode": "LIVE_CAPTURE",
+        },
+        follow_redirects=True,
+    )
+    assert resp.status_code == 200
+    assert b"Biometric template #" in resp.data
+
+    # Verify template was created with active status and model metadata
+    with client.application.app_context():
+        emp = db.session.get(Employee, 1)
+        tmpl = emp.active_template
+        assert tmpl is not None
+        assert tmpl.status == "ACTIVE"
+        assert tmpl.quality_score >= 0.60
+
+
+def test_station_scan_matches_enrolled_real_image(client):
+    """Verify an employee enrolled via image is matched on station scan using their image."""
+    b64_face = _create_synthetic_face_image_b64()
+    # Enroll employee 1 with image
+    client.post("/login", data={"username": "hr_officer", "password": "Hr@EIPC2026"})
+    client.post(
+        "/employees",
+        data={
+            "form_action": "enroll_face",
+            "employee_id": "1",
+            "image_base64": b64_face,
+            "quality_mode": "LIVE_CAPTURE",
+        },
+    )
+
+    # Provision station ST-ICT-01
+    client.post("/login", data={"username": "admin", "password": "Admin@EIPC2026"})
+    client.post("/station/provision", data={"station_code": "ST-ICT-01"})
+
+    # Scan with the matching face image
+    scan_resp = client.post(
+        "/api/station/scan",
+        json={"image_base64": b64_face},
+    )
+    assert scan_resp.status_code == 200
+    data = scan_resp.get_json()
+    assert data["matched"] is True
+    assert data["employee"]["employee_number"] == "EIPC-EMP-001"
+    assert data["recognition_score"] >= 0.78
+    assert data["recognition_token"] is not None
+
 

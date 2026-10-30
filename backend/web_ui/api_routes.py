@@ -39,6 +39,10 @@ from backend.face_enrollment.service import (
     decrypt_embedding,
     enroll_employee_face,
     revoke_employee_templates,
+    purge_employee_biometrics,
+    apply_biometric_retention_policy,
+    get_model_compatibility_report,
+    sync_legacy_templates_for_model,
 )
 from backend.stations.service import (
     register_station,
@@ -738,4 +742,52 @@ def api_backup_verify():
         "backup_schema_version": snapshot["schema_version"],
         "verification": verification,
     })
+
+
+@api_bp.route("/employees/<int:emp_id>/biometrics/purge", methods=["POST"])
+@permission_required("enrollment.manage")
+def api_purge_employee_biometrics(emp_id: int):
+    """
+    Permanently purge an employee's face templates and withdraw biometric consent (POL-02).
+    """
+    data = request.get_json(silent=True) or {}
+    user = get_current_user()
+    reason = data.get("reason", "Employee requested biometric data erasure / consent withdrawn")
+    count, err = purge_employee_biometrics(emp_id, reason=reason, actor=user.username if user else "HR")
+    if err:
+        return jsonify({"error": err}), 400
+    return jsonify({
+        "status": "PURGED",
+        "employee_id": emp_id,
+        "purged_templates_count": count,
+        "message": f"Successfully purged {count} biometric template(s) and withdrew consent.",
+    })
+
+
+@api_bp.route("/admin/model-compatibility", methods=["GET"])
+@admin_required
+def api_model_compatibility():
+    """Audit active template versions against the running model engine."""
+    report = get_model_compatibility_report()
+    return jsonify({"model_compatibility": report})
+
+
+@api_bp.route("/admin/model-compatibility/sync", methods=["POST"])
+@admin_required
+def api_model_compatibility_sync():
+    """Migrate legacy simulation templates to the current active model version."""
+    user = get_current_user()
+    res = sync_legacy_templates_for_model(actor=user.username if user else "ADMIN")
+    return jsonify({"status": "MIGRATED", "result": res})
+
+
+@api_bp.route("/admin/biometrics/retention-cleanup", methods=["POST"])
+@admin_required
+def api_biometric_retention_cleanup():
+    """Purge revoked and replaced biometric templates older than retention threshold (POL-02)."""
+    data = request.get_json(silent=True) or {}
+    days = int(data.get("retention_days", 90))
+    user = get_current_user()
+    res = apply_biometric_retention_policy(retention_days=days, actor=user.username if user else "ADMIN")
+    return jsonify({"status": "CLEANUP_COMPLETE", "result": res})
 

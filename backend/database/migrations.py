@@ -175,6 +175,20 @@ def verify_relational_integrity() -> dict:
         if not ev.employee:
             issues.append(f"AttendanceEvent {ev.id} orphaned from employee")
 
+    # Verify Biometric Templates relational and cryptographic integrity
+    templates = FaceTemplate.query.all()
+    for t in templates:
+        if not t.employee:
+            issues.append(f"FaceTemplate {t.id} orphaned from employee {t.employee_id}")
+        if t.status == "ACTIVE":
+            try:
+                from backend.face_enrollment.service import decrypt_embedding
+                vec = decrypt_embedding(t.template_data)
+                if not isinstance(vec, list) or len(vec) != 128:
+                    issues.append(f"FaceTemplate {t.id} decrypted vector invalid dimension ({len(vec) if isinstance(vec, list) else 'non-list'})")
+            except Exception as ex:
+                issues.append(f"FaceTemplate {t.id} cryptographic decryption failure: {ex}")
+
     return {
         "valid": len(issues) == 0,
         "issues": issues,

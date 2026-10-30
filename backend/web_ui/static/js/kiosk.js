@@ -11,6 +11,44 @@
 
 let currentCandidate = null;
 let requestInFlight = false;
+let cameraMirrored = true;
+
+function initCameraMirrorState() {
+  try {
+    const saved = localStorage.getItem("kiosk_camera_mirrored");
+    cameraMirrored = saved !== "false";
+  } catch (e) {
+    cameraMirrored = true;
+  }
+  applyCameraMirrorState();
+}
+
+function applyCameraMirrorState() {
+  const videoEl = document.getElementById("kiosk-video");
+  const toggleBtn = document.getElementById("camera-mirror-toggle");
+  if (videoEl) {
+    if (cameraMirrored) {
+      videoEl.classList.remove("unmirrored");
+      videoEl.classList.add("mirrored");
+    } else {
+      videoEl.classList.remove("mirrored");
+      videoEl.classList.add("unmirrored");
+    }
+  }
+  if (toggleBtn) {
+    toggleBtn.textContent = cameraMirrored ? "🪞 Mirror: ON" : "📷 Mirror: OFF";
+    toggleBtn.setAttribute("aria-pressed", cameraMirrored ? "true" : "false");
+  }
+}
+
+function toggleCameraMirror() {
+  cameraMirrored = !cameraMirrored;
+  try {
+    localStorage.setItem("kiosk_camera_mirrored", cameraMirrored ? "true" : "false");
+  } catch (e) { /* ignore storage errors */ }
+  applyCameraMirrorState();
+}
+window.toggleCameraMirror = toggleCameraMirror;
 
 async function startCameraPreview() {
   const videoEl = document.getElementById("kiosk-video");
@@ -36,7 +74,14 @@ function captureWebcamFrame() {
   const canvas = document.createElement("canvas");
   canvas.width = 320;
   canvas.height = 320;
-  canvas.getContext("2d").drawImage(videoEl, 0, 0, 320, 320);
+  const ctx = canvas.getContext("2d");
+  if (!ctx) return null;
+
+  if (cameraMirrored) {
+    ctx.translate(canvas.width, 0);
+    ctx.scale(-1, 1);
+  }
+  ctx.drawImage(videoEl, 0, 0, 320, 320);
   return canvas.toDataURL("image/jpeg", 0.9);
 }
 
@@ -233,5 +278,6 @@ function escapeHtml(value) {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
+  initCameraMirrorState();
   if (document.getElementById("kiosk-video")) startCameraPreview();
 });

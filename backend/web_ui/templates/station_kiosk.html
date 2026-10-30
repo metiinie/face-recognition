@@ -36,9 +36,14 @@
 <div class="kiosk-wrapper">
   <!-- Left Column: Live Camera Preview -->
   <div class="camera-box">
-    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem;">
+    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:0.75rem; flex-wrap:wrap; gap:0.5rem;">
       <span class="badge badge-info">{{ active_station.location }}</span>
-      <span id="camera-conn-badge" class="badge badge-neutral">CONNECTING CAMERA…</span>
+      <div style="display:flex; gap:0.5rem; align-items:center;">
+        <button type="button" id="camera-mirror-toggle" class="btn btn-outline btn-sm" onclick="toggleCameraMirror()" title="Toggle mirror mode so camera moves naturally like a mirror" style="background:#1e293b; color:#93c5fd; border-color:#475569; padding:0.25rem 0.65rem; font-size:0.75rem;">
+          🪞 Mirror: ON
+        </button>
+        <span id="camera-conn-badge" class="badge badge-neutral">CONNECTING CAMERA…</span>
+      </div>
     </div>
 
     <div class="video-viewport">

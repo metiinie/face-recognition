@@ -59,6 +59,10 @@ from backend.employees.service import (
 from backend.face_enrollment.service import (
     enroll_employee_face,
     revoke_employee_templates,
+    purge_employee_biometrics,
+    apply_biometric_retention_policy,
+    get_model_compatibility_report,
+    sync_legacy_templates_for_model,
 )
 from backend.stations.service import register_station, resolve_station_from_binding
 from backend.security.tokens import issue_station_binding
@@ -275,22 +279,24 @@ def employees_screen():
         elif form_action == "enroll_face":
             emp_id = int(request.form.get("employee_id", 0))
             emp = db.session.get(Employee, emp_id)
-            quality_mode = request.form.get("quality_mode", "GOOD")
             img_b64 = request.form.get("image_base64", "").strip()
+            quality_mode = request.form.get("quality_mode", "LIVE_CAPTURE" if img_b64 else "GOOD")
             payload = {}
             if img_b64:
                 payload["image_base64"] = img_b64
             elif emp:
                 payload["biometric_signature"] = f"FACE_SIG_{emp.employee_number}"
 
-            if quality_mode == "POOR_DARK":
-                payload["quality_metrics"] = {"brightness": 22.0, "sharpness": 80.0, "face_detected": True}
-            elif quality_mode == "BLURRY":
-                payload["quality_metrics"] = {"brightness": 120.0, "sharpness": 14.0, "face_detected": True}
-            elif quality_mode == "OBSTRUCTED":
-                payload["quality_metrics"] = {"brightness": 120.0, "sharpness": 80.0, "face_detected": False, "obstructed": True}
-            else:
-                payload["quality_metrics"] = {"brightness": 135.0, "sharpness": 92.0, "face_detected": True}
+            # Only attach simulation overrides if this is an explicit simulation test preset
+            if not img_b64 or quality_mode != "LIVE_CAPTURE":
+                if quality_mode == "POOR_DARK":
+                    payload["quality_metrics"] = {"brightness": 22.0, "sharpness": 80.0, "face_detected": True}
+                elif quality_mode == "BLURRY":
+                    payload["quality_metrics"] = {"brightness": 120.0, "sharpness": 14.0, "face_detected": True}
+                elif quality_mode == "OBSTRUCTED":
+                    payload["quality_metrics"] = {"brightness": 120.0, "sharpness": 80.0, "face_detected": False, "obstructed": True}
+                elif quality_mode == "GOOD":
+                    payload["quality_metrics"] = {"brightness": 135.0, "sharpness": 92.0, "face_detected": True}
 
             tmpl, err = enroll_employee_face(emp_id, payload, enrolled_by=user.username)
             if err:
@@ -309,6 +315,15 @@ def employees_screen():
                 flash(err, "danger")
             else:
                 flash(f"Revoked {cnt} active biometric template(s).", "warning")
+
+        elif form_action == "purge_face":
+            emp_id = int(request.form.get("employee_id", 0))
+            reason = request.form.get("purge_reason", "Biometric consent withdrawn / Right to erasure")
+            cnt, err = purge_employee_biometrics(emp_id, reason, actor=user.username)
+            if err:
+                flash(err, "danger")
+            else:
+                flash(f"Permanently purged {cnt} biometric template(s) and withdrew biometric consent per POL-02.", "warning")
 
         return redirect(url_for("web_ui.employees_screen"))
 
@@ -653,6 +668,26 @@ def users_review_audit_screen():
             cnt = flag_overdue_open_sessions()
             flash(f"Scanned open sessions: {cnt} overdue session(s) flagged for review without inventing check-out times.", "info")
 
+        elif action == "sync_model_templates":
+            if not user.role or user.role.name != "ADMIN":
+                flash("Access Denied: Only Administrators can synchronize template models.", "danger")
+            else:
+                target_model = current_app.config.get("FACE_MODEL_NAME", "EIPC-Vision-Embedder")
+                target_version = current_app.config.get("FACE_MODEL_VERSION", "1.0.0")
+                res = sync_legacy_templates_for_model(target_model, target_version, actor=user.username)
+                flash(f"Model sync complete: {res['migrated_count']} out-of-sync template(s) migrated to {target_model} {target_version}.", "success")
+
+        elif action == "retention_cleanup":
+            if not user.role or user.role.name != "ADMIN":
+                flash("Access Denied: Only Administrators can trigger biometric retention cleanup.", "danger")
+            else:
+                try:
+                    days = int(request.form.get("retention_days", 90))
+                except (ValueError, TypeError):
+                    days = 90
+                cnt = apply_biometric_retention_policy(retention_days=days, actor=user.username)
+                flash(f"Biometric retention cleanup completed: purged {cnt} expired replaced/revoked templates older than {days} days.", "success")
+
         return redirect(url_for("web_ui.users_review_audit_screen"))
 
     review_cases = ReviewCase.query.order_by(ReviewCase.created_at.desc()).all()
@@ -665,6 +700,8 @@ def users_review_audit_screen():
     sessions = AttendanceSession.query.order_by(AttendanceSession.id.desc()).limit(30).all()
     policies = PolicySignoff.query.order_by(PolicySignoff.id.asc()).all()
 
+    model_report = get_model_compatibility_report()
+
     return render_template(
         "users_review_audit.html",
         review_cases=review_cases,
@@ -676,5 +713,6 @@ def users_review_audit_screen():
         stations=stations,
         sessions=sessions,
         policies=policies,
+        model_report=model_report,
     )
 
