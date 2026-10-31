@@ -13,12 +13,9 @@
 body {
   font-family: var(--font-sans);
   color: rgb(var(--foreground-rgb));
-  background: linear-gradient(
-      to bottom,
+  background: linear-gradient(to bottom,
       transparent,
-      rgb(var(--background-end-rgb))
-    )
-    rgb(var(--background-start-rgb));
+      rgb(var(--background-end-rgb))) rgb(var(--background-start-rgb));
   min-height: 100vh;
   font-feature-settings: "cv02", "cv03", "cv04", "cv11";
 }
@@ -28,9 +25,11 @@ body {
   0% {
     top: 0%;
   }
+
   50% {
     top: 98%;
   }
+
   100% {
     top: 0%;
   }
@@ -39,4 +38,3 @@ body {
 .animate-scanline {
   animation: scanline 2.5s ease-in-out infinite;
 }
-
