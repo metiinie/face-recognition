@@ -431,16 +431,9 @@ def api_departments():
 
 
 @api_bp.route("/employees", methods=["GET", "POST"])
+@permission_required("employees.manage")
 def api_employees():
     user = get_current_user()
-    if not user:
-        if current_app.config.get("ALLOW_SIMULATED_BIOMETRICS", False) and not current_app.config.get("TESTING", False):
-            user = User.query.filter_by(username="hr_officer").first()
-        else:
-            return jsonify({"error": "Authentication required", "code": "UNAUTHENTICATED"}), 401
-
-    if not user or not user.has_permission("employees.manage"):
-        return jsonify({"error": "Forbidden: requires permission 'employees.manage'", "code": "FORBIDDEN"}), 403
 
     if request.method == "GET":
         emps = Employee.query.order_by(Employee.employee_number.asc()).all()
