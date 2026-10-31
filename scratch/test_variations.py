@@ -47,3 +47,4 @@ shifted_d = Image.new("RGB", (w, h), (30, 30, 30))
 shifted_d.paste(base_img.crop((0, 0, w, h - 15)), (0, 15))
 emb_sd, _ = _extract_embedding_from_pil(shifted_d)
 print(f"Shifted 15px down: sim = {cosine_similarity(emb_sd, v_enrolled):.4f}")
+
