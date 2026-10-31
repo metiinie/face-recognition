@@ -545,8 +545,8 @@ def recognize_face_candidate(capture_payload: dict, decrypt_fn) -> dict:
         }
 
     probe_embedding = extraction["embedding"]
-    match_threshold = current_app.config.get("RECOGNITION_MATCH_THRESHOLD", 0.78)
-    uncertain_threshold = current_app.config.get("RECOGNITION_UNCERTAIN_THRESHOLD", 0.62)
+    match_threshold = current_app.config.get("RECOGNITION_MATCH_THRESHOLD", 0.40)
+    uncertain_threshold = current_app.config.get("RECOGNITION_UNCERTAIN_THRESHOLD", 0.28)
 
     current_model_name = current_app.config.get("FACE_MODEL_NAME", "EIPC-Vision-Embedder")
     current_model_version = current_app.config.get("FACE_MODEL_VERSION", "1.0.0")
@@ -565,10 +565,12 @@ def recognize_face_candidate(capture_payload: dict, decrypt_fn) -> dict:
         try:
             stored_vec = decrypt_fn(tmpl.template_data)
             score = cosine_similarity(probe_embedding, stored_vec)
+            print(f"[CANDIDATE] emp={tmpl.employee_id} ({tmpl.employee.employee_number if tmpl.employee else '?'}) score={score:.4f}", flush=True)
             if score > best_score:
                 best_score = score
                 best_template = tmpl
-        except Exception:
+        except Exception as e:
+            print(f"[CANDIDATE ERROR] tmpl={tmpl.id}: {e}", flush=True)
             continue
 
     best_score_clamped = round(max(0.0, min(1.0, best_score)), 4)

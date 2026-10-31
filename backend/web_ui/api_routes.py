@@ -904,6 +904,12 @@ def api_face_recognize():
     """Unified endpoint for face recognition and live liveness check."""
     data = request.get_json(silent=True) or {}
     rec_result = recognize_face_candidate(data, decrypt_embedding)
+    print(
+        f"[FACE_RECOGNIZE] matched={rec_result['matched']} status={rec_result['status']} "
+        f"score={rec_result.get('recognition_score')} "
+        f"rejection={rec_result.get('rejection_code')}: {rec_result.get('message')}",
+        flush=True
+    )
 
     if not rec_result["matched"]:
         return jsonify({
@@ -912,6 +918,7 @@ def api_face_recognize():
             "rejection_code": rec_result.get("rejection_code"),
             "rejection_message": rec_result.get("message"),
             "quality_score": rec_result.get("quality_score", 0.0),
+            "match_score": rec_result.get("recognition_score", 0.0),
             "latency_ms": 94,
         })
 

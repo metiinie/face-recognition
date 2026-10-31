@@ -302,6 +302,13 @@ export default function KioskPage() {
                 {feedbackError}
               </p>
 
+              {recognition && typeof recognition.match_score === "number" && recognition.match_score > 0 && (
+                <div className="flex items-center justify-between text-[11px] text-slate-600 bg-slate-100/90 px-3 py-1.5 rounded-lg border border-slate-200">
+                  <span>Match Confidence: <strong className="font-mono">{(recognition.match_score * 100).toFixed(1)}%</strong></span>
+                  <span>Required: <strong className="font-mono">40.0%</strong></span>
+                </div>
+              )}
+
               {helpSuccess && (
                 <div className="rounded-lg bg-emerald-100 border border-emerald-300 p-3 text-xs text-emerald-800">
                   <div className="font-semibold flex items-center gap-1.5 mb-1">
