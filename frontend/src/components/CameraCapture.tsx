@@ -9,6 +9,7 @@ interface CameraCaptureProps {
   isProcessing?: boolean;
   autoScanIntervalMs?: number;
   guideText?: string;
+  captureButtonText?: string;
   className?: string;
 }
 
@@ -17,6 +18,7 @@ export function CameraCapture({
   isProcessing = false,
   autoScanIntervalMs = 0,
   guideText = "Position your face inside the oval guide",
+  captureButtonText = "Scan Face Now",
   className = "",
 }: CameraCaptureProps) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -216,7 +218,7 @@ export function CameraCapture({
           className="flex-1 max-w-xs shadow-lg shadow-blue-600/30 font-semibold"
         >
           <Camera className="mr-2 h-5 w-5" />
-          Scan Face Now
+          {captureButtonText}
         </Button>
 
         <Button

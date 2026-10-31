@@ -542,8 +542,17 @@ export default function EmployeesPage() {
               <CameraCapture
                 onCapture={handleCaptureForEnrollment}
                 guideText="Look directly at camera. Hold still for quality verification."
+                captureButtonText="Capture Biometric Photo"
               />
             </div>
+
+            {/* Photo capture ready prompt */}
+            {enrollImageB64 && !enrollSuccess && !enrollError && (
+              <div className="rounded-xl bg-blue-50 p-3 text-xs text-blue-800 border border-blue-200 flex items-center gap-2">
+                <CheckCircle className="h-4 w-4 shrink-0 text-blue-600" />
+                <span>Photo captured! Click <strong>"Save Encrypted Template"</strong> below to finalize biometric enrollment.</span>
+              </div>
+            )}
 
             {/* Status alerts */}
             {enrollError && (

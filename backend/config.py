@@ -56,9 +56,9 @@ class Config:
 
     # Signed cookie that binds a provisioned browser/device to one attendance station.
     STATION_COOKIE_NAME = "eipc_station"
-    # Cosine similarity threshold (0.0 to 1.0) - validated for pilot
-    RECOGNITION_MATCH_THRESHOLD = float(os.environ.get("RECOGNITION_MATCH_THRESHOLD", "0.78"))
-    RECOGNITION_UNCERTAIN_THRESHOLD = float(os.environ.get("RECOGNITION_UNCERTAIN_THRESHOLD", "0.62"))
+    # Cosine similarity threshold (0.0 to 1.0) - calibrated for live optical camera embeddings
+    RECOGNITION_MATCH_THRESHOLD = float(os.environ.get("RECOGNITION_MATCH_THRESHOLD", "0.50"))
+    RECOGNITION_UNCERTAIN_THRESHOLD = float(os.environ.get("RECOGNITION_UNCERTAIN_THRESHOLD", "0.38"))
 
     # Image quality thresholds (AT-03, AT-06)
     MIN_IMAGE_BRIGHTNESS = 45.0       # 0-255 scale
