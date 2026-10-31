@@ -72,10 +72,24 @@ def authenticate_user(username: str, password: str) -> tuple[User | None, str | 
 
 def get_current_user() -> User | None:
     """
-    Retrieve the currently authenticated User from the session.
+    Retrieve the currently authenticated User from Bearer JWT or the session.
     Deliberately not cached on `flask.g`: an app context can outlive a single request
     (e.g. under test clients), which would leak a signed-out user into later requests.
     """
+    try:
+        from flask import request
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            from backend.security.tokens import decode_jwt_token
+            token = auth_header.split(" ", 1)[1].strip()
+            payload, err = decode_jwt_token(token)
+            if not err and payload and payload.get("sub"):
+                u = db.session.get(User, int(payload["sub"]))
+                if u and u.status == "ACTIVE":
+                    return u
+    except Exception:
+        pass
+
     user_id = session.get("user_id")
     if not user_id:
         return None

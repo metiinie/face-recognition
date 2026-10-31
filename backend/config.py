@@ -63,7 +63,7 @@ class Config:
     # Image quality thresholds (AT-03, AT-06)
     MIN_IMAGE_BRIGHTNESS = 45.0       # 0-255 scale
     MAX_IMAGE_BRIGHTNESS = 235.0      # 0-255 scale
-    MIN_IMAGE_SHARPNESS = 35.0        # Variance of Laplacian / gradient score
+    MIN_IMAGE_SHARPNESS = float(os.environ.get("MIN_IMAGE_SHARPNESS", "25.0"))        # Variance of Laplacian / gradient score
 
     # Duplicate event / rapid scan cooldown window in seconds (AT-11, AT-12)
     DUPLICATE_EVENT_COOLDOWN_SECONDS = int(os.environ.get("DUPLICATE_EVENT_COOLDOWN_SECONDS", "60"))

@@ -55,3 +55,37 @@ def verify_recognition_token(token: str, max_age: int) -> tuple[dict | None, str
     except BadSignature:
         return None, "RECOGNITION_TOKEN_INVALID"
 
+
+def issue_jwt_token(user, expires_in_seconds: int = 86400) -> str:
+    """Issue signed JWT bearer token with RBAC role claims."""
+    import jwt
+    from datetime import datetime, timezone, timedelta
+
+    now = datetime.now(timezone.utc)
+    payload = {
+        "sub": str(user.id),
+        "username": user.username,
+        "role": user.role.name if user.role else "USER",
+        "iat": int(now.timestamp()),
+        "exp": int((now + timedelta(seconds=expires_in_seconds)).timestamp()),
+    }
+    raw_secret = current_app.config.get("SECRET_KEY", "eipc-jwt-secret-key-32-bytes-long-secure-v1")
+    secret = hashlib.sha256(raw_secret.encode("utf-8")).digest()
+    return jwt.encode(payload, secret, algorithm="HS256")
+
+
+def decode_jwt_token(token: str) -> tuple[dict | None, str | None]:
+    """Verify and decode a JWT bearer token."""
+    import jwt
+    import hashlib
+
+    raw_secret = current_app.config.get("SECRET_KEY", "eipc-jwt-secret-key-32-bytes-long-secure-v1")
+    secret = hashlib.sha256(raw_secret.encode("utf-8")).digest()
+    try:
+        payload = jwt.decode(token, secret, algorithms=["HS256"])
+        return payload, None
+    except jwt.ExpiredSignatureError:
+        return None, "TOKEN_EXPIRED"
+    except jwt.InvalidTokenError:
+        return None, "TOKEN_INVALID"
+

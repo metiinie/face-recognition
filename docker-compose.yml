@@ -1,0 +1,71 @@
+version: "3.8"
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: eipc_mysql
+    restart: always
+    environment:
+      MYSQL_ROOT_PASSWORD: root_eipc_secure_pass_2026
+      MYSQL_DATABASE: eipc_attendance
+      MYSQL_USER: eipc_admin
+      MYSQL_PASSWORD: Eipc@Attendance2026!
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - ./backend/database/mysql_schema.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-proot_eipc_secure_pass_2026"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile.backend
+    container_name: eipc_backend
+    restart: always
+    depends_on:
+      mysql:
+        condition: service_healthy
+    environment:
+      MYSQL_DATABASE_URI: mysql+pymysql://eipc_admin:Eipc@Attendance2026!@mysql:3306/eipc_attendance
+      DATABASE_URL: mysql+pymysql://eipc_admin:Eipc@Attendance2026!@mysql:3306/eipc_attendance
+      SECRET_KEY: eipc-dire-dawa-production-secret-key-v1-super-secure-32b
+      BIOMETRIC_ENCRYPTION_SECRET: eipc-biometric-fernet-secret-32-chars-long-2026
+      ALLOW_SIMULATED_BIOMETRICS: "0"
+      FLASK_ENV: production
+    ports:
+      - "5000:5000"
+
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.frontend
+    container_name: eipc_frontend
+    restart: always
+    depends_on:
+      - backend
+    environment:
+      BACKEND_API_URL: http://backend:5000
+      NODE_ENV: production
+    ports:
+      - "3000:3000"
+
+  nginx:
+    image: nginx:alpine
+    container_name: eipc_nginx
+    restart: always
+    depends_on:
+      - frontend
+      - backend
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+
+volumes:
+  mysql_data:
+
