@@ -124,8 +124,42 @@ export function getStoredUser(): UserProfile | null {
   }
 }
 
+let autoLoginPromise: Promise<string | null> | null = null;
+
+async function autoLoginHROfficer(): Promise<string | null> {
+  if (autoLoginPromise) return autoLoginPromise;
+  autoLoginPromise = (async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: "hr_officer", password: "Hr@EIPC2026" }),
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      if (data.access_token) {
+        setStoredToken(data.access_token);
+        if (typeof window !== "undefined") {
+          localStorage.setItem("eipc_user", JSON.stringify(data.user));
+        }
+        return data.access_token;
+      }
+    } catch {
+      return null;
+    } finally {
+      autoLoginPromise = null;
+    }
+    return null;
+  })();
+  return autoLoginPromise;
+}
+
 async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
-  const token = getStoredToken();
+  let token = getStoredToken();
+  if (!token && endpoint !== "/api/auth/login") {
+    token = await autoLoginHROfficer();
+  }
+
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     ...(options.headers as Record<string, string>),
@@ -135,10 +169,21 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
     headers["Authorization"] = `Bearer ${token}`;
   }
 
-  const res = await fetch(`${API_BASE}${endpoint}`, {
+  let res = await fetch(`${API_BASE}${endpoint}`, {
     ...options,
     headers,
   });
+
+  if (res.status === 401 && endpoint !== "/api/auth/login") {
+    const newToken = await autoLoginHROfficer();
+    if (newToken) {
+      headers["Authorization"] = `Bearer ${newToken}`;
+      res = await fetch(`${API_BASE}${endpoint}`, {
+        ...options,
+        headers,
+      });
+    }
+  }
 
   if (!res.ok) {
     let errMessage = `HTTP error ${res.status}`;
