@@ -129,7 +129,12 @@ def _extract_embedding_from_pil(img: Image.Image) -> tuple[list[float], dict]:
     else:
         h_r, w_r = gray_raw.shape
         face_roi = gray_raw[int(h_r * 0.15) : int(h_r * 0.85), int(w_r * 0.20) : int(w_r * 0.80)]
-        aligned_pil = img_rgb.resize((160, 160), Image.Resampling.BILINEAR)
+        aligned_pil = img_rgb.crop((
+            int(img_rgb.width * 0.18),
+            int(img_rgb.height * 0.10),
+            int(img_rgb.width * 0.82),
+            int(img_rgb.height * 0.90)
+        )).resize((160, 160), Image.Resampling.BILINEAR)
 
     arr_aligned = np.asarray(aligned_pil, dtype=np.float64)
     r_a, g_a, b_a = arr_aligned[:, :, 0], arr_aligned[:, :, 1], arr_aligned[:, :, 2]
