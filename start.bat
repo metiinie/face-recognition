@@ -20,3 +20,4 @@ echo HR Dashboard:      http://localhost:3000/dashboard
 echo Biometrics Lab:    http://localhost:3000/biometrics
 echo Backend API:       http://localhost:5000
 echo =========================================================
+
