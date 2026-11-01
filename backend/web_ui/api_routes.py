@@ -1001,25 +1001,37 @@ def api_attendance_confirm():
     st_id = payload.get("s", 1)
     score = payload.get("r", 0.85)
 
-    ev, sess, action_type, err = confirm_attendance_action(
+    # Resolve station
+    station = db.session.get(AttendanceStation, st_id)
+    if not station:
+        station = AttendanceStation.query.filter_by(status="ACTIVE").first()
+
+    # Determine event_type (CHECK_IN vs CHECK_OUT)
+    event_type = data.get("event_type")
+    if not event_type:
+        open_sess = get_open_session_for_employee(emp_id)
+        event_type = "CHECK_OUT" if open_sess else "CHECK_IN"
+
+    result, err_code, err_msg = confirm_attendance_action(
         employee_id=emp_id,
-        station_id=st_id,
+        station=station,
+        event_type=event_type,
         recognition_score=score,
         capture_method="KIOSK_FACIAL",
-        override_reason=data.get("override_reason"),
     )
-    if err:
-        return jsonify({"error": err}), 400
+    if err_code:
+        return jsonify({"error": err_msg, "error_code": err_code}), 400
 
-    now_local = utc_to_local(ev.occurred_at_utc)
+    now_local = utc_to_local(datetime.fromisoformat(result["occurred_at_utc"]))
     return jsonify({
         "success": True,
-        "message": f"{action_type.replace('_', ' ')} recorded successfully for {ev.employee.full_name}.",
-        "event_type": action_type,
+        "message": f"{result['event_type'].replace('_', ' ')} recorded successfully for {result['employee_name']}.",
+        "event_type": result["event_type"],
         "timestamp": now_local.isoformat(),
-        "is_late": sess.is_late if sess else False,
-        "minutes_late": sess.late_minutes if sess else 0,
-        "is_overtime": sess.is_overtime if sess else False,
+        "is_late": result.get("arrival_status") == "LATE",
+        "minutes_late": result.get("late_minutes", 0),
+        "is_overtime": False,
+        "attendance": result,
     })
 
 

@@ -30,6 +30,7 @@ export default function KioskPage() {
   const [recognition, setRecognition] = useState<RecognitionResult | null>(null);
   const [attendanceOutcome, setAttendanceOutcome] = useState<AttendanceConfirmResponse | null>(null);
   const [feedbackError, setFeedbackError] = useState<string | null>(null);
+  const [punchError, setPunchError] = useState<string | null>(null);
 
   // HR Review / Assistance state
   const [showHelpDrawer, setShowHelpDrawer] = useState(false);
@@ -42,6 +43,7 @@ export default function KioskPage() {
   const handleCapture = async (base64Image: string) => {
     setIsProcessing(true);
     setFeedbackError(null);
+    setPunchError(null);
     setAttendanceOutcome(null);
 
     try {
@@ -67,7 +69,7 @@ export default function KioskPage() {
     if (!recognition?.recognition_token) return;
 
     setIsConfirming(true);
-    setFeedbackError(null);
+    setPunchError(null);
     try {
       const outcome = await api.confirmAttendance({
         recognition_token: recognition.recognition_token,
@@ -76,7 +78,7 @@ export default function KioskPage() {
       setAttendanceOutcome(outcome);
     } catch (err: any) {
       console.error("Attendance confirmation error:", err);
-      setFeedbackError(err.message || "Failed to record attendance event.");
+      setPunchError(err.message || "Failed to record attendance event.");
     } finally {
       setIsConfirming(false);
     }
@@ -86,6 +88,7 @@ export default function KioskPage() {
     setRecognition(null);
     setAttendanceOutcome(null);
     setFeedbackError(null);
+    setPunchError(null);
     setShowHelpDrawer(false);
     setHelpSuccess(null);
     setHelpError(null);
@@ -232,6 +235,14 @@ export default function KioskPage() {
                 </div>
               </div>
 
+              {/* Punch Error Notice */}
+              {punchError && (
+                <div className="mt-3 rounded-lg bg-rose-100 border border-rose-300 p-2.5 text-xs text-rose-800 flex items-center gap-2">
+                  <XCircle className="h-4 w-4 shrink-0 text-rose-600" />
+                  <span>{punchError}</span>
+                </div>
+              )}
+
               {/* Confirm Attendance Action Button */}
               <div className="mt-5 space-y-2">
                 <Button
@@ -281,8 +292,8 @@ export default function KioskPage() {
             </Card>
           )}
 
-          {/* Card State 4: Rejection / Anomaly Detected */}
-          {feedbackError && (
+          {/* Card State 4: Rejection / Anomaly Detected (Only if not matched) */}
+          {feedbackError && !recognition?.matched && (
             <Card className="border-rose-300 bg-rose-50/60 p-6 shadow-lg space-y-4">
               <div className="flex items-center gap-3">
                 <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-rose-600 text-white shrink-0">
