@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   Camera,
+  Radio,
   LayoutDashboard,
   Users,
   LineChart,
@@ -49,6 +50,7 @@ export function Navbar() {
 
   const navItems = [
     { name: "Kiosk Station", href: "/kiosk", icon: Camera },
+    { name: "Continuous Gate (V2)", href: "/entrance", icon: Radio, isV2: true },
     { name: "HR Dashboard", href: "/dashboard", icon: LayoutDashboard },
     { name: "Employees", href: "/employees", icon: Users },
     { name: "Reports & CSV", href: "/reports", icon: FileText },
@@ -71,7 +73,7 @@ export function Navbar() {
                 Ethio-Italy Polytechnic College
               </span>
               <Badge variant="brand" className="hidden sm:inline-flex text-[10px] py-0 px-1.5">
-                Dire Dawa • V1
+                Dire Dawa • V1 + V2
               </Badge>
             </div>
             <p className="text-[11px] text-slate-500 dark:text-slate-400">
@@ -81,7 +83,7 @@ export function Navbar() {
         </div>
 
         {/* Center Navigation Links */}
-        <nav className="hidden lg:flex items-center gap-1">
+        <nav className="hidden xl:flex items-center gap-1">
           {navItems.map((item) => {
             const Icon = item.icon;
             const isActive = pathname === item.href;
@@ -89,7 +91,7 @@ export function Navbar() {
               <Link
                 key={item.href}
                 href={item.href}
-                className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-all ${
+                className={`flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-all ${
                   isActive
                     ? "bg-blue-600 text-white shadow-sm"
                     : "text-slate-600 hover:bg-slate-100 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-800 dark:hover:text-white"
@@ -97,6 +99,13 @@ export function Navbar() {
               >
                 <Icon className="h-3.5 w-3.5" />
                 <span>{item.name}</span>
+                {item.isV2 && (
+                  <span className={`text-[9px] px-1 py-0.2 rounded font-mono font-bold ${
+                    isActive ? "bg-white/20 text-white" : "bg-emerald-100 text-emerald-800"
+                  }`}>
+                    V2
+                  </span>
+                )}
               </Link>
             );
           })}
@@ -111,7 +120,7 @@ export function Navbar() {
 
           <div className="flex items-center gap-2">
             <Badge variant="success" className="text-[10px]">
-              Station #1 Online
+              Gate #1 Active
             </Badge>
 
             {user ? (
@@ -142,7 +151,7 @@ export function Navbar() {
       </div>
 
       {/* Mobile Sub-Navigation Bar */}
-      <div className="flex lg:hidden overflow-x-auto border-t border-slate-100 px-3 py-1.5 dark:border-slate-800 gap-1">
+      <div className="flex xl:hidden overflow-x-auto border-t border-slate-100 px-3 py-1.5 dark:border-slate-800 gap-1">
         {navItems.map((item) => {
           const Icon = item.icon;
           const isActive = pathname === item.href;

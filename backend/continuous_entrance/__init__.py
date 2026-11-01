@@ -8,3 +8,4 @@ __all__ = [
     "ContinuousEntranceManager",
     "process_continuous_entrance_frame",
 ]
+

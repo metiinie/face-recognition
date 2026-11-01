@@ -56,7 +56,6 @@ def client(app):
 
 def test_multi_face_image_extraction():
     """Verify that multi-face extraction identifies separate face bounding boxes."""
-    # Synthesize an image with two distinct skin-toned facial patches
     img = Image.new("RGB", (640, 480), color=(240, 240, 240))
     arr = np.array(img, dtype=np.uint8)
 
@@ -70,7 +69,6 @@ def test_multi_face_image_extraction():
 
     assert isinstance(faces, list)
     assert len(faces) >= 2
-    # Verify bounding boxes are distinct horizontally
     box1, box2 = faces[0]["bounding_box"], faces[1]["bounding_box"]
     assert box1["x"] != box2["x"]
     assert "embedding" in faces[0]
@@ -100,11 +98,11 @@ def test_v2_continuous_gate_checkin_and_cooldown(app):
         assert station is not None
 
         manager = ContinuousEntranceManager.get_instance()
-        manager._cooldown_cache.clear()  # reset for test
+        manager._cooldown_cache.clear()
 
-        # 1. First passage through gate
+        # 1. First passage through gate for EMP-003 (no prior open session)
         payload = {
-            "simulated_staff": ["EIPC-EMP-001"],
+            "simulated_staff": ["EIPC-EMP-003"],
             "gate_mode": "IN",
         }
         frame_res = manager.process_frame(station, payload, override_gate_mode="IN")
@@ -114,7 +112,7 @@ def test_v2_continuous_gate_checkin_and_cooldown(app):
         assert face1["attendance_action"] == "CHECK_IN"
 
         # Verify event saved in database with CONTINUOUS_ENTRANCE capture_method
-        emp = Employee.query.filter_by(employee_number="EIPC-EMP-001").first()
+        emp = Employee.query.filter_by(employee_number="EIPC-EMP-003").first()
         event = AttendanceEvent.query.filter_by(
             employee_id=emp.id,
             capture_method="CONTINUOUS_ENTRANCE",
@@ -123,7 +121,7 @@ def test_v2_continuous_gate_checkin_and_cooldown(app):
         assert event is not None
         assert event.station_id == station.id
 
-        # 2. Immediate second frame (person still in camera field of view 1 second later)
+        # 2. Immediate second frame (person still in camera view 1 second later)
         frame_res_immediate = manager.process_frame(station, payload, override_gate_mode="IN")
         face_immediate = frame_res_immediate["faces"][0]
         assert face_immediate["action_status"] == "COOLDOWN_ACTIVE"
@@ -144,12 +142,12 @@ def test_v2_gate_api_endpoints(client, app):
         hr = User.query.filter_by(username="hr_officer").first()
         token = issue_jwt_token(hr)
 
-    # 1. Process continuous frame via API
+    # 1. Process continuous frame via API for EMP-004 (no open session)
     proc_res = client.post(
         "/api/v2/entrance/process-frame",
         json={
             "station_code": "ST-GATE-01",
-            "simulated_staff": ["EIPC-EMP-002"],
+            "simulated_staff": ["EIPC-EMP-004"],
             "gate_mode": "IN",
         },
     )

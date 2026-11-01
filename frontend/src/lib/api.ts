@@ -164,6 +164,68 @@ export interface PolicySignoffRecord {
   updated_at?: string;
 }
 
+export interface ContinuousFaceResult {
+  track_id: number;
+  bounding_box: { x: number; y: number; w: number; h: number };
+  matched: boolean;
+  status: "MATCHED" | "UNCERTAIN_MATCH" | "UNKNOWN_FACE" | "EMPLOYEE_INACTIVE" | string;
+  recognition_score: number;
+  quality_score: number;
+  liveness_passed: boolean;
+  employee?: {
+    id: number;
+    employee_number: string;
+    full_name: string;
+    department?: string;
+    job_category?: string;
+    status: string;
+  } | null;
+  action_status: "CONFIRMED" | "COOLDOWN_ACTIVE" | "ALREADY_CHECKED_IN" | "NO_OPEN_SESSION" | "UNKNOWN_VISITOR" | "REJECTED" | string;
+  attendance_action?: "CHECK_IN" | "CHECK_OUT" | null;
+  session_id?: number | null;
+  is_late?: boolean;
+  minutes_late?: number;
+  message?: string;
+  review_case_id?: number;
+}
+
+export interface ContinuousEntranceFrameResponse {
+  station_code: string;
+  station_name: string;
+  gate_mode: "IN" | "OUT" | "AUTO_DETECT" | "BIDIRECTIONAL" | string;
+  timestamp: string;
+  timestamp_eat: string;
+  faces_detected: number;
+  faces: ContinuousFaceResult[];
+  summary_actions: string[];
+}
+
+export interface GatePassageRecord {
+  id: string | number;
+  timestamp_eat: string;
+  employee_number: string;
+  employee_name: string;
+  department?: string;
+  event_type: "CHECK_IN" | "CHECK_OUT";
+  match_score: number;
+  station_code: string;
+  is_late?: boolean;
+}
+
+export interface GateStatusResponse {
+  station_code: string;
+  station_name: string;
+  department?: string;
+  location: string;
+  camera_status: string;
+  gate_mode: string;
+  cooldown_sec: number;
+  today_total_passages: number;
+  today_checkins: number;
+  today_checkouts: number;
+  recent_passages: GatePassageRecord[];
+}
+
 export interface RecognitionResult {
   matched: boolean;
   status: "MATCH_CONFIRMED" | "UNCERTAIN_MATCH" | "UNKNOWN_FACE" | "REJECTED";
@@ -570,6 +632,45 @@ export const api = {
     payload: { status?: string; decision_notes?: string; confirmed_by?: string }
   ): Promise<any> {
     return request(`/api/policies/${policyId}`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async processContinuousEntranceFrame(payload: {
+    station_code: string;
+    station_id?: string;
+    image_base64?: string;
+    gate_mode?: string;
+    simulated_staff?: string[];
+  }): Promise<ContinuousEntranceFrameResponse> {
+    return request('/api/v2/entrance/process-frame', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async getGateStatus(stationCode = 'ST-GATE-01'): Promise<GateStatusResponse> {
+    return request(`/api/v2/entrance/status?station_code=${stationCode}`);
+  },
+
+  async configureGate(payload: {
+    station_code: string;
+    gate_mode: string;
+    cooldown_sec?: number;
+  }): Promise<any> {
+    return request('/api/v2/entrance/gate-config', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async simulateGatePassage(payload: {
+    station_code: string;
+    simulated_staff: string[];
+    gate_mode?: string;
+  }): Promise<ContinuousEntranceFrameResponse> {
+    return request('/api/v2/entrance/simulate', {
       method: 'POST',
       body: JSON.stringify(payload),
     });
