@@ -50,6 +50,39 @@ export interface BiometricEvaluationMetrics {
   }>;
 }
 
+export interface AttendanceSessionRecord {
+  id: number;
+  work_date: string;
+  employee_id: number;
+  employee_number: string;
+  employee_name: string;
+  department_id?: number;
+  department_name: string;
+  job_category: string;
+  shift_start_eat: string;
+  shift_end_eat: string;
+  arrival_status: "ON_TIME" | "LATE";
+  late_minutes: number;
+  status: "OPEN" | "COMPLETED" | "INCOMPLETE_REVIEW";
+  is_corrected: boolean;
+  check_in?: {
+    id: number;
+    time_eat: string;
+    timestamp: string;
+    capture_method: "BIOMETRIC" | "MANUAL_HR" | string;
+    station_code: string;
+    score?: number;
+  } | null;
+  check_out?: {
+    id: number;
+    time_eat: string;
+    timestamp: string;
+    capture_method: "BIOMETRIC" | "MANUAL_HR" | string;
+    station_code: string;
+    score?: number;
+  } | null;
+}
+
 export interface EmployeeRecord {
   id: number;
   employee_number: string;
@@ -62,6 +95,73 @@ export interface EmployeeRecord {
   has_active_template: boolean;
   template_model_version?: string;
   consent_verified: boolean;
+}
+
+export interface ShiftTemplateRecord {
+  id: number;
+  name: string;
+  job_category: 'REGULAR_STAFF' | 'CLEANING_STAFF' | 'SECURITY_GUARD' | string;
+  start_time: string;
+  end_time: string;
+  spans_midnight: boolean;
+  is_24_hour: boolean;
+  break_rules?: string;
+  grace_period_minutes: number;
+  early_checkin_window_minutes?: number;
+  hr_approved: boolean;
+  status: string;
+  ethiopian_display: string;
+}
+
+export interface ShiftAssignmentRecord {
+  id: number;
+  employee_id: number;
+  employee_number: string;
+  employee_name: string;
+  shift_template_id: number;
+  shift_name: string;
+  ethiopian_display: string;
+  effective_from: string;
+  effective_to?: string | null;
+  working_days: string;
+  approved_by: string;
+}
+
+export interface ScheduleExceptionRecord {
+  id: number;
+  title: string;
+  exception_type: 'PUBLIC_HOLIDAY' | 'APPROVED_LEAVE' | string;
+  employee_id?: number | null;
+  employee_number: string;
+  employee_name: string;
+  start_date: string;
+  end_date: string;
+  reason?: string | null;
+  approved_by: string;
+}
+
+export interface StationRecord {
+  id: number;
+  station_code: string;
+  name: string;
+  department_id: number;
+  department_code: string;
+  department_name: string;
+  location: string;
+  status: 'ACTIVE' | 'MAINTENANCE' | 'INACTIVE' | string;
+  camera_status: string;
+  station_secret_token?: string;
+}
+
+export interface PolicySignoffRecord {
+  id: number;
+  policy_code: string;
+  title: string;
+  description: string;
+  status: 'CONFIRMED' | 'PENDING_CONFIRMATION' | string;
+  decision_notes?: string | null;
+  confirmed_by?: string | null;
+  updated_at?: string;
 }
 
 export interface RecognitionResult {
@@ -328,6 +428,149 @@ export const api = {
   }): Promise<{ status: string; review_case_id: number; message: string }> {
     return request("/api/station/request-review", {
       method: "POST",
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async getAttendanceSessions(filters?: {
+    department_id?: number;
+    employee_id?: number;
+    status?: string;
+    arrival_status?: string;
+    capture_method?: string;
+    date_from?: string;
+    date_to?: string;
+  }): Promise<{ sessions: AttendanceSessionRecord[]; total: number }> {
+    const query = new URLSearchParams();
+    if (filters?.department_id) query.set("department_id", String(filters.department_id));
+    if (filters?.employee_id) query.set("employee_id", String(filters.employee_id));
+    if (filters?.status) query.set("status", filters.status);
+    if (filters?.arrival_status) query.set("arrival_status", filters.arrival_status);
+    if (filters?.capture_method) query.set("capture_method", filters.capture_method);
+    if (filters?.date_from) query.set("date_from", filters.date_from);
+    if (filters?.date_to) query.set("date_to", filters.date_to);
+    return request(`/api/reports/sessions?${query.toString()}`);
+  },
+
+  async dismissReviewCase(caseId: number, reason: string): Promise<any> {
+    return request(`/api/review-cases/${caseId}/dismiss`, {
+      method: "POST",
+      body: JSON.stringify({ reason }),
+    });
+  },
+
+  async recordManualAttendance(payload: {
+    employee_id: number;
+    station_id: number;
+    event_type: "CHECK_IN" | "CHECK_OUT";
+    reason: string;
+    evidence_reference: string;
+    review_case_id?: number;
+    occurred_at_local?: string;
+  }): Promise<any> {
+    return request("/api/review/manual-entry", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async applyCorrection(payload: {
+    session_id: number;
+    correction_type: "CHECK_IN_TIME" | "CHECK_OUT_TIME" | "ADD_MISSING_CHECKOUT";
+    corrected_timestamp_local: string;
+    reason: string;
+    evidence_ref?: string;
+  }): Promise<any> {
+    return request("/api/attendance/correct", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async getShiftTemplates(): Promise<ShiftTemplateRecord[]> {
+    return request('/api/shifts/templates');
+  },
+
+  async createShiftTemplate(payload: {
+    name: string;
+    job_category: string;
+    start_time: string;
+    end_time: string;
+    grace_period_minutes?: number;
+    spans_midnight?: boolean;
+    is_24_hour?: boolean;
+    break_rules?: string;
+    hr_approved?: boolean;
+  }): Promise<any> {
+    return request('/api/shifts/templates', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async getShiftAssignments(employeeId?: number): Promise<ShiftAssignmentRecord[]> {
+    const q = employeeId ? `?employee_id=${employeeId}` : "";
+    return request(`/api/shifts/assignments${q}`);
+  },
+
+  async assignShift(payload: {
+    employee_id: number;
+    shift_template_id: number;
+    effective_from: string;
+    effective_to?: string | null;
+    working_days?: string;
+  }): Promise<any> {
+    return request('/api/shifts/assign', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async getScheduleExceptions(): Promise<ScheduleExceptionRecord[]> {
+    return request('/api/shifts/exceptions');
+  },
+
+  async createScheduleException(payload: {
+    title: string;
+    exception_type: string;
+    start_date: string;
+    end_date: string;
+    employee_id?: number | null;
+    reason?: string;
+  }): Promise<any> {
+    return request('/api/shifts/exceptions', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async getStations(): Promise<StationRecord[]> {
+    return request('/api/stations');
+  },
+
+  async createStation(payload: {
+    station_code: string;
+    name: string;
+    department_id: number;
+    location: string;
+    station_secret_token?: string;
+  }): Promise<any> {
+    return request('/api/stations', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async getPolicies(): Promise<PolicySignoffRecord[]> {
+    return request('/api/policies');
+  },
+
+  async updatePolicy(
+    policyId: number,
+    payload: { status?: string; decision_notes?: string; confirmed_by?: string }
+  ): Promise<any> {
+    return request(`/api/policies/${policyId}`, {
+      method: 'POST',
       body: JSON.stringify(payload),
     });
   },

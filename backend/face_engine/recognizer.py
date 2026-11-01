@@ -641,6 +641,276 @@ def recognize_face_candidate(capture_payload: dict, decrypt_fn) -> dict:
     }
 
 
+def extract_multiple_faces_from_image(img: Image.Image) -> list[dict]:
+    """
+    Continuous-Entrance (Option B / Version 2) Multi-Face Extraction:
+    Processes full camera frame, identifies all distinct human face clusters,
+    crops and normalizes bounding boxes, checks individual liveness,
+    and returns a list of candidate face extractions with 128-D descriptors.
+    """
+    img_rgb = img.convert("RGB")
+    if img_rgb.width > 640 or img_rgb.height > 640:
+        img_rgb.thumbnail((640, 640), Image.Resampling.BILINEAR)
+
+    arr_rgb = np.asarray(img_rgb, dtype=np.float64)
+    r, g, b = arr_rgb[:, :, 0], arr_rgb[:, :, 1], arr_rgb[:, :, 2]
+
+    # Convert to YCbCr color space for skin detection
+    cb = -0.1687 * r - 0.3313 * g + 0.5 * b + 128.0
+    cr = 0.5 * r - 0.4187 * g - 0.0813 * b + 128.0
+
+    # Human skin-locus mask in chrominance space (Kovacs et al.)
+    skin_mask = (cb >= 75.0) & (cb <= 140.0) & (cr >= 130.0) & (cr <= 185.0)
+    skin_ratio = float(np.mean(skin_mask))
+    if skin_ratio < 0.012:
+        return []
+
+    # Face cluster detection along horizontal projection
+    kernel_size = max(3, int(img_rgb.width * 0.04))
+    col_proj = np.convolve(skin_mask.sum(axis=0), np.ones(kernel_size) / kernel_size, mode="same")
+    peak_thresh = (np.max(col_proj) * 0.22) if (np.max(col_proj) > 0) else 1.0
+    above = (col_proj > peak_thresh).astype(int)
+    diff = np.diff(np.pad(above, (1, 1), "constant"))
+    starts = np.where(diff == 1)[0]
+    ends = np.where(diff == -1)[0]
+    min_cluster_w = max(12, int(img_rgb.width * 0.06))
+    clusters = [(s, e) for s, e in zip(starts, ends) if (e - s) >= min_cluster_w]
+
+    if not clusters:
+        clusters = [(int(img_rgb.width * 0.20), int(img_rgb.width * 0.80))]
+
+    faces = []
+    for idx, (s, e) in enumerate(clusters):
+        cluster_mask = skin_mask[:, s:e]
+        y_idx, x_idx = cluster_mask.nonzero()
+        if len(y_idx) >= 30:
+            y_min, y_max = np.percentile(y_idx, [2, 98])
+            x_min = s + np.percentile(x_idx, 2)
+            x_max = s + np.percentile(x_idx, 98)
+            h = y_max - y_min
+            w = x_max - x_min
+            cy = (y_min + y_max) / 2.0
+            cx = (x_min + x_max) / 2.0
+            side = max(h, w) * 1.30
+            x1 = max(0, int(cx - side / 2))
+            y1 = max(0, int(cy - side / 2))
+            x2 = min(img_rgb.width, int(cx + side / 2))
+            y2 = min(img_rgb.height, int(cy + side / 2))
+        else:
+            w_c = e - s
+            x1 = max(0, int(s - w_c * 0.1))
+            x2 = min(img_rgb.width, int(e + w_c * 0.1))
+            y1 = max(0, int(img_rgb.height * 0.15))
+            y2 = min(img_rgb.height, int(img_rgb.height * 0.85))
+
+        if x2 - x1 < 12 or y2 - y1 < 12:
+            continue
+
+        face_crop = img_rgb.crop((x1, y1, x2, y2)).resize((160, 160), Image.Resampling.BILINEAR)
+        crop_arr = np.asarray(face_crop, dtype=np.float64)
+        crop_gray = crop_arr.mean(axis=2)
+
+        # Liveness & sharpness on crop
+        laplacian_crop = (
+            -4 * crop_gray[1:-1, 1:-1]
+            + crop_gray[:-2, 1:-1]
+            + crop_gray[2:, 1:-1]
+            + crop_gray[1:-1, :-2]
+            + crop_gray[1:-1, 2:]
+        )
+        sharpness = float(np.var(laplacian_crop)) if laplacian_crop.size > 0 else 0.0
+        brightness = float(np.mean(crop_gray))
+
+        # Chrominance liveness check
+        r_c, g_c, b_c = crop_arr[:, :, 0], crop_arr[:, :, 1], crop_arr[:, :, 2]
+        cb_c = -0.1687 * r_c - 0.3313 * g_c + 0.5 * b_c + 128.0
+        cr_c = 0.5 * r_c - 0.4187 * g_c - 0.0813 * b_c + 128.0
+        chroma_dispersion = float(np.std(cr_c) + np.std(cb_c))
+
+        liveness_score = round(
+            min(1.0, max(0.10, (min(sharpness, 80.0) / 80.0) * 0.5 + (min(chroma_dispersion, 30.0) / 30.0) * 0.5)),
+            3
+        )
+        liveness_passed = bool(liveness_score >= 0.22 and chroma_dispersion >= 1.2)
+
+        # 128-D spatial gradient embedding for crop
+        gx = np.diff(crop_gray, axis=1)
+        gy = np.diff(crop_gray, axis=0)
+        gx = np.pad(gx, ((0, 0), (0, 1)), mode="edge")[16:144, 16:144]
+        gy = np.pad(gy, ((0, 1), (0, 0)), mode="edge")[16:144, 16:144]
+
+        magnitude = np.sqrt(gx**2 + gy**2)
+        orientation = (np.arctan2(gy, gx) * (180.0 / np.pi)) % 180.0
+
+        cell_h, cell_w = 32, 32
+        descriptor_128 = []
+        for cy_i in range(4):
+            for cx_i in range(4):
+                c_mag = magnitude[cy_i * cell_h : (cy_i + 1) * cell_h, cx_i * cell_w : (cx_i + 1) * cell_w]
+                c_ori = orientation[cy_i * cell_h : (cy_i + 1) * cell_h, cx_i * cell_w : (cx_i + 1) * cell_w]
+                hist, _ = np.histogram(c_ori, bins=8, range=(0.0, 180.0), weights=c_mag)
+                descriptor_128.extend(hist.tolist())
+
+        vec = np.asarray(descriptor_128, dtype=np.float64)
+        vec = vec - np.mean(vec)
+        norm = np.linalg.norm(vec)
+        if norm > 0:
+            vec = vec / norm
+        embedding = [round(float(val), 6) for val in vec]
+
+        faces.append({
+            "track_id": idx + 1,
+            "bounding_box": {
+                "x": int(x1),
+                "y": int(y1),
+                "w": int(x2 - x1),
+                "h": int(y2 - y1),
+            },
+            "embedding": embedding,
+            "quality_score": round(min(1.0, (sharpness / 60.0) * 0.5 + (1.0 - abs(brightness - 128.0) / 128.0) * 0.5), 3),
+            "liveness_score": liveness_score,
+            "liveness_passed": liveness_passed,
+            "brightness": round(brightness, 2),
+            "sharpness": round(sharpness, 2),
+        })
+
+    return faces
+
+
+def recognize_multi_face_frame(capture_payload: dict, decrypt_fn) -> dict:
+    """
+    Continuous-Entrance (Option B / Version 2) Multi-Face Recognition:
+    Processes a frame payload containing 0, 1, or multiple persons simultaneously.
+    Returns list of recognized faces with bounding boxes, match scores, and employee profiles.
+    """
+    faces_data = []
+
+    # Check for multi-person simulation payload (e.g. simulated_signatures or simulated_staff)
+    simulated_signatures = capture_payload.get("simulated_signatures")
+    simulated_staff = capture_payload.get("simulated_staff")
+    allow_sim = current_app.config.get("ALLOW_SIMULATED_BIOMETRICS", False) if has_app_context() else True
+
+    if allow_sim and (simulated_signatures or simulated_staff):
+        sigs = simulated_signatures or [f"FACE_SIG_{s}" for s in simulated_staff]
+        for idx, sig in enumerate(sigs):
+            vec = generate_deterministic_embedding(sig)
+            spacing = 640 // (len(sigs) + 1)
+            cx = spacing * (idx + 1)
+            faces_data.append({
+                "track_id": idx + 1,
+                "bounding_box": {"x": max(0, cx - 60), "y": 90, "w": 120, "h": 140},
+                "embedding": vec,
+                "quality_score": 0.95,
+                "liveness_score": 0.92,
+                "liveness_passed": True,
+                "brightness": 128.0,
+                "sharpness": 88.0,
+            })
+    else:
+        # Real optical camera base64 frame
+        img_b64 = capture_payload.get("image_base64")
+        if img_b64 and isinstance(img_b64, str):
+            clean_b64 = img_b64
+            if "," in clean_b64:
+                clean_b64 = clean_b64.split(",", 1)[1]
+            try:
+                img_bytes = base64.b64decode(clean_b64)
+                pil_img = Image.open(io.BytesIO(img_bytes))
+                faces_data = extract_multiple_faces_from_image(pil_img)
+            except Exception:
+                faces_data = []
+        elif capture_payload.get("biometric_signature"):
+            sig = capture_payload["biometric_signature"]
+            faces_data.append({
+                "track_id": 1,
+                "bounding_box": {"x": 240, "y": 90, "w": 160, "h": 180},
+                "embedding": generate_deterministic_embedding(sig),
+                "quality_score": 0.95,
+                "liveness_score": 0.92,
+                "liveness_passed": True,
+                "brightness": 128.0,
+                "sharpness": 85.0,
+            })
+
+    # Model parameters
+    match_threshold = current_app.config.get("RECOGNITION_MATCH_THRESHOLD", 0.40) if has_app_context() else 0.40
+    uncertain_threshold = current_app.config.get("RECOGNITION_UNCERTAIN_THRESHOLD", 0.28) if has_app_context() else 0.28
+    current_model = current_app.config.get("FACE_MODEL_NAME", "EIPC-Vision-Embedder") if has_app_context() else "EIPC-Vision-Embedder"
+    current_version = current_app.config.get("FACE_MODEL_VERSION", "1.0.0") if has_app_context() else "1.0.0"
+
+    all_active = FaceTemplate.query.filter_by(status="ACTIVE").all() if has_app_context() else []
+    active_templates = [
+        t for t in all_active
+        if t.model_name == current_model and t.model_version == current_version
+    ]
+
+    results = []
+    for face in faces_data:
+        probe_vec = face["embedding"]
+        best_score = -1.0
+        best_template = None
+
+        for tmpl in active_templates:
+            try:
+                stored_vec = decrypt_fn(tmpl.template_data)
+                score = cosine_similarity(probe_vec, stored_vec)
+                if score > best_score:
+                    best_score = score
+                    best_template = tmpl
+            except Exception:
+                continue
+
+        score_clamped = round(max(0.0, min(1.0, best_score)), 4)
+        emp = best_template.employee if best_template else None
+
+        if best_template is None or score_clamped < uncertain_threshold:
+            status = "UNKNOWN_FACE"
+            is_matched = False
+            emp_info = None
+        elif score_clamped < match_threshold:
+            status = "UNCERTAIN_MATCH"
+            is_matched = False
+            emp_info = None
+        elif emp and emp.status != "ACTIVE":
+            status = "EMPLOYEE_INACTIVE"
+            is_matched = False
+            emp_info = {
+                "id": emp.id,
+                "employee_number": emp.employee_number,
+                "full_name": emp.full_name,
+                "department": emp.department.name if emp.department else "",
+                "status": emp.status,
+            }
+        else:
+            status = "MATCHED"
+            is_matched = True
+            emp_info = {
+                "id": emp.id,
+                "employee_number": emp.employee_number,
+                "full_name": emp.full_name,
+                "department": emp.department.name if emp.department else "",
+                "job_category": emp.job_category,
+                "status": emp.status,
+            }
+
+        results.append({
+            "track_id": face["track_id"],
+            "bounding_box": face["bounding_box"],
+            "matched": is_matched,
+            "status": status,
+            "employee": emp_info,
+            "recognition_score": score_clamped,
+            "quality_score": face["quality_score"],
+            "liveness_score": face["liveness_score"],
+            "liveness_passed": face["liveness_passed"],
+        })
+
+    return {
+        "faces_detected": len(results),
+        "faces": results,
+    }
+
+
 def compute_biometric_evaluation_metrics(decrypt_fn=None) -> dict:
     """
     Empirical evaluation of Biometric Performance Metrics:

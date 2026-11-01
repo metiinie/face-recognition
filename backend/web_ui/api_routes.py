@@ -16,6 +16,9 @@ from backend.database.models import (
     ReviewCase,
     AuditLog,
     PolicySignoff,
+    ShiftTemplate,
+    ShiftAssignment,
+    ScheduleException,
     utc_to_local,
     local_to_utc,
     utc_now,
@@ -75,6 +78,7 @@ from backend.reports.service import (
     query_attendance_sessions,
     export_sessions_to_csv,
     evaluate_employee_daily_status,
+    get_hr_dashboard_summary,
 )
 from backend.database.migrations import (
     export_full_backup_snapshot,
@@ -436,26 +440,42 @@ def api_employees():
     user = get_current_user()
 
     if request.method == "GET":
-        emps = Employee.query.order_by(Employee.employee_number.asc()).all()
-        return jsonify({
-            "employees": [
-                {
-                    "id": e.id,
-                    "employee_number": e.employee_number,
-                    "first_name": e.first_name,
-                    "last_name": e.last_name,
-                    "full_name": e.full_name,
-                    "department_id": e.department_id,
-                    "department": e.department.name if e.department else "",
-                    "department_name": e.department.name if e.department else "",
-                    "job_category": e.job_category,
-                    "status": e.status,
-                    "consent_verified": bool(e.consent_verified),
-                    "has_active_template": e.active_template is not None,
-                }
-                for e in emps
-            ]
-        })
+        q_str = request.args.get("q", "").strip()
+        dept_id = request.args.get("department_id", type=int)
+
+        query = Employee.query
+        if q_str:
+            like_pat = f"%{q_str}%"
+            query = query.filter(
+                db.or_(
+                    Employee.employee_number.ilike(like_pat),
+                    Employee.first_name.ilike(like_pat),
+                    Employee.last_name.ilike(like_pat),
+                )
+            )
+        if dept_id:
+            query = query.filter_by(department_id=dept_id)
+
+        emps = query.order_by(Employee.employee_number.asc()).all()
+        res_list = []
+        for e in emps:
+            tmpl = e.active_template
+            res_list.append({
+                "id": e.id,
+                "employee_number": e.employee_number,
+                "first_name": e.first_name,
+                "last_name": e.last_name,
+                "full_name": e.full_name,
+                "department_id": e.department_id,
+                "department": e.department.name if e.department else "",
+                "department_name": e.department.name if e.department else "",
+                "job_category": e.job_category,
+                "status": e.status,
+                "consent_verified": bool(e.consent_verified),
+                "has_active_template": tmpl is not None,
+                "template_model_version": f"{tmpl.model_name} {tmpl.model_version}" if tmpl else None,
+            })
+        return jsonify({"employees": res_list})
 
     data = request.get_json(silent=True) or {}
     user = get_current_user()
@@ -477,10 +497,13 @@ def api_employees():
         "employee": {
             "id": emp.id,
             "employee_number": emp.employee_number,
+            "first_name": emp.first_name,
+            "last_name": emp.last_name,
             "full_name": emp.full_name,
             "department_id": emp.department_id,
             "job_category": emp.job_category,
             "status": emp.status,
+            "consent_verified": bool(emp.consent_verified),
         },
     }), 201
 
@@ -525,6 +548,80 @@ def api_employee_enroll(emp_id: int):
         "model_version": tmpl.model_version,
         "quality_score": tmpl.quality_score,
     }), 201
+
+
+@api_bp.route("/shifts/templates", methods=["GET"])
+@login_required
+def api_get_shift_templates():
+    """List all shift templates with Ethiopian clock translations (AT-15, AT-16)."""
+    templates = ShiftTemplate.query.order_by(ShiftTemplate.id.asc()).all()
+    return jsonify([
+        {
+            "id": t.id,
+            "name": t.name,
+            "job_category": t.job_category,
+            "start_time": t.start_time,
+            "end_time": t.end_time,
+            "spans_midnight": t.spans_midnight,
+            "is_24_hour": t.is_24_hour,
+            "break_rules": t.break_rules,
+            "grace_period_minutes": t.grace_period_minutes,
+            "early_checkin_window_minutes": t.early_checkin_window_minutes,
+            "hr_approved": t.hr_approved,
+            "status": t.status,
+            "ethiopian_display": t.ethiopian_time_display,
+        }
+        for t in templates
+    ]), 200
+
+
+@api_bp.route("/shifts/assignments", methods=["GET"])
+@login_required
+def api_get_shift_assignments():
+    """List employee effective-dated shift assignments (AT-19)."""
+    emp_id = request.args.get("employee_id", type=int)
+    q = ShiftAssignment.query
+    if emp_id:
+        q = q.filter_by(employee_id=emp_id)
+    assignments = q.order_by(ShiftAssignment.effective_from.desc()).all()
+    return jsonify([
+        {
+            "id": a.id,
+            "employee_id": a.employee_id,
+            "employee_number": a.employee.employee_number if a.employee else "",
+            "employee_name": f"{a.employee.first_name} {a.employee.last_name}" if a.employee else "",
+            "shift_template_id": a.shift_template_id,
+            "shift_name": a.shift_template.name if a.shift_template else "",
+            "ethiopian_display": a.shift_template.ethiopian_time_display if a.shift_template else "",
+            "effective_from": a.effective_from.isoformat(),
+            "effective_to": a.effective_to.isoformat() if a.effective_to else None,
+            "working_days": a.working_days,
+            "approved_by": a.approved_by,
+        }
+        for a in assignments
+    ]), 200
+
+
+@api_bp.route("/shifts/exceptions", methods=["GET"])
+@login_required
+def api_get_shift_exceptions():
+    """List holidays and approved leaves (AT-20)."""
+    exceptions = ScheduleException.query.order_by(ScheduleException.start_date.desc()).all()
+    return jsonify([
+        {
+            "id": e.id,
+            "title": e.title,
+            "exception_type": e.exception_type,
+            "employee_id": e.employee_id,
+            "employee_number": e.employee.employee_number if e.employee else "ALL",
+            "employee_name": f"{e.employee.first_name} {e.employee.last_name}" if e.employee else "All College Staff",
+            "start_date": e.start_date.isoformat(),
+            "end_date": e.end_date.isoformat(),
+            "reason": e.reason,
+            "approved_by": e.approved_by,
+        }
+        for e in exceptions
+    ]), 200
 
 
 @api_bp.route("/shifts/templates", methods=["POST"])
@@ -728,6 +825,28 @@ def api_create_user():
     }), 201
 
 
+@api_bp.route("/stations", methods=["GET"])
+@login_required
+def api_get_stations():
+    """List all registered departmental attendance stations (AT-24)."""
+    stations = AttendanceStation.query.order_by(AttendanceStation.station_code.asc()).all()
+    return jsonify([
+        {
+            "id": s.id,
+            "station_code": s.station_code,
+            "name": s.name,
+            "department_id": s.department_id,
+            "department_code": s.department.code if s.department else "",
+            "department_name": s.department.name if s.department else "",
+            "location": s.location,
+            "status": s.status,
+            "camera_status": s.camera_status,
+            "station_secret_token": s.station_secret_token,
+        }
+        for s in stations
+    ]), 200
+
+
 @api_bp.route("/stations", methods=["POST"])
 @admin_required
 def api_create_station():
@@ -794,6 +913,70 @@ def api_export_csv():
         mimetype="text/csv",
         headers={"Content-Disposition": "attachment; filename=eipc_attendance_export.csv"},
     )
+
+
+@api_bp.route("/reports/sessions", methods=["GET"])
+@permission_required("reports.view")
+def api_reports_sessions():
+    """Return filtered attendance sessions in JSON format."""
+    dept_id = request.args.get("department_id", type=int)
+    emp_id = request.args.get("employee_id", type=int)
+    status = request.args.get("status")
+    arrival_status = request.args.get("arrival_status")
+    capture_method = request.args.get("capture_method")
+    date_from_str = request.args.get("date_from")
+    date_to_str = request.args.get("date_to")
+
+    d_from = date.fromisoformat(date_from_str) if date_from_str else None
+    d_to = date.fromisoformat(date_to_str) if date_to_str else None
+
+    sessions = query_attendance_sessions(
+        department_id=dept_id,
+        employee_id=emp_id,
+        date_from=d_from,
+        date_to=d_to,
+        status=status,
+        arrival_status=arrival_status,
+        capture_method=capture_method,
+    )
+
+    out = []
+    for s in sessions:
+        ci = s.check_in_event
+        co = s.check_out_event
+        out.append({
+            "id": s.id,
+            "work_date": s.work_date.isoformat(),
+            "employee_id": s.employee_id,
+            "employee_number": s.employee.employee_number if s.employee else "",
+            "employee_name": s.employee.full_name if s.employee else "",
+            "department_id": s.employee.department_id if s.employee else None,
+            "department_name": s.employee.department.name if (s.employee and s.employee.department) else "",
+            "job_category": s.employee.job_category if s.employee else "",
+            "shift_start_eat": utc_to_local(s.shift_start_at).strftime("%Y-%m-%d %H:%M"),
+            "shift_end_eat": utc_to_local(s.shift_end_at).strftime("%Y-%m-%d %H:%M"),
+            "arrival_status": s.arrival_status,
+            "late_minutes": s.late_minutes,
+            "status": s.status,
+            "is_corrected": s.is_corrected,
+            "check_in": {
+                "id": ci.id,
+                "time_eat": utc_to_local(ci.occurred_at).strftime("%H:%M:%S"),
+                "timestamp": utc_to_local(ci.occurred_at).isoformat(),
+                "capture_method": ci.capture_method,
+                "station_code": ci.station.station_code if ci.station else "HR",
+                "score": ci.recognition_score,
+            } if ci else None,
+            "check_out": {
+                "id": co.id,
+                "time_eat": utc_to_local(co.occurred_at).strftime("%H:%M:%S"),
+                "timestamp": utc_to_local(co.occurred_at).isoformat(),
+                "capture_method": co.capture_method,
+                "station_code": co.station.station_code if co.station else "HR",
+                "score": co.recognition_score,
+            } if co else None,
+        })
+    return jsonify({"sessions": out, "total": len(out)})
 
 
 @api_bp.route("/admin/backup-verify", methods=["POST"])
@@ -924,7 +1107,19 @@ def api_face_recognize():
 
     emp = rec_result["employee"]
     score = rec_result["recognition_score"]
-    token = issue_recognition_token(emp.id, 1, score)
+
+    st_code_or_id = data.get("station_id") or data.get("station_code")
+    st = None
+    if st_code_or_id:
+        if str(st_code_or_id).isdigit():
+            st = db.session.get(AttendanceStation, int(st_code_or_id))
+        if not st:
+            st = AttendanceStation.query.filter_by(station_code=str(st_code_or_id).strip().upper()).first()
+    if not st:
+        st = AttendanceStation.query.filter_by(status="ACTIVE").first()
+    resolved_station_id = st.id if st else 1
+
+    token = issue_recognition_token(emp.id, resolved_station_id, score)
 
     return jsonify({
         "matched": True,
@@ -1017,7 +1212,7 @@ def api_attendance_confirm():
         station=station,
         event_type=event_type,
         recognition_score=score,
-        capture_method="KIOSK_FACIAL",
+        capture_method="BIOMETRIC",
     )
     if err_code:
         return jsonify({"error": err_msg, "error_code": err_code}), 400
@@ -1038,59 +1233,19 @@ def api_attendance_confirm():
 @api_bp.route("/attendance/summary", methods=["GET"])
 def api_attendance_summary():
     """Return dashboard summary stats."""
+    summary = get_hr_dashboard_summary(target_date=date.today())
     total_emp = Employee.query.filter_by(status="ACTIVE").count()
-    today_sessions = AttendanceSession.query.filter_by(session_date=date.today()).all()
-    present_count = len(today_sessions)
-    late_count = sum(1 for s in today_sessions if s.is_late)
-    unresolved_reviews = ReviewCase.query.filter_by(status="OPEN").count()
 
     return jsonify({
         "total_employees": total_emp,
-        "present_count": present_count,
-        "late_count": late_count,
-        "unresolved_reviews": unresolved_reviews,
+        "present_count": summary["total_sessions"],
+        "checkins_count": summary["total_checkins"],
+        "checkouts_count": summary["total_checkouts"],
+        "late_count": summary["late_count"],
+        "on_time_count": summary["on_time_count"],
+        "open_sessions_count": summary["open_sessions_count"],
+        "unresolved_reviews": summary["open_review_cases_count"],
     })
-
-
-@api_bp.route("/employees", methods=["GET"])
-def api_list_employees():
-    """Return employee roster with biometric status."""
-    q_str = request.args.get("q", "").strip()
-    dept_id = request.args.get("department_id", type=int)
-
-    query = Employee.query
-    if q_str:
-        like_pat = f"%{q_str}%"
-        query = query.filter(
-            db.or_(
-                Employee.employee_number.ilike(like_pat),
-                Employee.first_name.ilike(like_pat),
-                Employee.last_name.ilike(like_pat),
-            )
-        )
-    if dept_id:
-        query = query.filter_by(department_id=dept_id)
-
-    employees = query.order_by(Employee.employee_number.asc()).all()
-    active_model = current_app.config.get("FACE_MODEL_NAME", "EIPC-Vision-Embedder")
-
-    res = []
-    for emp in employees:
-        active_tmpl = FaceTemplate.query.filter_by(employee_id=emp.id, status="ACTIVE").first()
-        res.append({
-            "id": emp.id,
-            "employee_number": emp.employee_number,
-            "first_name": emp.first_name,
-            "last_name": emp.last_name,
-            "job_category": emp.job_category,
-            "department_id": emp.department_id,
-            "department_name": emp.department.name if emp.department else "General",
-            "status": emp.status,
-            "has_active_template": active_tmpl is not None,
-            "template_model_version": f"{active_tmpl.model_name} {active_tmpl.model_version}" if active_tmpl else None,
-            "consent_verified": emp.consent_verified,
-        })
-    return jsonify(res)
 
 
 @api_bp.route("/audit-logs", methods=["GET"])
@@ -1120,10 +1275,100 @@ def api_list_review_cases():
         {
             "id": c.id,
             "status": c.status,
-            "review_type": c.review_type,
-            "notes": c.notes,
+            "case_type": c.case_type,
+            "review_type": c.case_type,
+            "reason": c.reason,
+            "notes": c.reason,
+            "station_id": c.station_id,
+            "station_code": c.station.station_code if c.station else None,
+            "claimed_employee_number": c.claimed_employee_number,
+            "candidate_employee_id": c.candidate_employee_id,
+            "recognition_score": c.recognition_score,
             "created_at": c.created_at.isoformat() if c.created_at else None,
         }
         for c in cases
     ])
 
+
+@api_bp.route("/review-cases/<int:case_id>/dismiss", methods=["POST"])
+@permission_required("attendance.review")
+def api_dismiss_review_case(case_id: int):
+    """Dismiss or reject an unauthorized/spurious review case."""
+    data = request.get_json(silent=True) or {}
+    user = get_current_user()
+    reason = data.get("reason", "Dismissed by HR - non-employee or resolved out of band")
+    rc = db.session.get(ReviewCase, case_id)
+    if not rc:
+        return jsonify({"error": "Review case not found"}), 404
+    with transactional_session() as session:
+        rc_db = session.get(ReviewCase, case_id)
+        rc_db.status = "REJECTED"
+        rc_db.resolution_notes = reason.strip()
+        rc_db.resolved_by_user_id = user.id if user else None
+        rc_db.resolved_at = utc_now()
+        record_audit_log(
+            action="REVIEW_CASE_REJECTED",
+            target_type="REVIEW_CASE",
+            target_id=rc_db.id,
+            reason=reason.strip(),
+            actor_user_id=user.id if user else None,
+            actor_username=user.username if user else "HR",
+        )
+    return jsonify({"status": "REJECTED", "message": f"Review case #{case_id} dismissed."})
+
+
+
+@api_bp.route("/policies", methods=["GET"])
+@login_required
+def api_get_policies():
+    """List Section 8 operational policy sign-offs."""
+    policies = PolicySignoff.query.order_by(PolicySignoff.id.asc()).all()
+    return jsonify([
+        {
+            "id": p.id,
+            "policy_code": p.policy_code,
+            "title": p.title,
+            "description": p.description,
+            "status": p.status,
+            "decision_notes": p.decision_notes,
+            "confirmed_by": p.confirmed_by,
+            "updated_at": p.updated_at.isoformat() if p.updated_at else None,
+        }
+        for p in policies
+    ]), 200
+
+
+@api_bp.route("/policies/<int:policy_id>", methods=["POST"])
+@admin_required
+def api_update_policy(policy_id: int):
+    """Update policy sign-off status with immutable audit logging."""
+    data = request.get_json(silent=True) or {}
+    user = get_current_user()
+    pol = db.session.get(PolicySignoff, policy_id)
+    if not pol:
+        return jsonify({"error": "Policy sign-off not found"}), 404
+
+    new_status = data.get("status", pol.status)
+    notes = data.get("decision_notes", pol.decision_notes)
+    confirmed_by = data.get("confirmed_by") or (user.username if user else "ADMIN")
+
+    with transactional_session():
+        pol.status = new_status
+        pol.decision_notes = notes
+        if new_status == "CONFIRMED":
+            pol.confirmed_by = confirmed_by
+        record_audit_log(
+            action="POLICY_SIGNOFF_UPDATED",
+            target_type="POLICY",
+            target_id=pol.policy_code,
+            reason=f"Status: {new_status}; Confirmed by: {pol.confirmed_by}; Notes: {notes}",
+            actor_user_id=user.id if user else None,
+            actor_username=user.username if user else "ADMIN",
+        )
+    return jsonify({
+        "id": pol.id,
+        "policy_code": pol.policy_code,
+        "status": pol.status,
+        "decision_notes": pol.decision_notes,
+        "confirmed_by": pol.confirmed_by,
+    }), 200

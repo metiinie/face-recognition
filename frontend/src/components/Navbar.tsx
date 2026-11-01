@@ -12,6 +12,8 @@ import {
   Clock,
   Building2,
   Lock,
+  FileText,
+  CalendarClock,
 } from "lucide-react";
 import { Badge } from "./ui/Badge";
 import { getStoredUser, removeStoredToken, UserProfile } from "@/lib/api";
@@ -49,7 +51,9 @@ export function Navbar() {
     { name: "Kiosk Station", href: "/kiosk", icon: Camera },
     { name: "HR Dashboard", href: "/dashboard", icon: LayoutDashboard },
     { name: "Employees", href: "/employees", icon: Users },
-    { name: "Biometrics Lab (FAR/FRR)", href: "/biometrics", icon: LineChart },
+    { name: "Reports & CSV", href: "/reports", icon: FileText },
+    { name: "Schedules & Stations", href: "/schedules", icon: CalendarClock },
+    { name: "Biometrics Lab", href: "/biometrics", icon: LineChart },
     { name: "Audit & Review", href: "/audit", icon: ShieldAlert },
   ];
 
@@ -161,4 +165,3 @@ export function Navbar() {
     </header>
   );
 }
-

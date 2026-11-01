@@ -1,12 +1,12 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import Link from "next/link";
 import { CameraCapture } from "@/components/CameraCapture";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
-import { api, RecognitionResult, AttendanceConfirmResponse } from "@/lib/api";
+import { api, RecognitionResult, AttendanceConfirmResponse, StationRecord } from "@/lib/api";
 import {
   CheckCircle2,
   AlertTriangle,
@@ -23,7 +23,21 @@ import {
 } from "lucide-react";
 
 export default function KioskPage() {
-  const [stationId, setStationId] = useState("STATION_MAIN_GATE");
+  const [stationId, setStationId] = useState("ST-ICT-01");
+  const [stationsList, setStationsList] = useState<StationRecord[]>([]);
+
+  useEffect(() => {
+    api.getStations()
+      .then((data) => {
+        if (data && data.length > 0) {
+          setStationsList(data);
+          setStationId(data[0].station_code);
+        }
+      })
+      .catch((err) => {
+        console.warn("Could not load dynamic stations, using defaults:", err);
+      });
+  }, []);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isConfirming, setIsConfirming] = useState(false);
 
@@ -59,6 +73,31 @@ export default function KioskPage() {
       }
     } catch (err: any) {
       console.error("Recognition call failed:", err);
+      setFeedbackError(err.message || "Failed to communicate with attendance server.");
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleSimulateScan = async (signature: string, label: string) => {
+    setIsProcessing(true);
+    setFeedbackError(null);
+    setPunchError(null);
+    setAttendanceOutcome(null);
+
+    try {
+      const res = await api.recognizeFace({
+        biometric_signature: signature,
+        station_id: stationId,
+        quality_mode: "SIMULATION",
+      });
+      setRecognition(res);
+
+      if (!res.matched) {
+        setFeedbackError(res.rejection_message || `${label}: Match rejected by face engine.`);
+      }
+    } catch (err: any) {
+      console.error("Simulation failed:", err);
       setFeedbackError(err.message || "Failed to communicate with attendance server.");
     } finally {
       setIsProcessing(false);
@@ -142,9 +181,20 @@ export default function KioskPage() {
             onChange={(e) => setStationId(e.target.value)}
             className="rounded-lg bg-slate-900/90 px-3 py-1 text-xs text-white border border-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
           >
-            <option value="STATION_MAIN_GATE">Main Campus Gate (Kiosk #1)</option>
-            <option value="STATION_ACADEMIC_BLOCK">Academic Block A (Kiosk #2)</option>
-            <option value="STATION_WORKSHOP">Automotive Workshop (Kiosk #3)</option>
+            {stationsList.length > 0 ? (
+              stationsList.map((st) => (
+                <option key={st.id} value={st.station_code}>
+                  {st.station_code} — {st.name} ({st.department_code})
+                </option>
+              ))
+            ) : (
+              <>
+                <option value="ST-ICT-01">Block A - ICT Wing (Kiosk #1)</option>
+                <option value="ST-AUTO-01">Automotive & Mechanical (Kiosk #2)</option>
+                <option value="ST-CIVIL-01">Textile & Civil Block (Kiosk #3)</option>
+                <option value="ST-GATE-01">Main Campus Gate (Kiosk #4)</option>
+              </>
+            )}
           </select>
         </div>
       </div>
@@ -167,6 +217,58 @@ export default function KioskPage() {
               <span className="flex items-center gap-1 font-mono">
                 <Zap className="h-3.5 w-3.5 text-amber-400" /> Target Latency: &lt; 250ms
               </span>
+            </div>
+
+            {/* Quick Test Simulation Strip */}
+            <div className="mt-3 rounded-xl border border-slate-800 bg-slate-900/80 p-3">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-[11px] font-semibold text-slate-300">
+                  Quick Simulation Mode (Kiosk Testing):
+                </span>
+                <span className="text-[10px] text-blue-400 font-mono">ALLOW_SIMULATED_BIOMETRICS=1</span>
+              </div>
+              <div className="flex flex-wrap gap-1.5">
+                <button
+                  type="button"
+                  disabled={isProcessing}
+                  onClick={() => handleSimulateScan("FACE_SIG_EIPC-EMP-001", "Abebe Kebede")}
+                  className="rounded bg-slate-800 hover:bg-blue-600 px-2 py-1 text-[10px] font-medium text-slate-200 transition-colors"
+                >
+                  👤 Abebe Kebede
+                </button>
+                <button
+                  type="button"
+                  disabled={isProcessing}
+                  onClick={() => handleSimulateScan("FACE_SIG_EIPC-EMP-002", "Hanna Mekonnen")}
+                  className="rounded bg-slate-800 hover:bg-blue-600 px-2 py-1 text-[10px] font-medium text-slate-200 transition-colors"
+                >
+                  👤 Hanna Mekonnen
+                </button>
+                <button
+                  type="button"
+                  disabled={isProcessing}
+                  onClick={() => handleSimulateScan("FACE_SIG_EIPC-EMP-003", "Chaltu Girma")}
+                  className="rounded bg-slate-800 hover:bg-blue-600 px-2 py-1 text-[10px] font-medium text-slate-200 transition-colors"
+                >
+                  👤 Chaltu Girma
+                </button>
+                <button
+                  type="button"
+                  disabled={isProcessing}
+                  onClick={() => handleSimulateScan("UNKNOWN_PERSON_001", "Unknown Visitor")}
+                  className="rounded bg-slate-800 hover:bg-amber-600 px-2 py-1 text-[10px] font-medium text-slate-200 transition-colors"
+                >
+                  ❓ Unknown Visitor
+                </button>
+                <button
+                  type="button"
+                  disabled={isProcessing}
+                  onClick={() => handleSimulateScan("POOR_LIGHTING", "Poor Lighting")}
+                  className="rounded bg-slate-800 hover:bg-rose-600 px-2 py-1 text-[10px] font-medium text-slate-200 transition-colors"
+                >
+                  ⚠️ Obstructed / Glare
+                </button>
+              </div>
             </div>
           </Card>
         </div>
