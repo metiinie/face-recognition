@@ -141,13 +141,25 @@ class ContinuousEntranceManager:
                     face_result["message"] = f"Passage recorded. Cooldown active ({remaining}s remaining)."
                 else:
                     # Determine directional action
+                    open_sess = get_open_session_for_employee(emp_id)
                     if gate_mode == "IN":
+                        if open_sess:
+                            face_result["action_status"] = "ALREADY_CHECKED_IN"
+                            face_result["attendance_action"] = "CHECK_IN"
+                            face_result["message"] = f"{emp_info.get('full_name')} already has an open session."
+                            processed_faces.append(face_result)
+                            continue
                         action = "CHECK_IN"
                     elif gate_mode == "OUT":
+                        if not open_sess:
+                            face_result["action_status"] = "NO_OPEN_SESSION"
+                            face_result["attendance_action"] = "CHECK_OUT"
+                            face_result["message"] = f"No open check-in session found for {emp_info.get('full_name')}."
+                            processed_faces.append(face_result)
+                            continue
                         action = "CHECK_OUT"
                     else:
                         # AUTO_DETECT: if employee has open session -> checkout, else checkin
-                        open_sess = get_open_session_for_employee(emp_id)
                         action = "CHECK_OUT" if open_sess else "CHECK_IN"
 
                     # Execute atomic attendance event recording

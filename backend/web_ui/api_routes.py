@@ -86,6 +86,10 @@ from backend.database.migrations import (
     verify_relational_integrity,
 )
 from backend.audit.service import record_audit_log
+from backend.continuous_entrance.service import (
+    ContinuousEntranceManager,
+    process_continuous_entrance_frame,
+)
 
 api_bp = Blueprint("api", __name__, url_prefix="/api")
 
@@ -1372,3 +1376,99 @@ def api_update_policy(policy_id: int):
         "decision_notes": pol.decision_notes,
         "confirmed_by": pol.confirmed_by,
     }), 200
+
+
+# ==============================================================================
+# VERSION 2 / OPTION B — CONTINUOUS ENTRANCE MULTI-FACE PIPELINE (AT-24 & OPTION B)
+# ==============================================================================
+
+@api_bp.route("/v2/entrance/process-frame", methods=["POST"])
+def api_v2_process_entrance_frame():
+    """
+    Version 2 / Option B Continuous Entrance Pipeline:
+    Processes full multi-person video frame, tracks multiple passing employees,
+    evaluates pass-through cooldown, and automatically logs attendance punches.
+    """
+    data = request.get_json(silent=True) or {}
+    st_code_or_id = data.get("station_code") or data.get("station_id") or "ST-GATE-01"
+    station = None
+    if isinstance(st_code_or_id, int) or str(st_code_or_id).isdigit():
+        station = db.session.get(AttendanceStation, int(st_code_or_id))
+    if not station:
+        station = AttendanceStation.query.filter_by(station_code=str(st_code_or_id).strip().upper()).first()
+    if not station:
+        station = AttendanceStation.query.filter_by(status="ACTIVE").first()
+    if not station:
+        return jsonify({"error": "No active attendance station available for entrance gate."}), 400
+
+    gate_mode = data.get("gate_mode")
+    res = process_continuous_entrance_frame(
+        station=station,
+        frame_payload=data,
+        override_gate_mode=gate_mode,
+    )
+    return jsonify(res), 200
+
+
+@api_bp.route("/v2/entrance/status", methods=["GET"])
+def api_v2_entrance_status():
+    """
+    Return live continuous gate status, camera state, today's entry/exit counts,
+    and recent gate passage history.
+    """
+    st_code = request.args.get("station_code", "ST-GATE-01")
+    station = AttendanceStation.query.filter_by(station_code=st_code.strip().upper()).first()
+    if not station:
+        station = AttendanceStation.query.filter_by(status="ACTIVE").first()
+    if not station:
+        return jsonify({"error": "No active station configured."}), 404
+
+    manager = ContinuousEntranceManager.get_instance()
+    status = manager.get_gate_status(station)
+    return jsonify(status), 200
+
+
+@api_bp.route("/v2/entrance/gate-config", methods=["POST"])
+@login_required
+def api_v2_entrance_config():
+    """
+    Configure gate mode (IN, OUT, AUTO_DETECT) and cooldown period for continuous gate.
+    """
+    data = request.get_json(silent=True) or {}
+    st_code = data.get("station_code", "ST-GATE-01")
+    gate_mode = data.get("gate_mode", "AUTO_DETECT")
+    cooldown = data.get("cooldown_sec", 20)
+
+    manager = ContinuousEntranceManager.get_instance()
+    cfg = manager.configure_gate(st_code, gate_mode=gate_mode, cooldown_sec=cooldown)
+    return jsonify({
+        "station_code": st_code,
+        "configured": True,
+        "gate_config": cfg,
+    }), 200
+
+
+@api_bp.route("/v2/entrance/simulate", methods=["POST"])
+def api_v2_entrance_simulate():
+    """
+    Simulate multi-person continuous gate passage (e.g. 2 staff entering together,
+    crowd with unknown visitor, or rapid sequence).
+    """
+    data = request.get_json(silent=True) or {}
+    st_code = data.get("station_code", "ST-GATE-01")
+    staff_list = data.get("simulated_staff") or ["EIPC-EMP-001", "EIPC-EMP-002"]
+    gate_mode = data.get("gate_mode", "AUTO_DETECT")
+
+    station = AttendanceStation.query.filter_by(station_code=st_code.strip().upper()).first()
+    if not station:
+        station = AttendanceStation.query.filter_by(status="ACTIVE").first()
+    if not station:
+        return jsonify({"error": "No active station available."}), 400
+
+    payload = {
+        "simulated_staff": staff_list,
+        "gate_mode": gate_mode,
+    }
+    manager = ContinuousEntranceManager.get_instance()
+    res = manager.process_frame(station, payload, override_gate_mode=gate_mode)
+    return jsonify(res), 200
