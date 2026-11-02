@@ -381,33 +381,33 @@ def _extract_embedding_from_pil(img: Image.Image) -> tuple[list[float], dict]:
 
     # 1. Primary: Extract 128-D SFace deep neural embedding
     neural_emb = extract_neural_embedding(aligned_pil)
-    if neural_emb is not None:
-        embedding = neural_emb
-    else:
-        # Fallback: Extract 128-D spatial gradient orientation descriptor (16 cells x 8 bins)
-        gx = np.diff(gray, axis=1)
-        gy = np.diff(gray, axis=0)
-        gx = np.pad(gx, ((0, 0), (0, 1)), mode="edge")[16:144, 16:144]
-        gy = np.pad(gy, ((0, 1), (0, 0)), mode="edge")[16:144, 16:144]
 
-        magnitude = np.sqrt(gx**2 + gy**2)
-        orientation = (np.arctan2(gy, gx) * (180.0 / np.pi)) % 180.0
+    # 2. Extract 128-D spatial gradient orientation descriptor (for legacy templates & dual-matching)
+    gx = np.diff(gray, axis=1)
+    gy = np.diff(gray, axis=0)
+    gx = np.pad(gx, ((0, 0), (0, 1)), mode="edge")[16:144, 16:144]
+    gy = np.pad(gy, ((0, 1), (0, 0)), mode="edge")[16:144, 16:144]
 
-        cell_h, cell_w = 32, 32
-        descriptor_128 = []
-        for cy in range(4):
-            for cx in range(4):
-                c_mag = magnitude[cy * cell_h : (cy + 1) * cell_h, cx * cell_w : (cx + 1) * cell_w]
-                c_ori = orientation[cy * cell_h : (cy + 1) * cell_h, cx * cell_w : (cx + 1) * cell_w]
-                hist, _ = np.histogram(c_ori, bins=8, range=(0.0, 180.0), weights=c_mag)
-                descriptor_128.extend(hist.tolist())
+    magnitude = np.sqrt(gx**2 + gy**2)
+    orientation = (np.arctan2(gy, gx) * (180.0 / np.pi)) % 180.0
 
-        vec = np.asarray(descriptor_128, dtype=np.float64)
-        vec = vec - np.mean(vec)
-        norm = np.linalg.norm(vec)
-        if norm > 0:
-            vec = vec / norm
-        embedding = [round(float(val), 6) for val in vec]
+    cell_h, cell_w = 32, 32
+    descriptor_128 = []
+    for cy in range(4):
+        for cx in range(4):
+            c_mag = magnitude[cy * cell_h : (cy + 1) * cell_h, cx * cell_w : (cx + 1) * cell_w]
+            c_ori = orientation[cy * cell_h : (cy + 1) * cell_h, cx * cell_w : (cx + 1) * cell_w]
+            hist, _ = np.histogram(c_ori, bins=8, range=(0.0, 180.0), weights=c_mag)
+            descriptor_128.extend(hist.tolist())
+
+    vec = np.asarray(descriptor_128, dtype=np.float64)
+    vec = vec - np.mean(vec)
+    norm = np.linalg.norm(vec)
+    if norm > 0:
+        vec = vec / norm
+    gradient_emb = [round(float(val), 6) for val in vec]
+
+    embedding = neural_emb if neural_emb is not None else gradient_emb
 
     quality = {
         "brightness": round(brightness, 2),
@@ -420,6 +420,8 @@ def _extract_embedding_from_pil(img: Image.Image) -> tuple[list[float], dict]:
         "faces_count": faces_count,
         "face_detected": face_detected,
         "obstructed": obstructed,
+        "neural_embedding": neural_emb,
+        "gradient_embedding": gradient_emb,
     }
     return embedding, quality
 
@@ -700,6 +702,8 @@ def analyze_and_extract_embedding(capture_payload: dict) -> dict:
         "quality_score": quality_score,
         "quality_details": quality_details,
         "embedding": embedding,
+        "neural_embedding": img_quality.get("neural_embedding") or embedding,
+        "gradient_embedding": img_quality.get("gradient_embedding") or embedding,
     }
 
 
@@ -749,16 +753,19 @@ def recognize_face_candidate(capture_payload: dict, decrypt_fn) -> dict:
     best_score = -1.0
     best_template = None
 
+    probe_neural = extraction.get("neural_embedding") or probe_embedding
+    probe_gradient = extraction.get("gradient_embedding") or probe_embedding
+
     for tmpl in active_templates:
         try:
             stored_vec = decrypt_fn(tmpl.template_data)
-            score = cosine_similarity(probe_embedding, stored_vec)
-            print(f"[CANDIDATE] emp={tmpl.employee_id} ({tmpl.employee.employee_number if tmpl.employee else '?'}) score={score:.4f}", flush=True)
+            score_neural = cosine_similarity(probe_neural, stored_vec) if probe_neural else -1.0
+            score_gradient = cosine_similarity(probe_gradient, stored_vec) if probe_gradient else -1.0
+            score = max(score_neural, score_gradient)
             if score > best_score:
                 best_score = score
                 best_template = tmpl
         except Exception as e:
-            print(f"[CANDIDATE ERROR] tmpl={tmpl.id}: {e}", flush=True)
             continue
 
     best_score_clamped = round(max(0.0, min(1.0, best_score)), 4)
@@ -880,33 +887,33 @@ def extract_multiple_faces_from_image(img: Image.Image) -> list[dict]:
 
             # 1. Primary: Extract 128-D SFace deep neural embedding
             neural_vec = extract_neural_embedding(face_crop)
-            if neural_vec is not None:
-                embedding = neural_vec
-            else:
-                # Fallback: 128-D spatial gradient descriptor
-                gx = np.diff(crop_gray, axis=1)
-                gy = np.diff(crop_gray, axis=0)
-                gx = np.pad(gx, ((0, 0), (0, 1)), mode="edge")[16:144, 16:144]
-                gy = np.pad(gy, ((0, 1), (0, 0)), mode="edge")[16:144, 16:144]
 
-                magnitude = np.sqrt(gx**2 + gy**2)
-                orientation = (np.arctan2(gy, gx) * (180.0 / np.pi)) % 180.0
+            # 2. Extract 128-D spatial gradient descriptor for legacy template matching
+            gx = np.diff(crop_gray, axis=1)
+            gy = np.diff(crop_gray, axis=0)
+            gx = np.pad(gx, ((0, 0), (0, 1)), mode="edge")[16:144, 16:144]
+            gy = np.pad(gy, ((0, 1), (0, 0)), mode="edge")[16:144, 16:144]
 
-                cell_h, cell_w = 32, 32
-                descriptor_128 = []
-                for cy_i in range(4):
-                    for cx_i in range(4):
-                        c_mag = magnitude[cy_i * cell_h : (cy_i + 1) * cell_h, cx_i * cell_w : (cx_i + 1) * cell_w]
-                        c_ori = orientation[cy_i * cell_h : (cy_i + 1) * cell_h, cx_i * cell_w : (cx_i + 1) * cell_w]
-                        hist, _ = np.histogram(c_ori, bins=8, range=(0.0, 180.0), weights=c_mag)
-                        descriptor_128.extend(hist.tolist())
+            magnitude = np.sqrt(gx**2 + gy**2)
+            orientation = (np.arctan2(gy, gx) * (180.0 / np.pi)) % 180.0
 
-                vec = np.asarray(descriptor_128, dtype=np.float64)
-                vec = vec - np.mean(vec)
-                norm = np.linalg.norm(vec)
-                if norm > 0:
-                    vec = vec / norm
-                embedding = [round(float(val), 6) for val in vec]
+            cell_h, cell_w = 32, 32
+            descriptor_128 = []
+            for cy_i in range(4):
+                for cx_i in range(4):
+                    c_mag = magnitude[cy_i * cell_h : (cy_i + 1) * cell_h, cx_i * cell_w : (cx_i + 1) * cell_w]
+                    c_ori = orientation[cy_i * cell_h : (cy_i + 1) * cell_h, cx_i * cell_w : (cx_i + 1) * cell_w]
+                    hist, _ = np.histogram(c_ori, bins=8, range=(0.0, 180.0), weights=c_mag)
+                    descriptor_128.extend(hist.tolist())
+
+            vec = np.asarray(descriptor_128, dtype=np.float64)
+            vec = vec - np.mean(vec)
+            norm = np.linalg.norm(vec)
+            if norm > 0:
+                vec = vec / norm
+            gradient_vec = [round(float(val), 6) for val in vec]
+
+            embedding = neural_vec if neural_vec is not None else gradient_vec
 
             faces.append({
                 "track_id": idx + 1,
@@ -917,6 +924,8 @@ def extract_multiple_faces_from_image(img: Image.Image) -> list[dict]:
                     "h": int(bh),
                 },
                 "embedding": embedding,
+                "neural_embedding": neural_vec,
+                "gradient_embedding": gradient_vec,
                 "quality_score": round(min(1.0, (sharpness / 60.0) * 0.5 + (1.0 - abs(brightness - 128.0) / 128.0) * 0.5), 3),
                 "liveness_score": liveness_score,
                 "liveness_passed": liveness_passed,
@@ -1018,33 +1027,33 @@ def extract_multiple_faces_from_image(img: Image.Image) -> list[dict]:
 
         # 1. Primary: Extract 128-D SFace deep neural embedding
         neural_vec = extract_neural_embedding(face_crop)
-        if neural_vec is not None:
-            embedding = neural_vec
-        else:
-            # Fallback: 128-D spatial gradient descriptor
-            gx = np.diff(crop_gray, axis=1)
-            gy = np.diff(crop_gray, axis=0)
-            gx = np.pad(gx, ((0, 0), (0, 1)), mode="edge")[16:144, 16:144]
-            gy = np.pad(gy, ((0, 1), (0, 0)), mode="edge")[16:144, 16:144]
 
-            magnitude = np.sqrt(gx**2 + gy**2)
-            orientation = (np.arctan2(gy, gx) * (180.0 / np.pi)) % 180.0
+        # 2. Extract 128-D spatial gradient descriptor for legacy template matching
+        gx = np.diff(crop_gray, axis=1)
+        gy = np.diff(crop_gray, axis=0)
+        gx = np.pad(gx, ((0, 0), (0, 1)), mode="edge")[16:144, 16:144]
+        gy = np.pad(gy, ((0, 1), (0, 0)), mode="edge")[16:144, 16:144]
 
-            cell_h, cell_w = 32, 32
-            descriptor_128 = []
-            for cy_i in range(4):
-                for cx_i in range(4):
-                    c_mag = magnitude[cy_i * cell_h : (cy_i + 1) * cell_h, cx_i * cell_w : (cx_i + 1) * cell_w]
-                    c_ori = orientation[cy_i * cell_h : (cy_i + 1) * cell_h, cx_i * cell_w : (cx_i + 1) * cell_w]
-                    hist, _ = np.histogram(c_ori, bins=8, range=(0.0, 180.0), weights=c_mag)
-                    descriptor_128.extend(hist.tolist())
+        magnitude = np.sqrt(gx**2 + gy**2)
+        orientation = (np.arctan2(gy, gx) * (180.0 / np.pi)) % 180.0
 
-            vec = np.asarray(descriptor_128, dtype=np.float64)
-            vec = vec - np.mean(vec)
-            norm = np.linalg.norm(vec)
-            if norm > 0:
-                vec = vec / norm
-            embedding = [round(float(val), 6) for val in vec]
+        cell_h, cell_w = 32, 32
+        descriptor_128 = []
+        for cy_i in range(4):
+            for cx_i in range(4):
+                c_mag = magnitude[cy_i * cell_h : (cy_i + 1) * cell_h, cx_i * cell_w : (cx_i + 1) * cell_w]
+                c_ori = orientation[cy_i * cell_h : (cy_i + 1) * cell_h, cx_i * cell_w : (cx_i + 1) * cell_w]
+                hist, _ = np.histogram(c_ori, bins=8, range=(0.0, 180.0), weights=c_mag)
+                descriptor_128.extend(hist.tolist())
+
+        vec = np.asarray(descriptor_128, dtype=np.float64)
+        vec = vec - np.mean(vec)
+        norm = np.linalg.norm(vec)
+        if norm > 0:
+            vec = vec / norm
+        gradient_vec = [round(float(val), 6) for val in vec]
+
+        embedding = neural_vec if neural_vec is not None else gradient_vec
 
         faces.append({
             "track_id": idx + 1,
@@ -1055,6 +1064,8 @@ def extract_multiple_faces_from_image(img: Image.Image) -> list[dict]:
                 "h": orig_bh,
             },
             "embedding": embedding,
+            "neural_embedding": neural_vec,
+            "gradient_embedding": gradient_vec,
             "quality_score": round(min(1.0, (sharpness / 60.0) * 0.5 + (1.0 - abs(brightness - 128.0) / 128.0) * 0.5), 3),
             "liveness_score": liveness_score,
             "liveness_passed": liveness_passed,
@@ -1134,14 +1145,17 @@ def recognize_multi_face_frame(capture_payload: dict, decrypt_fn) -> dict:
 
     results = []
     for face in faces_data:
-        probe_vec = face["embedding"]
+        probe_neural = face.get("neural_embedding") or face.get("embedding")
+        probe_gradient = face.get("gradient_embedding") or face.get("embedding")
         best_score = -1.0
         best_template = None
 
         for tmpl in active_templates:
             try:
                 stored_vec = decrypt_fn(tmpl.template_data)
-                score = cosine_similarity(probe_vec, stored_vec)
+                score_neural = cosine_similarity(probe_neural, stored_vec) if probe_neural else -1.0
+                score_gradient = cosine_similarity(probe_gradient, stored_vec) if probe_gradient else -1.0
+                score = max(score_neural, score_gradient)
                 if score > best_score:
                     best_score = score
                     best_template = tmpl
