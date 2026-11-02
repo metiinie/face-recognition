@@ -126,24 +126,29 @@ export function Navbar() {
             {user ? (
               <div className="flex items-center gap-1.5 text-xs text-slate-600 dark:text-slate-300">
                 <span className="font-semibold">{user.username}</span>
+                {user.role && (
+                  <span className="text-[10px] bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 font-mono px-1.5 py-0.5 rounded">
+                    {user.role}
+                  </span>
+                )}
                 <button
                   onClick={() => {
                     removeStoredToken();
                     setUser(null);
-                    window.location.reload();
+                    window.location.href = "/login";
                   }}
-                  className="text-[10px] text-rose-500 underline ml-1"
+                  className="text-[10px] text-rose-500 hover:text-rose-700 underline ml-1"
                 >
                   Logout
                 </button>
               </div>
             ) : (
               <Link
-                href="/dashboard"
-                className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-blue-600"
+                href="/login"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 px-3 py-1 text-xs font-semibold text-white shadow-sm hover:bg-blue-700 transition-colors"
               >
                 <Lock className="h-3 w-3" />
-                <span>Login</span>
+                <span>Sign In</span>
               </Link>
             )}
           </div>

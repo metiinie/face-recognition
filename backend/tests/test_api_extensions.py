@@ -23,9 +23,18 @@ def client(app):
     return app.test_client()
 
 
-def test_api_attendance_summary(client):
-    """Verify /api/attendance/summary returns valid KPI summary without DB error."""
-    res = client.get("/api/attendance/summary")
+def test_api_attendance_summary(client, app):
+    """Verify /api/attendance/summary enforces authentication and returns KPI summary."""
+    # 1. Unauthenticated request is rejected
+    unauth = client.get("/api/attendance/summary")
+    assert unauth.status_code == 401
+
+    # 2. Authenticated request succeeds
+    with app.app_context():
+        hr = User.query.filter_by(username="hr_officer").first()
+        token = issue_jwt_token(hr)
+
+    res = client.get("/api/attendance/summary", headers={"Authorization": f"Bearer {token}"})
     assert res.status_code == 200
     data = res.get_json()
     assert "total_employees" in data
@@ -35,18 +44,22 @@ def test_api_attendance_summary(client):
 
 
 def test_api_review_cases_and_dismissal(client, app):
-    """Verify listing and dismissing review cases via REST API."""
+    """Verify listing and dismissing review cases via REST API enforces auth."""
+    # 1. Unauthenticated request rejected
+    unauth = client.get("/api/review-cases")
+    assert unauth.status_code == 401
+
     with app.app_context():
         hr = User.query.filter_by(username="hr_officer").first()
         token = issue_jwt_token(hr)
 
-    # 1. List review cases
-    res = client.get("/api/review-cases")
+    # 2. List review cases with auth
+    res = client.get("/api/review-cases", headers={"Authorization": f"Bearer {token}"})
     assert res.status_code == 200
     cases = res.get_json()
     assert isinstance(cases, list)
 
-    # 2. Dismiss an open case if present
+    # 3. Dismiss an open case if present
     if cases:
         target_id = cases[0]["id"]
         dismiss_res = client.post(
@@ -56,6 +69,50 @@ def test_api_review_cases_and_dismissal(client, app):
         )
         assert dismiss_res.status_code == 200
         assert dismiss_res.get_json()["status"] == "REJECTED"
+
+
+def test_api_security_enforcement_and_station_provisioning(client, app):
+    """Verify security controls: audit logs, face enroll/purge, and station provisioning API."""
+    # 1. Audit logs rejected without authentication
+    assert client.get("/api/audit-logs").status_code == 401
+
+    # 2. Face enroll and purge rejected without authentication
+    assert client.post("/api/face/enroll", json={"employee_id": 1}).status_code == 401
+    assert client.post("/api/face/purge", json={"employee_id": 1}).status_code == 401
+
+    with app.app_context():
+        hr = User.query.filter_by(username="hr_officer").first()
+        hr_token = issue_jwt_token(hr)
+        admin = User.query.filter_by(username="admin").first()
+        admin_token = issue_jwt_token(admin)
+
+    # 3. Authenticated HR can read audit logs
+    audit_res = client.get("/api/audit-logs", headers={"Authorization": f"Bearer {hr_token}"})
+    assert audit_res.status_code == 200
+
+    # 4. Station provisioning requires admin
+    non_admin = client.post(
+        "/api/station/provision",
+        headers={"Authorization": f"Bearer {hr_token}"},
+        json={"station_code": "ST-ICT-01"},
+    )
+    assert non_admin.status_code == 403
+
+    # 5. Admin can provision station via API
+    prov_res = client.post(
+        "/api/station/provision",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        json={"station_code": "ST-ICT-01"},
+    )
+    assert prov_res.status_code == 200
+    assert prov_res.get_json()["status"] == "PROVISIONED"
+    assert "eipc_station=" in prov_res.headers.get("Set-Cookie", "")
+
+    # 6. Current station endpoint reports active binding
+    curr_res = client.get("/api/station/current")
+    assert curr_res.status_code == 200
+    assert curr_res.get_json()["provisioned"] is True
+    assert curr_res.get_json()["station"]["station_code"] == "ST-ICT-01"
 
 
 def test_api_reports_sessions_endpoint(client, app):

@@ -92,12 +92,6 @@ def get_current_user() -> User | None:
 
     user_id = session.get("user_id")
     if not user_id:
-        try:
-            from flask import current_app
-            if current_app and current_app.config.get("ALLOW_SIMULATED_BIOMETRICS", False) and not current_app.config.get("TESTING", False):
-                return User.query.filter_by(username="hr_officer").first()
-        except Exception:
-            pass
         return None
 
     user = db.session.get(User, user_id)

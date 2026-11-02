@@ -379,6 +379,16 @@ class AuditLog(db.Model):
     ip_address = db.Column(db.String(60), nullable=True)
     created_at = db.Column(db.DateTime, nullable=False, default=utc_now, index=True)
 
+    @property
+    def details(self):
+        if not self.details_json:
+            return {}
+        try:
+            import json
+            return json.loads(self.details_json)
+        except Exception:
+            return {"raw": self.details_json}
+
 
 class PolicySignoff(db.Model):
     """

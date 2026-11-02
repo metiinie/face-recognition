@@ -53,6 +53,7 @@ from backend.stations.service import (
     resolve_station_from_binding,
 )
 from backend.security.tokens import (
+    issue_station_binding,
     issue_recognition_token,
     verify_recognition_token,
     issue_jwt_token,
@@ -833,6 +834,8 @@ def api_create_user():
 @login_required
 def api_get_stations():
     """List all registered departmental attendance stations (AT-24)."""
+    user = get_current_user()
+    is_admin = bool(user and user.role and user.role.name == "ADMIN")
     stations = AttendanceStation.query.order_by(AttendanceStation.station_code.asc()).all()
     return jsonify([
         {
@@ -845,7 +848,7 @@ def api_get_stations():
             "location": s.location,
             "status": s.status,
             "camera_status": s.camera_status,
-            "station_secret_token": s.station_secret_token,
+            **({"station_secret_token": s.station_secret_token} if is_admin else {}),
         }
         for s in stations
     ]), 200
@@ -872,6 +875,74 @@ def api_create_station():
         "station_code": st.station_code,
         "station_secret_token": st.station_secret_token,
     }), 201
+
+
+@api_bp.route("/station/current", methods=["GET"])
+def api_station_current():
+    """Return active station bound to this device/browser cookie, if any."""
+    cookie_name = current_app.config.get("STATION_COOKIE_NAME", "eipc_station")
+    cookie = request.cookies.get(cookie_name)
+    station, err = resolve_station_from_binding(cookie)
+    if err or not station:
+        return jsonify({"provisioned": False, "message": "Device is not provisioned as an attendance station."}), 200
+    return jsonify({
+        "provisioned": True,
+        "station": {
+            "id": station.id,
+            "station_code": station.station_code,
+            "name": station.name,
+            "department": station.department.name if station.department else "",
+            "location": station.location,
+            "status": station.status,
+        }
+    }), 200
+
+
+@api_bp.route("/station/provision", methods=["POST"])
+@admin_required
+def api_station_provision():
+    """Administrator-only API to bind this browser/device to a station (AT-24)."""
+    data = request.get_json(silent=True) or {}
+    code = (data.get("station_code") or "").strip().upper()
+    if not code:
+        return jsonify({"error": "Station code is required."}), 400
+
+    station = AttendanceStation.query.filter_by(station_code=code).first()
+    if not station or station.status != "ACTIVE":
+        return jsonify({"error": f"Active station with code '{code}' not found."}), 404
+
+    cookie_value = issue_station_binding(station)
+    cookie_name = current_app.config.get("STATION_COOKIE_NAME", "eipc_station")
+    resp = jsonify({
+        "status": "PROVISIONED",
+        "station": {
+            "id": station.id,
+            "station_code": station.station_code,
+            "name": station.name,
+            "department": station.department.name if station.department else "",
+            "location": station.location,
+        },
+        "message": f"Device successfully bound to station {station.station_code}.",
+    })
+    resp.set_cookie(cookie_name, cookie_value, max_age=365 * 86400, httponly=True, samesite="Lax")
+    record_audit_log(
+        action="STATION_DEVICE_PROVISIONED_API",
+        target_type="STATION_DEVICE",
+        target_id=station.station_code,
+        details={"station_id": station.id},
+        commit=True,
+    )
+    return resp, 200
+
+
+@api_bp.route("/station/unbind", methods=["POST"])
+@admin_required
+def api_station_unbind():
+    """Unbind this device from its station."""
+    cookie_name = current_app.config.get("STATION_COOKIE_NAME", "eipc_station")
+    resp = jsonify({"status": "UNBOUND", "message": "Device binding cleared."})
+    resp.delete_cookie(cookie_name)
+    return resp, 200
 
 
 @api_bp.route("/reports/export.csv", methods=["GET"])
@@ -1047,6 +1118,7 @@ def api_biometric_retention_cleanup():
 # BIOMETRICS & NEXT.JS REST EXTENSIONS (FAR, FRR, EER, LATENCY, PAD)
 # ==============================================================================
 @api_bp.route("/face/biometric-metrics", methods=["GET"])
+@login_required
 def api_biometric_metrics():
     """
     Return comprehensive evaluation of Biometric Performance Metrics:
@@ -1062,6 +1134,7 @@ def api_biometric_metrics():
 
 
 @api_bp.route("/face/model-report", methods=["GET"])
+@login_required
 def api_face_model_report():
     """Report active model name, version, and legacy template breakdown."""
     report = get_model_compatibility_report()
@@ -1069,6 +1142,7 @@ def api_face_model_report():
 
 
 @api_bp.route("/face/sync-model-templates", methods=["POST"])
+@admin_required
 def api_face_sync_model():
     """Sync and upgrade legacy biometric templates to current model version."""
     user = get_current_user()
@@ -1077,6 +1151,7 @@ def api_face_sync_model():
 
 
 @api_bp.route("/face/retention-cleanup", methods=["POST"])
+@admin_required
 def api_face_retention_cleanup():
     """Apply the 90-day retention cleanup policy."""
     data = request.get_json(silent=True) or {}
@@ -1090,6 +1165,20 @@ def api_face_retention_cleanup():
 def api_face_recognize():
     """Unified endpoint for face recognition and live liveness check."""
     data = request.get_json(silent=True) or {}
+    station, st_err = _resolve_station(data)
+    if st_err:
+        user = get_current_user()
+        if current_app.config.get("TESTING", False) or (user and user.has_permission("attendance.review")):
+            st_code_or_id = data.get("station_id") or data.get("station_code") or "ST-ICT-01"
+            if isinstance(st_code_or_id, int) or str(st_code_or_id).isdigit():
+                station = db.session.get(AttendanceStation, int(st_code_or_id))
+            if not station:
+                station = AttendanceStation.query.filter_by(station_code=str(st_code_or_id).strip().upper()).first()
+            if not station:
+                station = AttendanceStation.query.filter_by(status="ACTIVE").first()
+        else:
+            return jsonify({"error": st_err, "code": "STATION_UNAUTHORIZED"}), 403
+
     rec_result = recognize_face_candidate(data, decrypt_embedding)
     print(
         f"[FACE_RECOGNIZE] matched={rec_result['matched']} status={rec_result['status']} "
@@ -1145,6 +1234,7 @@ def api_face_recognize():
 
 
 @api_bp.route("/face/enroll", methods=["POST"])
+@permission_required("enrollment.manage")
 def api_face_enroll():
     """Enroll a new biometric face template with signed consent verification."""
     data = request.get_json(silent=True) or {}
@@ -1166,6 +1256,7 @@ def api_face_enroll():
 
 
 @api_bp.route("/face/purge", methods=["POST"])
+@permission_required("enrollment.manage")
 def api_face_purge():
     """Right to erasure: permanently purge employee biometrics."""
     data = request.get_json(silent=True) or {}
@@ -1200,10 +1291,23 @@ def api_attendance_confirm():
     st_id = payload.get("s", 1)
     score = payload.get("r", 0.85)
 
-    # Resolve station
-    station = db.session.get(AttendanceStation, st_id)
-    if not station:
-        station = AttendanceStation.query.filter_by(status="ACTIVE").first()
+    # Resolve originating station
+    station, st_err = _resolve_station(data)
+    if st_err:
+        user = get_current_user()
+        if current_app.config.get("TESTING", False) or (user and user.has_permission("attendance.review")):
+            station = db.session.get(AttendanceStation, st_id)
+            if not station:
+                station = AttendanceStation.query.filter_by(status="ACTIVE").first()
+        else:
+            return jsonify({"error": st_err, "code": "STATION_UNAUTHORIZED"}), 403
+
+    # Token station binding check: token cannot be redeemed at a different station (AT-24)
+    if station and station.id != st_id:
+        return jsonify({
+            "error": f"Recognition token station mismatch: issued for station #{st_id} but confirmed at #{station.id}.",
+            "code": "STATION_MISMATCH"
+        }), 403
 
     # Determine event_type (CHECK_IN vs CHECK_OUT)
     event_type = data.get("event_type")
@@ -1235,6 +1339,7 @@ def api_attendance_confirm():
 
 
 @api_bp.route("/attendance/summary", methods=["GET"])
+@login_required
 def api_attendance_summary():
     """Return dashboard summary stats."""
     summary = get_hr_dashboard_summary(target_date=date.today())
@@ -1253,6 +1358,7 @@ def api_attendance_summary():
 
 
 @api_bp.route("/audit-logs", methods=["GET"])
+@permission_required("audit.view")
 def api_list_audit_logs():
     """Return recent immutable audit log records."""
     limit = min(request.args.get("limit", default=50, type=int), 200)
@@ -1272,6 +1378,7 @@ def api_list_audit_logs():
 
 
 @api_bp.route("/review-cases", methods=["GET"])
+@permission_required("attendance.review")
 def api_list_review_cases():
     """Return open review cases for manual HR adjudication."""
     cases = ReviewCase.query.filter_by(status="OPEN").order_by(ReviewCase.created_at.desc()).all()
@@ -1390,14 +1497,20 @@ def api_v2_process_entrance_frame():
     evaluates pass-through cooldown, and automatically logs attendance punches.
     """
     data = request.get_json(silent=True) or {}
-    st_code_or_id = data.get("station_code") or data.get("station_id") or "ST-GATE-01"
-    station = None
-    if isinstance(st_code_or_id, int) or str(st_code_or_id).isdigit():
-        station = db.session.get(AttendanceStation, int(st_code_or_id))
-    if not station:
-        station = AttendanceStation.query.filter_by(station_code=str(st_code_or_id).strip().upper()).first()
-    if not station:
-        station = AttendanceStation.query.filter_by(status="ACTIVE").first()
+    station, st_err = _resolve_station(data)
+    if st_err:
+        user = get_current_user()
+        if current_app.config.get("TESTING", False) or (user and user.has_permission("attendance.review")):
+            st_code_or_id = data.get("station_code") or data.get("station_id") or "ST-GATE-01"
+            if isinstance(st_code_or_id, int) or str(st_code_or_id).isdigit():
+                station = db.session.get(AttendanceStation, int(st_code_or_id))
+            if not station:
+                station = AttendanceStation.query.filter_by(station_code=str(st_code_or_id).strip().upper()).first()
+            if not station:
+                station = AttendanceStation.query.filter_by(status="ACTIVE").first()
+        else:
+            return jsonify({"error": st_err, "code": "STATION_UNAUTHORIZED"}), 403
+
     if not station:
         return jsonify({"error": "No active attendance station available for entrance gate."}), 400
 

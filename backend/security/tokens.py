@@ -69,7 +69,7 @@ def issue_jwt_token(user, expires_in_seconds: int = 86400) -> str:
         "iat": int(now.timestamp()),
         "exp": int((now + timedelta(seconds=expires_in_seconds)).timestamp()),
     }
-    raw_secret = current_app.config.get("SECRET_KEY", "eipc-jwt-secret-key-32-bytes-long-secure-v1")
+    raw_secret = current_app.config["SECRET_KEY"]
     secret = hashlib.sha256(raw_secret.encode("utf-8")).digest()
     return jwt.encode(payload, secret, algorithm="HS256")
 
@@ -79,7 +79,7 @@ def decode_jwt_token(token: str) -> tuple[dict | None, str | None]:
     import jwt
     import hashlib
 
-    raw_secret = current_app.config.get("SECRET_KEY", "eipc-jwt-secret-key-32-bytes-long-secure-v1")
+    raw_secret = current_app.config["SECRET_KEY"]
     secret = hashlib.sha256(raw_secret.encode("utf-8")).digest()
     try:
         payload = jwt.decode(token, secret, algorithms=["HS256"])

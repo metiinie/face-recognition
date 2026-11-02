@@ -303,41 +303,8 @@ export function getStoredUser(): UserProfile | null {
   }
 }
 
-let autoLoginPromise: Promise<string | null> | null = null;
-
-async function autoLoginHROfficer(): Promise<string | null> {
-  if (autoLoginPromise) return autoLoginPromise;
-  autoLoginPromise = (async () => {
-    try {
-      const res = await fetch(`${API_BASE}/api/auth/login`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username: "hr_officer", password: "Hr@EIPC2026" }),
-      });
-      if (!res.ok) return null;
-      const data = await res.json();
-      if (data.access_token) {
-        setStoredToken(data.access_token);
-        if (typeof window !== "undefined") {
-          localStorage.setItem("eipc_user", JSON.stringify(data.user));
-        }
-        return data.access_token;
-      }
-    } catch {
-      return null;
-    } finally {
-      autoLoginPromise = null;
-    }
-    return null;
-  })();
-  return autoLoginPromise;
-}
-
 async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
-  let token = getStoredToken();
-  if (!token && endpoint !== "/api/auth/login") {
-    token = await autoLoginHROfficer();
-  }
+  const token = getStoredToken();
 
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
@@ -348,20 +315,22 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
     headers["Authorization"] = `Bearer ${token}`;
   }
 
-  let res = await fetch(`${API_BASE}${endpoint}`, {
+  const res = await fetch(`${API_BASE}${endpoint}`, {
     ...options,
     headers,
   });
 
   if (res.status === 401 && endpoint !== "/api/auth/login") {
-    const newToken = await autoLoginHROfficer();
-    if (newToken) {
-      headers["Authorization"] = `Bearer ${newToken}`;
-      res = await fetch(`${API_BASE}${endpoint}`, {
-        ...options,
-        headers,
-      });
+    // Clear invalid / expired session tokens
+    removeStoredToken();
+    let errMessage = "Authentication required. Please log in.";
+    try {
+      const errJson = await res.json();
+      errMessage = errJson.error || errJson.message || errMessage;
+    } catch {
+      // ignore
     }
+    throw new Error(errMessage);
   }
 
   if (!res.ok) {
@@ -393,6 +362,30 @@ export const api = {
 
   async getMe(): Promise<UserProfile> {
     return request<UserProfile>("/api/auth/me");
+  },
+
+  logout(): void {
+    removeStoredToken();
+    if (typeof window !== "undefined") {
+      window.location.href = "/login";
+    }
+  },
+
+  async getStationCurrent(): Promise<{ provisioned: boolean; station?: StationRecord; message?: string }> {
+    return request("/api/station/current");
+  },
+
+  async provisionStation(station_code: string): Promise<{ status: string; station: StationRecord; message: string }> {
+    return request("/api/station/provision", {
+      method: "POST",
+      body: JSON.stringify({ station_code }),
+    });
+  },
+
+  async unbindStation(): Promise<{ status: string; message: string }> {
+    return request("/api/station/unbind", {
+      method: "POST",
+    });
   },
 
   async getAttendanceSummary(): Promise<any> {

@@ -13,9 +13,13 @@ COLLEGE_TIMEZONE_OFFSET = timedelta(hours=3)
 COLLEGE_TIMEZONE = timezone(COLLEGE_TIMEZONE_OFFSET, name="EAT (UTC+3)")
 
 
+INSECURE_DEFAULT_SECRET = "eipc-dire-dawa-secret-key-v1-production-change-me"
+INSECURE_DEFAULT_BIOMETRIC = "eipc-biometric-template-protection-secret-key-2026"
+
+
 class Config:
     """Base configuration."""
-    SECRET_KEY = os.environ.get("SECRET_KEY", "eipc-dire-dawa-secret-key-v1-production-change-me")
+    SECRET_KEY = os.environ.get("SECRET_KEY", INSECURE_DEFAULT_SECRET)
 
     # Primary database is MySQL (mysql+pymysql://user:pass@host:3306/eipc_attendance)
     # Falls back to local SQLite file if MYSQL_DATABASE_URI / DATABASE_URL is not configured
@@ -34,7 +38,7 @@ class Config:
     # Biometric template encryption key (32-byte URL-safe base64 key or derived from secret)
     BIOMETRIC_ENCRYPTION_SECRET = os.environ.get(
         "BIOMETRIC_ENCRYPTION_SECRET",
-        "eipc-biometric-template-protection-secret-key-2026"
+        INSECURE_DEFAULT_BIOMETRIC
     )
 
     # Face recognition engine configuration.
@@ -82,4 +86,37 @@ class TestConfig(Config):
     ALLOW_SIMULATED_BIOMETRICS = True
     # Tests replay events at fixed historical times (shift, overnight and 24h scenarios).
     ALLOW_CLIENT_EVENT_TIMESTAMPS = True
+
+
+class ProductionConfig(Config):
+    """Production configuration with strict security validations."""
+    ENV = "production"
+    ALLOW_SIMULATED_BIOMETRICS = False
+
+
+def validate_production_secrets(config_dict_or_obj):
+    """Strictly assert that production deployments do not run with insecure fallback secrets."""
+    secret_key = (
+        config_dict_or_obj.get("SECRET_KEY")
+        if isinstance(config_dict_or_obj, dict)
+        else getattr(config_dict_or_obj, "SECRET_KEY", None)
+    )
+    bio_secret = (
+        config_dict_or_obj.get("BIOMETRIC_ENCRYPTION_SECRET")
+        if isinstance(config_dict_or_obj, dict)
+        else getattr(config_dict_or_obj, "BIOMETRIC_ENCRYPTION_SECRET", None)
+    )
+
+    if not secret_key or secret_key == INSECURE_DEFAULT_SECRET or len(str(secret_key)) < 32:
+        raise RuntimeError(
+            "CRITICAL SECURITY ERROR: Insecure or missing SECRET_KEY in production! "
+            "You must configure a unique, cryptographically strong SECRET_KEY (min 32 characters) via environment variable."
+        )
+
+    if not bio_secret or bio_secret == INSECURE_DEFAULT_BIOMETRIC or len(str(bio_secret)) < 32:
+        raise RuntimeError(
+            "CRITICAL SECURITY ERROR: Insecure or missing BIOMETRIC_ENCRYPTION_SECRET in production! "
+            "You must configure a unique BIOMETRIC_ENCRYPTION_SECRET (min 32 characters) via environment variable."
+        )
+
 

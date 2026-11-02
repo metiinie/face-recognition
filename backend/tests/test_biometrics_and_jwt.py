@@ -100,9 +100,16 @@ def test_jwt_issuance_decoding_and_rbac(client, app):
 
 
 def test_api_biometric_metrics_endpoint(client, app):
-    """Verify REST API /api/face/biometric-metrics responds with correct schema."""
+    """Verify REST API /api/face/biometric-metrics responds with correct schema when authenticated."""
     with app.app_context():
-        resp = client.get("/api/face/biometric-metrics")
+        # Unauthenticated request is rejected
+        resp_unauth = client.get("/api/face/biometric-metrics")
+        assert resp_unauth.status_code == 401
+
+        # Authenticated request succeeds
+        hr = User.query.filter_by(username="hr_officer").first()
+        token = issue_jwt_token(hr)
+        resp = client.get("/api/face/biometric-metrics", headers={"Authorization": f"Bearer {token}"})
         assert resp.status_code == 200
         data = resp.get_json()
         assert "far" in data

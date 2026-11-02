@@ -20,6 +20,18 @@ def create_app(config_class=Config, seed_db: bool = True) -> Flask:
     )
     app.config.from_object(config_class)
 
+    # In production, strictly enforce that secure keys are configured
+    if app.config.get("ENV") == "production" or os.environ.get("FLASK_ENV") == "production":
+        from backend.config import validate_production_secrets
+        validate_production_secrets(app.config)
+
+    # Enable CORS for API endpoints so Next.js frontend or mobile kiosks can connect cleanly
+    try:
+        from flask_cors import CORS
+        CORS(app, resources={r"/api/*": {"origins": "*"}}, supports_credentials=True)
+    except ImportError:
+        pass
+
     db.init_app(app)
 
     from backend.security.csrf import check_csrf, generate_csrf_token
