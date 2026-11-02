@@ -35,6 +35,7 @@ import {
   Activity,
   Layers,
   UserPlus,
+  FlipHorizontal,
   X,
 } from "lucide-react";
 
@@ -48,6 +49,7 @@ export default function ContinuousEntrancePage() {
   // Video and Stream state
   const [isStreaming, setIsStreaming] = useState<boolean>(false);
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
+  const [isMirrored, setIsMirrored] = useState<boolean>(true);
   const [streamError, setStreamError] = useState<string | null>(null);
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
 
@@ -188,6 +190,7 @@ export default function ContinuousEntrancePage() {
 
     faces.forEach((face) => {
       const { x, y, w, h } = face.bounding_box;
+      const drawX = isMirrored ? Math.max(0, canvas.width - (x + w)) : x;
 
       // Color scheme based on status
       let strokeColor = "#10b981"; // emerald for confirmed
@@ -212,35 +215,35 @@ export default function ContinuousEntrancePage() {
       ctx.lineWidth = 3;
       ctx.strokeStyle = strokeColor;
       ctx.fillStyle = fillColor;
-      ctx.strokeRect(x, y, w, h);
-      ctx.fillRect(x, y, w, h);
+      ctx.strokeRect(drawX, y, w, h);
+      ctx.fillRect(drawX, y, w, h);
 
       // Corner accent markers
       const cornerLen = 14;
       ctx.lineWidth = 4;
       // Top-left
       ctx.beginPath();
-      ctx.moveTo(x, y + cornerLen);
-      ctx.lineTo(x, y);
-      ctx.lineTo(x + cornerLen, y);
+      ctx.moveTo(drawX, y + cornerLen);
+      ctx.lineTo(drawX, y);
+      ctx.lineTo(drawX + cornerLen, y);
       ctx.stroke();
       // Top-right
       ctx.beginPath();
-      ctx.moveTo(x + w - cornerLen, y);
-      ctx.lineTo(x + w, y);
-      ctx.lineTo(x + w, y + cornerLen);
+      ctx.moveTo(drawX + w - cornerLen, y);
+      ctx.lineTo(drawX + w, y);
+      ctx.lineTo(drawX + w, y + cornerLen);
       ctx.stroke();
       // Bottom-left
       ctx.beginPath();
-      ctx.moveTo(x, y + h - cornerLen);
-      ctx.lineTo(x, y + h);
-      ctx.lineTo(x + cornerLen, y + h);
+      ctx.moveTo(drawX, y + h - cornerLen);
+      ctx.lineTo(drawX, y + h);
+      ctx.lineTo(drawX + cornerLen, y + h);
       ctx.stroke();
       // Bottom-right
       ctx.beginPath();
-      ctx.moveTo(x + w - cornerLen, y + h);
-      ctx.lineTo(x + w, y + h);
-      ctx.lineTo(x + w, y + h - cornerLen);
+      ctx.moveTo(drawX + w - cornerLen, y + h);
+      ctx.lineTo(drawX + w, y + h);
+      ctx.lineTo(drawX + w, y + h - cornerLen);
       ctx.stroke();
 
       // Top Tag Badge
@@ -250,29 +253,36 @@ export default function ContinuousEntrancePage() {
         : `Face Track #${face.track_id}`;
 
       ctx.fillStyle = strokeColor;
-      ctx.fillRect(x, Math.max(0, y - 26), Math.max(130, w * 0.9), 26);
+      ctx.fillRect(drawX, Math.max(0, y - 26), Math.max(130, w * 0.9), 26);
 
       ctx.fillStyle = "#ffffff";
       ctx.font = "bold 11px sans-serif";
-      ctx.fillText(name, x + 6, Math.max(14, y - 12));
+      ctx.fillText(name, drawX + 6, Math.max(14, y - 12));
 
       ctx.font = "9px monospace";
-      ctx.fillText(sub, x + 6, Math.max(24, y - 2));
+      ctx.fillText(sub, drawX + 6, Math.max(24, y - 2));
 
       // Action punch indicator at bottom of box
       if (face.attendance_action) {
         ctx.fillStyle = face.attendance_action === "CHECK_IN" ? "#047857" : "#1d4ed8";
-        ctx.fillRect(x, y + h, Math.max(100, w * 0.8), 20);
+        ctx.fillRect(drawX, y + h, Math.max(100, w * 0.8), 20);
         ctx.fillStyle = "#ffffff";
         ctx.font = "bold 10px monospace";
         ctx.fillText(
           `${face.attendance_action} ${face.is_late ? "(LATE)" : "(ON TIME)"}`,
-          x + 6,
+          drawX + 6,
           y + h + 14
         );
       }
     });
-  }, []);
+  }, [isMirrored]);
+
+  // Re-render overlays immediately when mirror orientation is toggled
+  useEffect(() => {
+    if (detectedFaces.length > 0) {
+      drawOverlays(detectedFaces);
+    }
+  }, [isMirrored, detectedFaces, drawOverlays]);
 
   const clearOverlays = () => {
     const canvas = overlayCanvasRef.current;
@@ -619,7 +629,9 @@ export default function ContinuousEntrancePage() {
                 ref={videoRef}
                 playsInline
                 muted
-                className={`w-full h-full object-cover ${isStreaming ? "block" : "hidden"}`}
+                className={`w-full h-full object-cover transition-transform duration-150 ${
+                  isMirrored ? "-scale-x-100" : ""
+                } ${isStreaming ? "block" : "hidden"}`}
               />
 
               {/* Real-time Overlays Canvas */}
@@ -682,6 +694,16 @@ export default function ContinuousEntrancePage() {
                     <span className="text-emerald-400">Mode: {gateMode}</span>
                   </div>
                   <div className="flex items-center gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => setIsMirrored(!isMirrored)}
+                      className="text-xs h-7 bg-white/10 hover:bg-white/20 text-white border-white/20"
+                      title={isMirrored ? "Switch to direct gate camera view" : "Switch to mirrored natural selfie view"}
+                    >
+                      <FlipHorizontal className="h-3 w-3 mr-1 text-cyan-400" />
+                      {isMirrored ? "Mirrored" : "Direct"}
+                    </Button>
                     <Button
                       size="sm"
                       variant="outline"
@@ -954,7 +976,7 @@ export default function ContinuousEntrancePage() {
                 <img
                   src={enrollSnapshotB64}
                   alt="Captured face snapshot"
-                  className="w-full h-full object-cover"
+                  className={`w-full h-full object-cover ${isMirrored ? "-scale-x-100" : ""}`}
                 />
                 <span className="absolute bottom-2 left-2 rounded-md bg-black/60 px-2 py-0.5 text-[10px] text-emerald-400 font-mono">
                   Captured Webcam Snapshot
