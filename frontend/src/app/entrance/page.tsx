@@ -971,7 +971,7 @@ export default function ContinuousEntrancePage() {
               >
                 {employees.map((emp) => (
                   <option key={emp.id} value={emp.id}>
-                    {emp.full_name} ({emp.employee_number}) — {emp.department}
+                    {emp.first_name} {emp.last_name} ({emp.employee_number}) — {emp.department_name}
                   </option>
                 ))}
               </select>
