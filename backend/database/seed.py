@@ -123,7 +123,25 @@ def seed_initial_data():
         status="ACTIVE",
         camera_status="ONLINE",
     )
-    db.session.add_all([st_ict, st_auto, st_civil, st_sec])
+    st_gate_in = AttendanceStation(
+        station_code="ST-GATE-01-IN",
+        name="Main Gate Turnstile IN (Dedicated Entry)",
+        department_id=dept_sec.id,
+        location="Main Campus Gate House - North Lane",
+        station_secret_token="trusted-token-st-gate-01-in",
+        status="ACTIVE",
+        camera_status="ONLINE",
+    )
+    st_gate_out = AttendanceStation(
+        station_code="ST-GATE-01-OUT",
+        name="Main Gate Turnstile OUT (Dedicated Exit)",
+        department_id=dept_sec.id,
+        location="Main Campus Gate House - South Lane",
+        station_secret_token="trusted-token-st-gate-01-out",
+        status="ACTIVE",
+        camera_status="ONLINE",
+    )
+    db.session.add_all([st_ict, st_auto, st_civil, st_sec, st_gate_in, st_gate_out])
     db.session.flush()
 
     # 5. Configurable Shift Templates (Regular, Cleaning, Overnight Guard, 24h Guard)

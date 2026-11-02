@@ -170,6 +170,7 @@ class AttendanceStation(db.Model):
     station_secret_token = db.Column(db.String(128), nullable=False)
     status = db.Column(db.String(20), nullable=False, default="ACTIVE")  # ACTIVE, MAINTENANCE, INACTIVE
     camera_status = db.Column(db.String(30), nullable=False, default="ONLINE")
+    last_heartbeat = db.Column(db.DateTime, nullable=True)
     created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
 
     department = db.relationship("Department", back_populates="stations")

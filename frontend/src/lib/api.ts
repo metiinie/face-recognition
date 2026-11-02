@@ -180,13 +180,18 @@ export interface ContinuousFaceResult {
     job_category?: string;
     status: string;
   } | null;
-  action_status: "CONFIRMED" | "COOLDOWN_ACTIVE" | "ALREADY_CHECKED_IN" | "NO_OPEN_SESSION" | "UNKNOWN_VISITOR" | "REJECTED" | string;
+  action_status: "CONFIRMED" | "COOLDOWN_ACTIVE" | "ALREADY_CHECKED_IN" | "NO_OPEN_SESSION" | "UNKNOWN_VISITOR" | "REJECTED" | "ACQUIRING_TRACK" | "ALREADY_PUNCHED_IN_PASSAGE" | "SPOOF_BLOCKED" | "STATIONARY_LINGER" | string;
   attendance_action?: "CHECK_IN" | "CHECK_OUT" | null;
   session_id?: number | null;
   is_late?: boolean;
   minutes_late?: number;
   message?: string;
   review_case_id?: number;
+  spoof_detected?: boolean;
+  spoof_type?: string | null;
+  frames_seen?: number;
+  motion_direction?: "APPROACHING" | "RECEDING" | "STATIONARY" | string;
+  is_punch_committed?: boolean;
 }
 
 export interface ContinuousEntranceFrameResponse {
@@ -198,6 +203,18 @@ export interface ContinuousEntranceFrameResponse {
   faces_detected: number;
   faces: ContinuousFaceResult[];
   summary_actions: string[];
+  telemetry?: {
+    fps: number;
+    inference_ms: number;
+    active_tracks: number;
+    camera_status: string;
+    model_pipeline?: {
+      detector: string;
+      recognizer: string;
+      tracker: string;
+      pad_liveness: string;
+    };
+  };
 }
 
 export interface GatePassageRecord {

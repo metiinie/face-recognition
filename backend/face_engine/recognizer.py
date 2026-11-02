@@ -46,6 +46,63 @@ def _get_onnx_face_session():
             _ONNX_INIT_FAILED = True
     return _ONNX_SESSION
 
+_SFACE_SESSION = None
+_SFACE_INIT_FAILED = False
+
+
+def _get_sface_session():
+    """Lazily load and cache SFace ONNX neural embedding model session."""
+    global _SFACE_SESSION, _SFACE_INIT_FAILED
+    if _SFACE_INIT_FAILED:
+        return None
+    if _SFACE_SESSION is None:
+        try:
+            base_dir = os.path.dirname(os.path.abspath(__file__))
+            model_path = os.path.join(base_dir, "models", "face_recognition_sface_2021dec.onnx")
+            if os.path.exists(model_path):
+                if cv2 is not None and hasattr(cv2, "FaceRecognizerSF"):
+                    _SFACE_SESSION = cv2.FaceRecognizerSF.create(model_path, "")
+                elif onnxruntime is not None:
+                    opts = onnxruntime.SessionOptions()
+                    opts.log_severity_level = 3
+                    _SFACE_SESSION = onnxruntime.InferenceSession(model_path, opts)
+            else:
+                _SFACE_INIT_FAILED = True
+        except Exception:
+            _SFACE_INIT_FAILED = True
+    return _SFACE_SESSION
+
+
+def extract_neural_embedding(face_pil: Image.Image) -> list[float] | None:
+    """
+    Extract a normalized 128-D neural face embedding using SFace deep neural network.
+    Accepts cropped/aligned facial image (PIL Image), normalizes to 112x112 canonical
+    biometric space, and returns L2-normalized float vector.
+    """
+    rec = _get_sface_session()
+    if rec is None:
+        return None
+    try:
+        if hasattr(rec, "feature"):
+            rgb_arr = np.asarray(face_pil.convert("RGB"), dtype=np.uint8)
+            bgr_arr = cv2.cvtColor(rgb_arr, cv2.COLOR_RGB2BGR) if cv2 is not None else rgb_arr[:, :, ::-1]
+            bgr_112 = cv2.resize(bgr_arr, (112, 112), interpolation=cv2.INTER_LINEAR) if cv2 is not None else np.asarray(Image.fromarray(bgr_arr).resize((112, 112)))
+            feat = rec.feature(bgr_112)[0]
+        else:
+            rgb_arr = np.asarray(face_pil.convert("RGB").resize((112, 112)), dtype=np.float32)
+            bgr_arr = rgb_arr[:, :, ::-1]
+            chw = np.transpose(bgr_arr, (2, 0, 1))
+            batch = np.expand_dims(chw, axis=0)
+            outs = rec.run(None, {"data": batch})
+            feat = outs[0][0]
+
+        norm = float(np.linalg.norm(feat))
+        if norm > 0:
+            feat = feat / norm
+        return [round(float(x), 6) for x in feat]
+    except Exception:
+        return None
+
 
 def detect_faces_onnx(pil_img: Image.Image, conf_thresh: float = 0.50, iou_thresh: float = 0.3) -> list[dict]:
     """
@@ -322,30 +379,35 @@ def _extract_embedding_from_pil(img: Image.Image) -> tuple[list[float], dict]:
     )
     liveness_passed = (not spoof_detected) and (liveness_score >= 0.30)
 
-    # Extract 128-D spatial gradient orientation descriptor (16 cells x 8 bins)
-    gx = np.diff(gray, axis=1)
-    gy = np.diff(gray, axis=0)
-    gx = np.pad(gx, ((0, 0), (0, 1)), mode="edge")[16:144, 16:144]
-    gy = np.pad(gy, ((0, 1), (0, 0)), mode="edge")[16:144, 16:144]
+    # 1. Primary: Extract 128-D SFace deep neural embedding
+    neural_emb = extract_neural_embedding(aligned_pil)
+    if neural_emb is not None:
+        embedding = neural_emb
+    else:
+        # Fallback: Extract 128-D spatial gradient orientation descriptor (16 cells x 8 bins)
+        gx = np.diff(gray, axis=1)
+        gy = np.diff(gray, axis=0)
+        gx = np.pad(gx, ((0, 0), (0, 1)), mode="edge")[16:144, 16:144]
+        gy = np.pad(gy, ((0, 1), (0, 0)), mode="edge")[16:144, 16:144]
 
-    magnitude = np.sqrt(gx**2 + gy**2)
-    orientation = (np.arctan2(gy, gx) * (180.0 / np.pi)) % 180.0
+        magnitude = np.sqrt(gx**2 + gy**2)
+        orientation = (np.arctan2(gy, gx) * (180.0 / np.pi)) % 180.0
 
-    cell_h, cell_w = 32, 32
-    descriptor_128 = []
-    for cy in range(4):
-        for cx in range(4):
-            c_mag = magnitude[cy * cell_h : (cy + 1) * cell_h, cx * cell_w : (cx + 1) * cell_w]
-            c_ori = orientation[cy * cell_h : (cy + 1) * cell_h, cx * cell_w : (cx + 1) * cell_w]
-            hist, _ = np.histogram(c_ori, bins=8, range=(0.0, 180.0), weights=c_mag)
-            descriptor_128.extend(hist.tolist())
+        cell_h, cell_w = 32, 32
+        descriptor_128 = []
+        for cy in range(4):
+            for cx in range(4):
+                c_mag = magnitude[cy * cell_h : (cy + 1) * cell_h, cx * cell_w : (cx + 1) * cell_w]
+                c_ori = orientation[cy * cell_h : (cy + 1) * cell_h, cx * cell_w : (cx + 1) * cell_w]
+                hist, _ = np.histogram(c_ori, bins=8, range=(0.0, 180.0), weights=c_mag)
+                descriptor_128.extend(hist.tolist())
 
-    vec = np.asarray(descriptor_128, dtype=np.float64)
-    vec = vec - np.mean(vec)
-    norm = np.linalg.norm(vec)
-    if norm > 0:
-        vec = vec / norm
-    embedding = [round(float(val), 6) for val in vec]
+        vec = np.asarray(descriptor_128, dtype=np.float64)
+        vec = vec - np.mean(vec)
+        norm = np.linalg.norm(vec)
+        if norm > 0:
+            vec = vec / norm
+        embedding = [round(float(val), 6) for val in vec]
 
     quality = {
         "brightness": round(brightness, 2),
@@ -816,30 +878,35 @@ def extract_multiple_faces_from_image(img: Image.Image) -> list[dict]:
             )
             liveness_passed = bool(liveness_score >= 0.20)
 
-            # 128-D spatial gradient embedding for crop
-            gx = np.diff(crop_gray, axis=1)
-            gy = np.diff(crop_gray, axis=0)
-            gx = np.pad(gx, ((0, 0), (0, 1)), mode="edge")[16:144, 16:144]
-            gy = np.pad(gy, ((0, 1), (0, 0)), mode="edge")[16:144, 16:144]
+            # 1. Primary: Extract 128-D SFace deep neural embedding
+            neural_vec = extract_neural_embedding(face_crop)
+            if neural_vec is not None:
+                embedding = neural_vec
+            else:
+                # Fallback: 128-D spatial gradient descriptor
+                gx = np.diff(crop_gray, axis=1)
+                gy = np.diff(crop_gray, axis=0)
+                gx = np.pad(gx, ((0, 0), (0, 1)), mode="edge")[16:144, 16:144]
+                gy = np.pad(gy, ((0, 1), (0, 0)), mode="edge")[16:144, 16:144]
 
-            magnitude = np.sqrt(gx**2 + gy**2)
-            orientation = (np.arctan2(gy, gx) * (180.0 / np.pi)) % 180.0
+                magnitude = np.sqrt(gx**2 + gy**2)
+                orientation = (np.arctan2(gy, gx) * (180.0 / np.pi)) % 180.0
 
-            cell_h, cell_w = 32, 32
-            descriptor_128 = []
-            for cy_i in range(4):
-                for cx_i in range(4):
-                    c_mag = magnitude[cy_i * cell_h : (cy_i + 1) * cell_h, cx_i * cell_w : (cx_i + 1) * cell_w]
-                    c_ori = orientation[cy_i * cell_h : (cy_i + 1) * cell_h, cx_i * cell_w : (cx_i + 1) * cell_w]
-                    hist, _ = np.histogram(c_ori, bins=8, range=(0.0, 180.0), weights=c_mag)
-                    descriptor_128.extend(hist.tolist())
+                cell_h, cell_w = 32, 32
+                descriptor_128 = []
+                for cy_i in range(4):
+                    for cx_i in range(4):
+                        c_mag = magnitude[cy_i * cell_h : (cy_i + 1) * cell_h, cx_i * cell_w : (cx_i + 1) * cell_w]
+                        c_ori = orientation[cy_i * cell_h : (cy_i + 1) * cell_h, cx_i * cell_w : (cx_i + 1) * cell_w]
+                        hist, _ = np.histogram(c_ori, bins=8, range=(0.0, 180.0), weights=c_mag)
+                        descriptor_128.extend(hist.tolist())
 
-            vec = np.asarray(descriptor_128, dtype=np.float64)
-            vec = vec - np.mean(vec)
-            norm = np.linalg.norm(vec)
-            if norm > 0:
-                vec = vec / norm
-            embedding = [round(float(val), 6) for val in vec]
+                vec = np.asarray(descriptor_128, dtype=np.float64)
+                vec = vec - np.mean(vec)
+                norm = np.linalg.norm(vec)
+                if norm > 0:
+                    vec = vec / norm
+                embedding = [round(float(val), 6) for val in vec]
 
             faces.append({
                 "track_id": idx + 1,
@@ -949,29 +1016,35 @@ def extract_multiple_faces_from_image(img: Image.Image) -> list[dict]:
         )
         liveness_passed = bool(liveness_score >= 0.18 and chroma_dispersion >= 1.0)
 
-        gx = np.diff(crop_gray, axis=1)
-        gy = np.diff(crop_gray, axis=0)
-        gx = np.pad(gx, ((0, 0), (0, 1)), mode="edge")[16:144, 16:144]
-        gy = np.pad(gy, ((0, 1), (0, 0)), mode="edge")[16:144, 16:144]
+        # 1. Primary: Extract 128-D SFace deep neural embedding
+        neural_vec = extract_neural_embedding(face_crop)
+        if neural_vec is not None:
+            embedding = neural_vec
+        else:
+            # Fallback: 128-D spatial gradient descriptor
+            gx = np.diff(crop_gray, axis=1)
+            gy = np.diff(crop_gray, axis=0)
+            gx = np.pad(gx, ((0, 0), (0, 1)), mode="edge")[16:144, 16:144]
+            gy = np.pad(gy, ((0, 1), (0, 0)), mode="edge")[16:144, 16:144]
 
-        magnitude = np.sqrt(gx**2 + gy**2)
-        orientation = (np.arctan2(gy, gx) * (180.0 / np.pi)) % 180.0
+            magnitude = np.sqrt(gx**2 + gy**2)
+            orientation = (np.arctan2(gy, gx) * (180.0 / np.pi)) % 180.0
 
-        cell_h, cell_w = 32, 32
-        descriptor_128 = []
-        for cy_i in range(4):
-            for cx_i in range(4):
-                c_mag = magnitude[cy_i * cell_h : (cy_i + 1) * cell_h, cx_i * cell_w : (cx_i + 1) * cell_w]
-                c_ori = orientation[cy_i * cell_h : (cy_i + 1) * cell_h, cx_i * cell_w : (cx_i + 1) * cell_w]
-                hist, _ = np.histogram(c_ori, bins=8, range=(0.0, 180.0), weights=c_mag)
-                descriptor_128.extend(hist.tolist())
+            cell_h, cell_w = 32, 32
+            descriptor_128 = []
+            for cy_i in range(4):
+                for cx_i in range(4):
+                    c_mag = magnitude[cy_i * cell_h : (cy_i + 1) * cell_h, cx_i * cell_w : (cx_i + 1) * cell_w]
+                    c_ori = orientation[cy_i * cell_h : (cy_i + 1) * cell_h, cx_i * cell_w : (cx_i + 1) * cell_w]
+                    hist, _ = np.histogram(c_ori, bins=8, range=(0.0, 180.0), weights=c_mag)
+                    descriptor_128.extend(hist.tolist())
 
-        vec = np.asarray(descriptor_128, dtype=np.float64)
-        vec = vec - np.mean(vec)
-        norm = np.linalg.norm(vec)
-        if norm > 0:
-            vec = vec / norm
-        embedding = [round(float(val), 6) for val in vec]
+            vec = np.asarray(descriptor_128, dtype=np.float64)
+            vec = vec - np.mean(vec)
+            norm = np.linalg.norm(vec)
+            if norm > 0:
+                vec = vec / norm
+            embedding = [round(float(val), 6) for val in vec]
 
         faces.append({
             "track_id": idx + 1,
