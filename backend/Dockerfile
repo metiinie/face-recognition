@@ -22,10 +22,7 @@ RUN pip install --no-cache-dir -r requirements.txt \
     gunicorn
 
 # Copy application source code
-COPY backend ./backend
-COPY migrations ./migrations
-COPY alembic.ini .
-COPY run.py .
+COPY . .
 
 EXPOSE 5000
 

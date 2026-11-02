@@ -6,7 +6,7 @@ import os
 from datetime import timezone, timedelta
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
-PROJECT_ROOT = os.path.abspath(os.path.join(BASE_DIR, ".."))
+PROJECT_ROOT = BASE_DIR
 
 # East Africa Time (UTC+3) - Dire Dawa, Ethiopia
 COLLEGE_TIMEZONE_OFFSET = timedelta(hours=3)

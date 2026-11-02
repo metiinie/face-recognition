@@ -5,9 +5,19 @@ A modular, secure, face-recognition-based attendance management system built for
 
 ---
 
-## 1. Architecture & System Modules
+## 1. Project Structure & Architecture
 
-The codebase enforces strict separation of responsibilities across 13 dedicated modules inside `backend/`:
+The repository adheres to a clean, decoupled full-stack architecture with only three root items:
+
+```
+Face_recognition/
+├── backend/          # Flask API, Computer Vision Face Engine, SQLAlchemy ORM & Migrations
+├── frontend/         # Next.js 14 App Router, Tailwind CSS, TypeScript UI & Kiosk
+└── README.md         # Project documentation and quick start guide
+```
+
+### Backend Modules (`backend/`)
+The backend codebase enforces strict separation of responsibilities across dedicated modules:
 
 | Module | Path | Responsibility |
 | :--- | :--- | :--- |
@@ -78,20 +88,23 @@ erDiagram
 ## 4. Quick Start & Tests
 
 ```bash
-# 1. Create virtual environment and install dependencies
+# 1. Start the Flask Backend Server
+cd backend
 python -m venv .venv
 .venv\Scripts\pip install -r requirements.txt
 
-# 2. Run all tests: acceptance (AT-01..AT-26), screen rendering, V2 continuous entrance, station security
-.venv\Scripts\pytest backend/tests -v
+# Run all tests (AT-01..AT-26, screen rendering, continuous entrance, station security)
+.venv\Scripts\pytest tests -v
 
-# 3. Start the Flask backend server
+# Start the Flask backend server (http://localhost:5000)
 .venv\Scripts\python run.py
 
-# 4. In a separate terminal, launch the Next.js frontend
+# 2. In a separate terminal, launch the Next.js Frontend
 cd frontend
 npm run dev
 ```
+
+*(Alternatively on Windows, run `backend\start.bat` to launch both services simultaneously).*
 
 Then sign in as `admin`, open http://localhost:3000/kiosk (V1) or http://localhost:3000/entrance (V2).
 

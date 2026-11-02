@@ -14,7 +14,7 @@ services:
       - "3306:3306"
     volumes:
       - mysql_data:/var/lib/mysql
-      - ./backend/database/mysql_schema.sql:/docker-entrypoint-initdb.d/init.sql
+      - ./database/mysql_schema.sql:/docker-entrypoint-initdb.d/init.sql
     healthcheck:
       test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-proot_eipc_secure_pass_2026"]
       interval: 10s
@@ -24,7 +24,7 @@ services:
   backend:
     build:
       context: .
-      dockerfile: Dockerfile.backend
+      dockerfile: Dockerfile
     container_name: eipc_backend
     restart: always
     depends_on:
@@ -42,8 +42,8 @@ services:
 
   frontend:
     build:
-      context: .
-      dockerfile: Dockerfile.frontend
+      context: ../frontend
+      dockerfile: Dockerfile
     container_name: eipc_frontend
     restart: always
     depends_on:

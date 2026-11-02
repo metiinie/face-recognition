@@ -4,11 +4,19 @@ from logging.config import fileConfig
 from sqlalchemy import engine_from_config, pool
 from alembic import context
 
-# Add project root to sys.path
-sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
+# Add backend and project root to sys.path
+backend_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+root_dir = os.path.abspath(os.path.join(backend_dir, ".."))
+for p in [backend_dir, root_dir]:
+    if p not in sys.path:
+        sys.path.insert(0, p)
 
-from backend.database.models import db
-from backend.config import Config
+try:
+    from backend.database.models import db
+    from backend.config import Config
+except ImportError:
+    from database.models import db
+    from config import Config
 
 config = context.config
 
