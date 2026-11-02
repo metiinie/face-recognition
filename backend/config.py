@@ -17,17 +17,41 @@ INSECURE_DEFAULT_SECRET = "eipc-dire-dawa-secret-key-v1-production-change-me"
 INSECURE_DEFAULT_BIOMETRIC = "eipc-biometric-template-protection-secret-key-2026"
 
 
+def _normalize_database_uri(uri: str) -> str:
+    """Ensure database connection URIs containing unencoded characters like '@' in passwords are safely parsed."""
+    if not uri or not uri.startswith("mysql"):
+        return uri
+    try:
+        from sqlalchemy.engine import make_url
+        url = make_url(uri)
+        if url.host and "@" in url.host:
+            scheme, rest = uri.split("://", 1)
+            last_at_idx = rest.rfind("@")
+            userinfo = rest[:last_at_idx]
+            host_db = rest[last_at_idx + 1:]
+            if ":" in userinfo:
+                username, password = userinfo.split(":", 1)
+                import urllib.parse
+                safe_pass = urllib.parse.quote_plus(password)
+                return f"{scheme}://{username}:{safe_pass}@{host_db}"
+    except Exception:
+        pass
+    return uri
+
+
 class Config:
     """Base configuration."""
     SECRET_KEY = os.environ.get("SECRET_KEY", INSECURE_DEFAULT_SECRET)
 
     # Primary database is MySQL (mysql+pymysql://user:pass@host:3306/eipc_attendance)
     # Falls back to local SQLite file if MYSQL_DATABASE_URI / DATABASE_URL is not configured
-    SQLALCHEMY_DATABASE_URI = os.environ.get(
-        "DATABASE_URL",
+    SQLALCHEMY_DATABASE_URI = _normalize_database_uri(
         os.environ.get(
-            "MYSQL_DATABASE_URI",
-            f"sqlite:///{os.path.join(PROJECT_ROOT, 'eipc_attendance.db')}"
+            "DATABASE_URL",
+            os.environ.get(
+                "MYSQL_DATABASE_URI",
+                f"sqlite:///{os.path.join(PROJECT_ROOT, 'eipc_attendance.db')}"
+            )
         )
     )
     SQLALCHEMY_TRACK_MODIFICATIONS = False

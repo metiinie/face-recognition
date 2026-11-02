@@ -31,8 +31,8 @@ services:
       mysql:
         condition: service_healthy
     environment:
-      MYSQL_DATABASE_URI: mysql+pymysql://eipc_admin:Eipc@Attendance2026!@mysql:3306/eipc_attendance
-      DATABASE_URL: mysql+pymysql://eipc_admin:Eipc@Attendance2026!@mysql:3306/eipc_attendance
+      MYSQL_DATABASE_URI: mysql+pymysql://eipc_admin:Eipc%40Attendance2026%21@mysql:3306/eipc_attendance
+      DATABASE_URL: mysql+pymysql://eipc_admin:Eipc%40Attendance2026%21@mysql:3306/eipc_attendance
       SECRET_KEY: eipc-dire-dawa-production-secret-key-v1-super-secure-32b
       BIOMETRIC_ENCRYPTION_SECRET: eipc-biometric-fernet-secret-32-chars-long-2026
       ALLOW_SIMULATED_BIOMETRICS: "0"
