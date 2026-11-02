@@ -73,6 +73,64 @@ def _get_sface_session():
     return _SFACE_SESSION
 
 
+_YUNET_DETECTOR = None
+_YUNET_INIT_FAILED = False
+
+
+def _get_yunet_detector(width: int = 320, height: int = 320):
+    """Lazily load and cache YuNet ONNX face & 5-landmark detector session."""
+    global _YUNET_DETECTOR, _YUNET_INIT_FAILED
+    if _YUNET_INIT_FAILED or cv2 is None or not hasattr(cv2, "FaceDetectorYN"):
+        return None
+    try:
+        base_dir = os.path.dirname(os.path.abspath(__file__))
+        model_path = os.path.join(base_dir, "models", "face_detection_yunet_2023mar.onnx")
+        if os.path.exists(model_path):
+            if _YUNET_DETECTOR is None:
+                _YUNET_DETECTOR = cv2.FaceDetectorYN.create(
+                    model_path, "", (width, height), score_threshold=0.40, nms_threshold=0.3
+                )
+            else:
+                _YUNET_DETECTOR.setInputSize((width, height))
+            return _YUNET_DETECTOR
+        else:
+            _YUNET_INIT_FAILED = True
+    except Exception:
+        _YUNET_INIT_FAILED = True
+    return None
+
+
+def extract_aligned_neural_embedding(face_img: Image.Image) -> list[float] | None:
+    """
+    Detect face and 5 landmarks using YuNet and extract canonical aligned 128-D SFace embedding.
+    """
+    if cv2 is None:
+        return None
+    rec = _get_sface_session()
+    if rec is None or not hasattr(rec, "alignCrop") or not hasattr(rec, "feature"):
+        return None
+    try:
+        rgb_arr = np.asarray(face_img.convert("RGB"), dtype=np.uint8)
+        bgr_arr = cv2.cvtColor(rgb_arr, cv2.COLOR_RGB2BGR)
+        h, w, _ = bgr_arr.shape
+        if w < 16 or h < 16:
+            return None
+        det = _get_yunet_detector(w, h)
+        if det is None:
+            return None
+        _, faces = det.detect(bgr_arr)
+        if faces is None or len(faces) == 0:
+            return None
+        aligned = rec.alignCrop(bgr_arr, faces[0])
+        feat = rec.feature(aligned)[0]
+        norm = float(np.linalg.norm(feat))
+        if norm > 0:
+            feat = feat / norm
+        return [round(float(x), 6) for x in feat]
+    except Exception:
+        return None
+
+
 def extract_neural_embedding(face_pil: Image.Image) -> list[float] | None:
     """
     Extract a normalized 128-D neural face embedding using SFace deep neural network.
@@ -253,8 +311,22 @@ def _extract_embedding_from_pil(img: Image.Image) -> tuple[list[float], dict]:
     skin_mask = (cb >= 75.0) & (cb <= 140.0) & (cr >= 130.0) & (cr <= 185.0)
     skin_ratio = float(np.mean(skin_mask))
 
-    # 1. Deep Learning Face Detection (UltraFace ONNX)
-    onnx_faces = detect_faces_onnx(img, conf_thresh=0.50)
+    # 1. Deep Learning Face Detection (UltraFace ONNX + YuNet fallback)
+    onnx_faces = detect_faces_onnx(img, conf_thresh=0.40)
+    if len(onnx_faces) == 0 and cv2 is not None:
+        try:
+            rgb_tmp = np.asarray(img.convert("RGB"), dtype=np.uint8)
+            bgr_tmp = cv2.cvtColor(rgb_tmp, cv2.COLOR_RGB2BGR)
+            det = _get_yunet_detector(bgr_tmp.shape[1], bgr_tmp.shape[0])
+            if det is not None:
+                _, y_faces = det.detect(bgr_tmp)
+                if y_faces is not None and len(y_faces) > 0:
+                    onnx_faces = [
+                        {"box": (int(yf[0]), int(yf[1]), int(yf[2]), int(yf[3])), "score": float(yf[-1])}
+                        for yf in y_faces if yf[2] > 12 and yf[3] > 12
+                    ]
+        except Exception:
+            pass
 
     # 2. Skin cluster detection fallback
     kernel_size = max(3, int(img_rgb.width * 0.05))
@@ -382,7 +454,12 @@ def _extract_embedding_from_pil(img: Image.Image) -> tuple[list[float], dict]:
     # 1. Primary: Extract 128-D SFace deep neural embedding
     neural_emb = extract_neural_embedding(aligned_pil)
 
-    # 2. Extract 128-D spatial gradient orientation descriptor (for legacy templates & dual-matching)
+    # 2. Extract landmark-aligned 128-D SFace embedding from full frame if YuNet/OpenCV available
+    aligned_neural_emb = extract_aligned_neural_embedding(img)
+    if aligned_neural_emb is None and aligned_pil is not None:
+        aligned_neural_emb = extract_aligned_neural_embedding(aligned_pil)
+
+    # 3. Extract 128-D spatial gradient orientation descriptor (for legacy templates & dual-matching)
     gx = np.diff(gray, axis=1)
     gy = np.diff(gray, axis=0)
     gx = np.pad(gx, ((0, 0), (0, 1)), mode="edge")[16:144, 16:144]
@@ -407,7 +484,7 @@ def _extract_embedding_from_pil(img: Image.Image) -> tuple[list[float], dict]:
         vec = vec / norm
     gradient_emb = [round(float(val), 6) for val in vec]
 
-    embedding = neural_emb if neural_emb is not None else gradient_emb
+    embedding = aligned_neural_emb if aligned_neural_emb is not None else (neural_emb if neural_emb is not None else gradient_emb)
 
     quality = {
         "brightness": round(brightness, 2),
@@ -420,6 +497,7 @@ def _extract_embedding_from_pil(img: Image.Image) -> tuple[list[float], dict]:
         "faces_count": faces_count,
         "face_detected": face_detected,
         "obstructed": obstructed,
+        "aligned_neural_embedding": aligned_neural_emb,
         "neural_embedding": neural_emb,
         "gradient_embedding": gradient_emb,
     }
@@ -702,6 +780,7 @@ def analyze_and_extract_embedding(capture_payload: dict) -> dict:
         "quality_score": quality_score,
         "quality_details": quality_details,
         "embedding": embedding,
+        "aligned_neural_embedding": img_quality.get("aligned_neural_embedding"),
         "neural_embedding": img_quality.get("neural_embedding") or embedding,
         "gradient_embedding": img_quality.get("gradient_embedding") or embedding,
     }
@@ -737,8 +816,8 @@ def recognize_face_candidate(capture_payload: dict, decrypt_fn) -> dict:
         }
 
     probe_embedding = extraction["embedding"]
-    match_threshold = current_app.config.get("RECOGNITION_MATCH_THRESHOLD", 0.40)
-    uncertain_threshold = current_app.config.get("RECOGNITION_UNCERTAIN_THRESHOLD", 0.28)
+    match_threshold = current_app.config.get("RECOGNITION_MATCH_THRESHOLD", 0.35)
+    uncertain_threshold = current_app.config.get("RECOGNITION_UNCERTAIN_THRESHOLD", 0.22)
 
     current_model_name = current_app.config.get("FACE_MODEL_NAME", "EIPC-Vision-Embedder")
     current_model_version = current_app.config.get("FACE_MODEL_VERSION", "1.0.0")
@@ -753,15 +832,17 @@ def recognize_face_candidate(capture_payload: dict, decrypt_fn) -> dict:
     best_score = -1.0
     best_template = None
 
+    probe_aligned = extraction.get("aligned_neural_embedding")
     probe_neural = extraction.get("neural_embedding") or probe_embedding
     probe_gradient = extraction.get("gradient_embedding") or probe_embedding
 
     for tmpl in active_templates:
         try:
             stored_vec = decrypt_fn(tmpl.template_data)
+            score_aligned = cosine_similarity(probe_aligned, stored_vec) if probe_aligned else -1.0
             score_neural = cosine_similarity(probe_neural, stored_vec) if probe_neural else -1.0
             score_gradient = cosine_similarity(probe_gradient, stored_vec) if probe_gradient else -1.0
-            score = max(score_neural, score_gradient)
+            score = max(score_aligned, score_neural, score_gradient)
             if score > best_score:
                 best_score = score
                 best_template = tmpl
@@ -913,7 +994,8 @@ def extract_multiple_faces_from_image(img: Image.Image) -> list[dict]:
                 vec = vec / norm
             gradient_vec = [round(float(val), 6) for val in vec]
 
-            embedding = neural_vec if neural_vec is not None else gradient_vec
+            aligned_vec = extract_aligned_neural_embedding(face_crop)
+            embedding = aligned_vec if aligned_vec is not None else (neural_vec if neural_vec is not None else gradient_vec)
 
             faces.append({
                 "track_id": idx + 1,
@@ -924,6 +1006,7 @@ def extract_multiple_faces_from_image(img: Image.Image) -> list[dict]:
                     "h": int(bh),
                 },
                 "embedding": embedding,
+                "aligned_neural_embedding": aligned_vec,
                 "neural_embedding": neural_vec,
                 "gradient_embedding": gradient_vec,
                 "quality_score": round(min(1.0, (sharpness / 60.0) * 0.5 + (1.0 - abs(brightness - 128.0) / 128.0) * 0.5), 3),
@@ -1132,8 +1215,8 @@ def recognize_multi_face_frame(capture_payload: dict, decrypt_fn) -> dict:
             })
 
     # Model parameters
-    match_threshold = current_app.config.get("RECOGNITION_MATCH_THRESHOLD", 0.40) if has_app_context() else 0.40
-    uncertain_threshold = current_app.config.get("RECOGNITION_UNCERTAIN_THRESHOLD", 0.28) if has_app_context() else 0.28
+    match_threshold = current_app.config.get("RECOGNITION_MATCH_THRESHOLD", 0.35) if has_app_context() else 0.35
+    uncertain_threshold = current_app.config.get("RECOGNITION_UNCERTAIN_THRESHOLD", 0.22) if has_app_context() else 0.22
     current_model = current_app.config.get("FACE_MODEL_NAME", "EIPC-Vision-Embedder") if has_app_context() else "EIPC-Vision-Embedder"
     current_version = current_app.config.get("FACE_MODEL_VERSION", "1.0.0") if has_app_context() else "1.0.0"
 
@@ -1145,6 +1228,7 @@ def recognize_multi_face_frame(capture_payload: dict, decrypt_fn) -> dict:
 
     results = []
     for face in faces_data:
+        probe_aligned = face.get("aligned_neural_embedding")
         probe_neural = face.get("neural_embedding") or face.get("embedding")
         probe_gradient = face.get("gradient_embedding") or face.get("embedding")
         best_score = -1.0
@@ -1153,9 +1237,10 @@ def recognize_multi_face_frame(capture_payload: dict, decrypt_fn) -> dict:
         for tmpl in active_templates:
             try:
                 stored_vec = decrypt_fn(tmpl.template_data)
+                score_aligned = cosine_similarity(probe_aligned, stored_vec) if probe_aligned else -1.0
                 score_neural = cosine_similarity(probe_neural, stored_vec) if probe_neural else -1.0
                 score_gradient = cosine_similarity(probe_gradient, stored_vec) if probe_gradient else -1.0
-                score = max(score_neural, score_gradient)
+                score = max(score_aligned, score_neural, score_gradient)
                 if score > best_score:
                     best_score = score
                     best_template = tmpl
