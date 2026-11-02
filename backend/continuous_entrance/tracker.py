@@ -242,3 +242,4 @@ class ContinuousMultiFaceTracker:
             track.is_punch_committed = True
             track.committed_action = action
             track.committed_event_id = event_id
+
