@@ -817,7 +817,7 @@ def recognize_face_candidate(capture_payload: dict, decrypt_fn) -> dict:
 
     probe_embedding = extraction["embedding"]
     match_threshold = current_app.config.get("RECOGNITION_MATCH_THRESHOLD", 0.35)
-    uncertain_threshold = current_app.config.get("RECOGNITION_UNCERTAIN_THRESHOLD", 0.22)
+    uncertain_threshold = current_app.config.get("RECOGNITION_UNCERTAIN_THRESHOLD", 0.25)
 
     current_model_name = current_app.config.get("FACE_MODEL_NAME", "EIPC-Vision-Embedder")
     current_model_version = current_app.config.get("FACE_MODEL_VERSION", "1.0.0")
@@ -1216,7 +1216,7 @@ def recognize_multi_face_frame(capture_payload: dict, decrypt_fn) -> dict:
 
     # Model parameters
     match_threshold = current_app.config.get("RECOGNITION_MATCH_THRESHOLD", 0.35) if has_app_context() else 0.35
-    uncertain_threshold = current_app.config.get("RECOGNITION_UNCERTAIN_THRESHOLD", 0.22) if has_app_context() else 0.22
+    uncertain_threshold = current_app.config.get("RECOGNITION_UNCERTAIN_THRESHOLD", 0.25) if has_app_context() else 0.25
     current_model = current_app.config.get("FACE_MODEL_NAME", "EIPC-Vision-Embedder") if has_app_context() else "EIPC-Vision-Embedder"
     current_version = current_app.config.get("FACE_MODEL_VERSION", "1.0.0") if has_app_context() else "1.0.0"
 

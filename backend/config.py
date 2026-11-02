@@ -58,7 +58,7 @@ class Config:
     STATION_COOKIE_NAME = "eipc_station"
     # Cosine similarity threshold (0.0 to 1.0) - calibrated for live optical camera embeddings (OpenCV SFace standard: 0.363)
     RECOGNITION_MATCH_THRESHOLD = float(os.environ.get("RECOGNITION_MATCH_THRESHOLD", "0.35"))
-    RECOGNITION_UNCERTAIN_THRESHOLD = float(os.environ.get("RECOGNITION_UNCERTAIN_THRESHOLD", "0.22"))
+    RECOGNITION_UNCERTAIN_THRESHOLD = float(os.environ.get("RECOGNITION_UNCERTAIN_THRESHOLD", "0.25"))
 
     # Image quality thresholds (AT-03, AT-06)
     MIN_IMAGE_BRIGHTNESS = 45.0       # 0-255 scale

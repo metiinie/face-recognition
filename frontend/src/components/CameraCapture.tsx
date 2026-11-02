@@ -102,11 +102,12 @@ export function CameraCapture({
 
   // Auto-scan timer if enabled
   useEffect(() => {
-    if (!autoScanActive || !streamActive || isProcessing || autoScanIntervalMs <= 0) return;
+    if (!autoScanActive || !streamActive || isProcessing) return;
+    const interval = autoScanIntervalMs > 0 ? autoScanIntervalMs : 1500;
 
     const timer = setInterval(() => {
       captureFrame();
-    }, autoScanIntervalMs);
+    }, interval);
 
     return () => clearInterval(timer);
   }, [autoScanActive, streamActive, isProcessing, autoScanIntervalMs, captureFrame]);

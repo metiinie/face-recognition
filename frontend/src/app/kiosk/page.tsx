@@ -25,6 +25,7 @@ import {
 export default function KioskPage() {
   const [stationId, setStationId] = useState("ST-ICT-01");
   const [stationsList, setStationsList] = useState<StationRecord[]>([]);
+  const [employees, setEmployees] = useState<any[]>([]);
 
   useEffect(() => {
     api.getStations()
@@ -37,6 +38,15 @@ export default function KioskPage() {
       .catch((err) => {
         console.warn("Could not load dynamic stations, using defaults:", err);
       });
+
+    api.getEmployees()
+      .then((data) => {
+        if (data && data.length > 0) {
+          setEmployees(data);
+          setEnrollTargetEmpId(data[0].id);
+        }
+      })
+      .catch((err) => console.warn("Could not load employees for kiosk:", err));
   }, []);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isConfirming, setIsConfirming] = useState(false);
@@ -45,6 +55,14 @@ export default function KioskPage() {
   const [attendanceOutcome, setAttendanceOutcome] = useState<AttendanceConfirmResponse | null>(null);
   const [feedbackError, setFeedbackError] = useState<string | null>(null);
   const [punchError, setPunchError] = useState<string | null>(null);
+  const [lastCapturedImage, setLastCapturedImage] = useState<string | null>(null);
+
+  // Quick Biometric Enrollment State
+  const [showEnrollModal, setShowEnrollModal] = useState(false);
+  const [enrollTargetEmpId, setEnrollTargetEmpId] = useState<number | "">("");
+  const [isSubmittingEnroll, setIsSubmittingEnroll] = useState(false);
+  const [enrollSuccess, setEnrollSuccess] = useState<string | null>(null);
+  const [enrollError, setEnrollError] = useState<string | null>(null);
 
   // HR Review / Assistance state
   const [showHelpDrawer, setShowHelpDrawer] = useState(false);
@@ -55,6 +73,7 @@ export default function KioskPage() {
   const [helpError, setHelpError] = useState<string | null>(null);
 
   const handleCapture = async (base64Image: string) => {
+    setLastCapturedImage(base64Image);
     setIsProcessing(true);
     setFeedbackError(null);
     setPunchError(null);
@@ -76,6 +95,26 @@ export default function KioskPage() {
       setFeedbackError(err.message || "Failed to communicate with attendance server.");
     } finally {
       setIsProcessing(false);
+    }
+  };
+
+  const handleConfirmEnrollment = async () => {
+    if (!enrollTargetEmpId || !lastCapturedImage) return;
+    setIsSubmittingEnroll(true);
+    setEnrollError(null);
+    try {
+      await api.enrollFace({
+        employee_id: Number(enrollTargetEmpId),
+        image_base64: lastCapturedImage,
+      });
+      setShowEnrollModal(false);
+      setEnrollSuccess("Biometric template enrolled successfully! Rescanning now...");
+      setFeedbackError(null);
+      handleCapture(lastCapturedImage);
+    } catch (err: any) {
+      setEnrollError(err.message || "Failed to enroll biometric face template.");
+    } finally {
+      setIsSubmittingEnroll(false);
     }
   };
 
@@ -173,31 +212,56 @@ export default function KioskPage() {
           </p>
         </div>
 
-        {/* Station Selector */}
-        <div className="flex items-center gap-2 rounded-xl bg-white/10 p-2 backdrop-blur-md">
-          <span className="text-xs text-slate-300 font-medium">Terminal Station:</span>
-          <select
-            value={stationId}
-            onChange={(e) => setStationId(e.target.value)}
-            className="rounded-lg bg-slate-900/90 px-3 py-1 text-xs text-white border border-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              setEnrollError(null);
+              setShowEnrollModal(true);
+            }}
+            className="text-xs h-8 bg-white/10 hover:bg-white/20 text-white border-white/20"
           >
-            {stationsList.length > 0 ? (
-              stationsList.map((st) => (
-                <option key={st.id} value={st.station_code}>
-                  {st.station_code} — {st.name} ({st.department_code})
-                </option>
-              ))
-            ) : (
-              <>
-                <option value="ST-ICT-01">Block A - ICT Wing (Kiosk #1)</option>
-                <option value="ST-AUTO-01">Automotive & Mechanical (Kiosk #2)</option>
-                <option value="ST-CIVIL-01">Textile & Civil Block (Kiosk #3)</option>
-                <option value="ST-GATE-01">Main Campus Gate (Kiosk #4)</option>
-              </>
-            )}
-          </select>
+            <UserPlus className="h-3.5 w-3.5 mr-1.5 text-emerald-400" />
+            Quick Face Enrollment
+          </Button>
+
+          {/* Station Selector */}
+          <div className="flex items-center gap-2 rounded-xl bg-white/10 p-1.5 backdrop-blur-md">
+            <span className="text-xs text-slate-300 font-medium">Terminal Station:</span>
+            <select
+              value={stationId}
+              onChange={(e) => setStationId(e.target.value)}
+              className="rounded-lg bg-slate-900/90 px-3 py-1 text-xs text-white border border-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
+            >
+              {stationsList.length > 0 ? (
+                stationsList.map((st) => (
+                  <option key={st.id} value={st.station_code}>
+                    {st.station_code} — {st.name} ({st.department_code})
+                  </option>
+                ))
+              ) : (
+                <>
+                  <option value="ST-ICT-01">Block A - ICT Wing (Kiosk #1)</option>
+                  <option value="ST-AUTO-01">Automotive & Mechanical (Kiosk #2)</option>
+                  <option value="ST-CIVIL-01">Textile & Civil Block (Kiosk #3)</option>
+                  <option value="ST-GATE-01">Main Campus Gate (Kiosk #4)</option>
+                </>
+              )}
+            </select>
+          </div>
         </div>
       </div>
+
+      {enrollSuccess && (
+        <div className="rounded-xl border border-emerald-300 bg-emerald-50 p-4 text-xs font-medium text-emerald-800 flex items-center justify-between">
+          <span className="flex items-center gap-2">
+            <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+            {enrollSuccess}
+          </span>
+          <button onClick={() => setEnrollSuccess(null)} className="text-slate-400 hover:text-slate-600">✕</button>
+        </div>
+      )}
 
       {/* Main Grid: Left Camera, Right Decision Panel */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
@@ -207,7 +271,7 @@ export default function KioskPage() {
             <CameraCapture
               onCapture={handleCapture}
               isProcessing={isProcessing}
-              autoScanIntervalMs={0}
+              autoScanIntervalMs={1600}
               guideText="Align face within the green oval for automatic recognition"
             />
             <div className="mt-3 flex items-center justify-between px-2 text-[11px] text-slate-400">
@@ -418,7 +482,7 @@ export default function KioskPage() {
               {recognition && typeof recognition.match_score === "number" && recognition.match_score > 0 && (
                 <div className="flex items-center justify-between text-[11px] text-slate-600 bg-slate-100/90 px-3 py-1.5 rounded-lg border border-slate-200">
                   <span>Match Confidence: <strong className="font-mono">{(recognition.match_score * 100).toFixed(1)}%</strong></span>
-                  <span>Required: <strong className="font-mono">40.0%</strong></span>
+                  <span>Required: <strong className="font-mono">35.0%</strong></span>
                 </div>
               )}
 
@@ -438,10 +502,24 @@ export default function KioskPage() {
                 </div>
               )}
 
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 <Button variant="danger" size="sm" className="flex-1" onClick={handleReset}>
                   Try Again
                 </Button>
+                {lastCapturedImage && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="flex-1 bg-white text-blue-700 border-blue-300 hover:bg-blue-50"
+                    onClick={() => {
+                      setEnrollError(null);
+                      setShowEnrollModal(true);
+                    }}
+                  >
+                    <UserPlus className="mr-1.5 h-3.5 w-3.5 text-blue-600" />
+                    Quick Enroll My Face
+                  </Button>
+                )}
                 <Button
                   variant="outline"
                   size="sm"
@@ -517,6 +595,85 @@ export default function KioskPage() {
           )}
         </div>
       </div>
+
+      {/* Quick Biometric Face Enrollment Modal */}
+      {showEnrollModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2">
+                <UserPlus className="h-5 w-5 text-blue-600" />
+                <h3 className="font-bold text-slate-900 text-base">Quick Biometric Face Enrollment</h3>
+              </div>
+              <button
+                onClick={() => setShowEnrollModal(false)}
+                className="text-slate-400 hover:text-slate-600 text-lg leading-none"
+              >
+                ✕
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-500">
+              Register or update your face template directly at this kiosk terminal.
+            </p>
+
+            {lastCapturedImage ? (
+              <div className="relative aspect-[4/3] w-full rounded-xl overflow-hidden border border-slate-200 bg-slate-900">
+                <img
+                  src={lastCapturedImage}
+                  alt="Captured face snapshot"
+                  className="w-full h-full object-cover"
+                />
+              </div>
+            ) : (
+              <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-800">
+                Please position your face in the camera and click <strong>Scan Face Now</strong> first to capture a frame.
+              </div>
+            )}
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-slate-700">Select Employee Profile:</label>
+              <select
+                value={enrollTargetEmpId}
+                onChange={(e) => setEnrollTargetEmpId(Number(e.target.value))}
+                className="w-full rounded-lg border border-slate-300 p-2 text-xs font-medium text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                {employees.map((emp) => (
+                  <option key={emp.id} value={emp.id}>
+                    {emp.employee_number} — {emp.first_name || emp.full_name} {emp.last_name || ""} ({emp.department_name || emp.department || "Staff"})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {enrollError && (
+              <div className="p-2.5 rounded-lg border border-rose-200 bg-rose-50 text-rose-800 text-xs">
+                {enrollError}
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 pt-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowEnrollModal(false)}
+                disabled={isSubmittingEnroll}
+              >
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                onClick={handleConfirmEnrollment}
+                isLoading={isSubmittingEnroll}
+                disabled={!enrollTargetEmpId || !lastCapturedImage || isSubmittingEnroll}
+                className="bg-blue-600 hover:bg-blue-700 text-white"
+              >
+                Confirm Biometric Enrollment
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
