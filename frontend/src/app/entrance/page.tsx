@@ -11,6 +11,7 @@ import {
   GatePassageRecord,
   GateStatusResponse,
   StationRecord,
+  EmployeeRecord,
 } from "@/lib/api";
 import {
   Radio,
@@ -33,10 +34,13 @@ import {
   UserX,
   Activity,
   Layers,
+  UserPlus,
+  X,
 } from "lucide-react";
 
 export default function ContinuousEntrancePage() {
   const [stations, setStations] = useState<StationRecord[]>([]);
+  const [employees, setEmployees] = useState<EmployeeRecord[]>([]);
   const [selectedStation, setSelectedStation] = useState<string>("ST-GATE-01");
   const [gateMode, setGateMode] = useState<"AUTO_DETECT" | "IN" | "OUT">("AUTO_DETECT");
   const [cooldownSec, setCooldownSec] = useState<number>(20);
@@ -54,27 +58,37 @@ export default function ContinuousEntrancePage() {
   const [gateStatus, setGateStatus] = useState<GateStatusResponse | null>(null);
   const [recentPassages, setRecentPassages] = useState<GatePassageRecord[]>([]);
 
-  // Simulation Feedback Banner
+  // Simulation & Action Feedback Banners
   const [simMessage, setSimMessage] = useState<{ type: "success" | "warning"; text: string } | null>(null);
+
+  // Quick Face Enrollment Modal State
+  const [showEnrollModal, setShowEnrollModal] = useState<boolean>(false);
+  const [enrollTargetEmpId, setEnrollTargetEmpId] = useState<number | "">("");
+  const [enrollSnapshotB64, setEnrollSnapshotB64] = useState<string | null>(null);
+  const [isSubmittingEnroll, setIsSubmittingEnroll] = useState<boolean>(false);
+  const [enrollError, setEnrollError] = useState<string | null>(null);
 
   // References
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const overlayCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const streamIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const isStreamingRef = useRef<boolean>(false);
+  const isProcessingRef = useRef<boolean>(false);
   const frameCountRef = useRef<number>(0);
   const lastFpsTimeRef = useRef<number>(Date.now());
 
   // 1. Initial Data Fetch
   const fetchGateData = useCallback(async () => {
     try {
-      const [stList, status] = await Promise.all([
+      const [stList, status, empRes] = await Promise.all([
         api.getStations(),
         api.getGateStatus(selectedStation),
+        api.getEmployees(),
       ]);
       setStations(stList);
       setGateStatus(status);
       setRecentPassages(status.recent_passages || []);
+      setEmployees(empRes || []);
       if (status.gate_mode) {
         setGateMode(status.gate_mode as any);
       }
@@ -123,41 +137,52 @@ export default function ContinuousEntrancePage() {
   const startCamera = async () => {
     try {
       setStreamError(null);
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        throw new Error("Webcam access is not supported by your browser environment.");
+      }
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: "user" },
         audio: false,
       });
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        await videoRef.current.play();
-        setIsStreaming(true);
+        videoRef.current.onloadedmetadata = () => {
+          videoRef.current?.play();
+          isStreamingRef.current = true;
+          setIsStreaming(true);
+        };
       }
     } catch (err: any) {
       setStreamError("Unable to access optical camera device: " + (err.message || err.name));
+      isStreamingRef.current = false;
       setIsStreaming(false);
     }
   };
 
   const stopCamera = () => {
+    isStreamingRef.current = false;
+    setIsStreaming(false);
     if (videoRef.current && videoRef.current.srcObject) {
       const stream = videoRef.current.srcObject as MediaStream;
       stream.getTracks().forEach((track) => track.stop());
       videoRef.current.srcObject = null;
     }
-    if (streamIntervalRef.current) {
-      clearInterval(streamIntervalRef.current);
-      streamIntervalRef.current = null;
-    }
-    setIsStreaming(false);
     clearOverlays();
+    setDetectedFaces([]);
   };
 
   // Draw Bounding Boxes on Overlay Canvas
   const drawOverlays = useCallback((faces: ContinuousFaceResult[]) => {
     const canvas = overlayCanvasRef.current;
-    if (!canvas) return;
+    const video = videoRef.current;
+    if (!canvas || !video) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
+
+    if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
+      canvas.width = video.videoWidth || 640;
+      canvas.height = video.videoHeight || 480;
+    }
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
@@ -222,7 +247,7 @@ export default function ContinuousEntrancePage() {
       const name = face.employee ? face.employee.full_name : tagText;
       const sub = face.employee
         ? `${face.employee.employee_number} • ${Math.round(face.recognition_score * 100)}% Match`
-        : `Track #${face.track_id}`;
+        : `Face Track #${face.track_id}`;
 
       ctx.fillStyle = strokeColor;
       ctx.fillRect(x, Math.max(0, y - 26), Math.max(130, w * 0.9), 26);
@@ -259,7 +284,9 @@ export default function ContinuousEntrancePage() {
 
   // 3. Process Live Optical Frame
   const processLiveFrame = useCallback(async () => {
-    if (!videoRef.current || videoRef.current.readyState < 2 || isProcessing) return;
+    if (!videoRef.current || videoRef.current.readyState < 2 || isProcessingRef.current || !isStreamingRef.current) {
+      return;
+    }
 
     const canvas = canvasRef.current;
     const video = videoRef.current;
@@ -277,10 +304,11 @@ export default function ContinuousEntrancePage() {
     }
 
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-    const base64Image = canvas.toDataURL("image/jpeg", 0.82);
+    const base64Image = canvas.toDataURL("image/jpeg", 0.85);
 
-    const startTime = performance.now();
+    isProcessingRef.current = true;
     setIsProcessing(true);
+    const startTime = performance.now();
 
     try {
       const res: ContinuousEntranceFrameResponse = await api.processContinuousEntranceFrame({
@@ -294,7 +322,7 @@ export default function ContinuousEntrancePage() {
       setDetectedFaces(res.faces);
       drawOverlays(res.faces);
 
-      // Play audio chime if action was confirmed
+      // Play audio chime if action was confirmed or unknown
       const hasConfirmed = res.faces.some((f) => f.action_status === "CONFIRMED");
       const hasUnknown = res.faces.some((f) => f.action_status === "UNKNOWN_VISITOR");
       if (hasConfirmed) playSoundChime("success");
@@ -316,26 +344,36 @@ export default function ContinuousEntrancePage() {
     } catch (err: any) {
       console.warn("Continuous frame processing error:", err);
     } finally {
+      isProcessingRef.current = false;
       setIsProcessing(false);
     }
-  }, [selectedStation, gateMode, isProcessing, drawOverlays, fetchGateData]);
+  }, [selectedStation, gateMode, drawOverlays, fetchGateData]);
 
-  // Periodic capture loop when streaming
+  // Periodic capture loop when streaming (smooth, non-overlapping)
   useEffect(() => {
-    if (isStreaming) {
-      streamIntervalRef.current = setInterval(processLiveFrame, 900);
-    } else {
-      if (streamIntervalRef.current) {
-        clearInterval(streamIntervalRef.current);
-        streamIntervalRef.current = null;
-      }
+    isStreamingRef.current = isStreaming;
+    if (!isStreaming) {
       clearOverlays();
       setDetectedFaces([]);
+      return;
     }
-    return () => {
-      if (streamIntervalRef.current) {
-        clearInterval(streamIntervalRef.current);
+
+    let active = true;
+    let timerId: NodeJS.Timeout | null = null;
+
+    const runLoop = async () => {
+      if (!active || !isStreamingRef.current) return;
+      await processLiveFrame();
+      if (active && isStreamingRef.current) {
+        timerId = setTimeout(runLoop, 650);
       }
+    };
+
+    runLoop();
+
+    return () => {
+      active = false;
+      if (timerId) clearTimeout(timerId);
     };
   }, [isStreaming, processLiveFrame]);
 
@@ -368,6 +406,7 @@ export default function ContinuousEntrancePage() {
         simulated_staff: simulatedStaff,
         gate_mode: gateMode,
       });
+
       const tookMs = Math.round(performance.now() - startTime);
       setLatencyMs(tookMs);
       setDetectedFaces(res.faces);
@@ -375,47 +414,79 @@ export default function ContinuousEntrancePage() {
       if (overlayCanvasRef.current) {
         overlayCanvasRef.current.width = 640;
         overlayCanvasRef.current.height = 480;
-        drawOverlays(res.faces);
       }
+      drawOverlays(res.faces);
 
-      const confirmedNames = res.faces
-        .filter((f) => f.action_status === "CONFIRMED")
-        .map((f) => `${f.employee?.full_name} (${f.attendance_action})`);
+      const hasConfirmed = res.faces.some((f) => f.action_status === "CONFIRMED");
+      const hasUnknown = res.faces.some((f) => f.action_status === "UNKNOWN_VISITOR");
+      if (hasConfirmed) playSoundChime("success");
+      else if (hasUnknown) playSoundChime("warning");
 
-      if (confirmedNames.length > 0) {
-        playSoundChime("success");
-        setSimMessage({
-          type: "success",
-          text: `[${label}] Detected ${res.faces_detected} persons. Confirmed: ${confirmedNames.join(", ")}.`,
-        });
-      } else {
-        const cooldownNames = res.faces
-          .filter((f) => f.action_status === "COOLDOWN_ACTIVE")
-          .map((f) => f.employee?.full_name);
-        setSimMessage({
-          type: "warning",
-          text: `[${label}] Cooldown Active for ${cooldownNames.join(", ")} (Passage logged recently).`,
-        });
-      }
-
+      setSimMessage({
+        type: "success",
+        text: `Simulation executed: ${label}. Results: ${res.summary_actions.join(", ") || "No new punch recorded."}`,
+      });
       fetchGateData();
     } catch (err: any) {
       setSimMessage({
         type: "warning",
-        text: err.message || "Simulation failed.",
+        text: `Simulation error: ${err.message || "Failed to trigger passage."}`,
       });
     } finally {
       setIsProcessing(false);
     }
   };
 
+  // 6. Quick Live Face Enrollment
+  const handleOpenQuickEnroll = () => {
+    if (videoRef.current && canvasRef.current) {
+      const video = videoRef.current;
+      const canvas = canvasRef.current;
+      canvas.width = video.videoWidth || 640;
+      canvas.height = video.videoHeight || 480;
+      const ctx = canvas.getContext("2d");
+      if (ctx) {
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const b64 = canvas.toDataURL("image/jpeg", 0.92);
+        setEnrollSnapshotB64(b64);
+      }
+    }
+    if (employees.length > 0 && !enrollTargetEmpId) {
+      setEnrollTargetEmpId(employees[0].id);
+    }
+    setEnrollError(null);
+    setShowEnrollModal(true);
+  };
+
+  const handleConfirmEnrollment = async () => {
+    if (!enrollTargetEmpId || !enrollSnapshotB64) return;
+    setIsSubmittingEnroll(true);
+    setEnrollError(null);
+    try {
+      const res = await api.enrollFace({
+        employee_id: Number(enrollTargetEmpId),
+        image_base64: enrollSnapshotB64,
+      });
+      setShowEnrollModal(false);
+      setSimMessage({
+        type: "success",
+        text: `Biometric template successfully enrolled! The continuous gate will now recognize your face automatically.`,
+      });
+      fetchGateData();
+    } catch (err: any) {
+      setEnrollError(err.message || "Failed to enroll template. Please ensure your face is well lit.");
+    } finally {
+      setIsSubmittingEnroll(false);
+    }
+  };
+
   return (
-    <div className="space-y-6 pb-12">
-      {/* Hidden processing canvas */}
+    <div className="space-y-6">
+      {/* Offscreen frame capture canvas */}
       <canvas ref={canvasRef} className="hidden" />
 
-      {/* Header */}
-      <div className="flex flex-col lg:flex-row items-start lg:items-center justify-between gap-4 border-b border-slate-200 pb-5">
+      {/* Top Header & Gate Controller Bar */}
+      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between border-b border-slate-200 pb-4">
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-2xl font-bold tracking-tight text-slate-900">
@@ -503,7 +574,7 @@ export default function ContinuousEntrancePage() {
         </div>
       </div>
 
-      {/* Simulation Feedback Alert */}
+      {/* Simulation / Feedback Alert */}
       {simMessage && (
         <div
           className={`p-3 rounded-lg border text-xs flex items-center justify-between ${
@@ -526,6 +597,14 @@ export default function ContinuousEntrancePage() {
           >
             Dismiss
           </button>
+        </div>
+      )}
+
+      {/* Camera Stream Error */}
+      {streamError && (
+        <div className="p-3 rounded-lg border border-rose-200 bg-rose-50 text-rose-900 text-xs flex items-center gap-2">
+          <ShieldAlert className="h-4 w-4 text-rose-600 shrink-0" />
+          <span>{streamError}</span>
         </div>
       )}
 
@@ -576,7 +655,7 @@ export default function ContinuousEntrancePage() {
                   <div className="absolute top-3 left-3 z-20 flex items-center gap-2">
                     <span className="flex items-center gap-1.5 rounded-md bg-black/60 px-2 py-1 text-[11px] font-mono text-emerald-400 backdrop-blur-md border border-emerald-500/30">
                       <span className="h-2 w-2 rounded-full bg-emerald-500 animate-ping" />
-                      LIVE STREAM • {fps} FPS
+                      AI TRACKING • {fps} FPS
                     </span>
                     <span className="rounded-md bg-black/60 px-2 py-1 text-[11px] font-mono text-slate-300 backdrop-blur-md border border-white/10">
                       <Zap className="inline h-3 w-3 text-amber-400 mr-1" />
@@ -586,9 +665,9 @@ export default function ContinuousEntrancePage() {
 
                   {/* Top-Right: Faces Detected Count */}
                   <div className="absolute top-3 right-3 z-20">
-                    <Badge variant="brand" className="backdrop-blur-md text-xs py-1">
+                    <Badge variant={detectedFaces.length > 0 ? "success" : "brand"} className="backdrop-blur-md text-xs py-1">
                       <Users className="h-3.5 w-3.5 mr-1" />
-                      {detectedFaces.length} Face{detectedFaces.length === 1 ? "" : "s"} in View
+                      {detectedFaces.length} Face{detectedFaces.length === 1 ? "" : "s"} Tracked
                     </Badge>
                   </div>
                 </>
@@ -602,9 +681,19 @@ export default function ContinuousEntrancePage() {
                     <span>•</span>
                     <span className="text-emerald-400">Mode: {gateMode}</span>
                   </div>
-                  <Button size="sm" variant="danger" onClick={stopCamera} className="text-xs h-7">
-                    <Pause className="h-3 w-3 mr-1" /> Stop Stream
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={handleOpenQuickEnroll}
+                      className="text-xs h-7 bg-white/10 hover:bg-white/20 text-white border-white/20"
+                    >
+                      <UserPlus className="h-3 w-3 mr-1 text-emerald-400" /> Enroll My Face
+                    </Button>
+                    <Button size="sm" variant="danger" onClick={stopCamera} className="text-xs h-7">
+                      <Pause className="h-3 w-3 mr-1" /> Stop Stream
+                    </Button>
+                  </div>
                 </div>
               )}
             </div>
@@ -713,14 +802,16 @@ export default function ContinuousEntrancePage() {
                 <Activity className="h-3.5 w-3.5 text-emerald-600" />
                 Active Frame Detections
               </CardTitle>
-              <Badge variant="brand" className="text-[10px] font-mono">
+              <Badge variant={detectedFaces.length > 0 ? "success" : "brand"} className="text-[10px] font-mono">
                 {detectedFaces.length} Active
               </Badge>
             </CardHeader>
             <CardContent className="p-3">
               {detectedFaces.length === 0 ? (
                 <div className="text-center py-6 text-slate-400 text-xs">
-                  No face detected in the current gate frame.
+                  {isStreaming
+                    ? "Scanning for faces... position face in camera view."
+                    : "Camera stream offline. Start stream to begin continuous detection."}
                 </div>
               ) : (
                 <div className="space-y-2">
@@ -739,13 +830,13 @@ export default function ContinuousEntrancePage() {
                           </span>
                         </div>
                         <div className="text-[11px] text-slate-500 flex items-center gap-2">
-                          <span>Confidence: {Math.round(face.recognition_score * 100)}%</span>
+                          <span>Match Score: {Math.round(face.recognition_score * 100)}%</span>
                           <span>•</span>
                           <span>Liveness: {face.liveness_passed ? "PASSED" : "FAILED"}</span>
                         </div>
                       </div>
 
-                      <div className="text-right">
+                      <div className="text-right flex items-center gap-1.5">
                         {face.action_status === "CONFIRMED" ? (
                           <Badge variant="success" className="text-[10px]">
                             {face.attendance_action}
@@ -755,9 +846,20 @@ export default function ContinuousEntrancePage() {
                             COOLDOWN
                           </Badge>
                         ) : (
-                          <Badge variant="danger" className="text-[10px]">
-                            UNKNOWN
-                          </Badge>
+                          <div className="flex items-center gap-1">
+                            <Badge variant="danger" className="text-[10px]">
+                              UNKNOWN
+                            </Badge>
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              onClick={handleOpenQuickEnroll}
+                              className="text-[10px] h-6 px-1.5 py-0 border-rose-300 text-rose-700 hover:bg-rose-50"
+                              title="Enroll this face to an employee profile"
+                            >
+                              Enroll Face
+                            </Button>
+                          </div>
                         )}
                       </div>
                     </div>
@@ -825,7 +927,84 @@ export default function ContinuousEntrancePage() {
           </Card>
         </div>
       </div>
+
+      {/* Quick Biometric Face Enrollment Modal */}
+      {showEnrollModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div className="flex items-center gap-2">
+                <UserPlus className="h-5 w-5 text-blue-600" />
+                <h3 className="font-bold text-slate-900 text-base">Quick Biometric Face Enrollment</h3>
+              </div>
+              <button
+                onClick={() => setShowEnrollModal(false)}
+                className="text-slate-400 hover:text-slate-600"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <p className="text-xs text-slate-500">
+              Link the live webcam photo to an employee profile. The continuous gate will immediately recognize you upon passage.
+            </p>
+
+            {enrollSnapshotB64 && (
+              <div className="relative aspect-[4/3] w-full rounded-xl overflow-hidden border border-slate-200 bg-slate-900">
+                <img
+                  src={enrollSnapshotB64}
+                  alt="Captured face snapshot"
+                  className="w-full h-full object-cover"
+                />
+                <span className="absolute bottom-2 left-2 rounded-md bg-black/60 px-2 py-0.5 text-[10px] text-emerald-400 font-mono">
+                  Captured Webcam Snapshot
+                </span>
+              </div>
+            )}
+
+            <div className="space-y-1.5">
+              <label className="text-xs font-semibold text-slate-700">Select Employee Profile:</label>
+              <select
+                value={enrollTargetEmpId}
+                onChange={(e) => setEnrollTargetEmpId(Number(e.target.value))}
+                className="w-full rounded-lg border border-slate-300 p-2 text-xs font-medium text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                {employees.map((emp) => (
+                  <option key={emp.id} value={emp.id}>
+                    {emp.full_name} ({emp.employee_number}) — {emp.department}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {enrollError && (
+              <div className="p-2.5 rounded-lg border border-rose-200 bg-rose-50 text-rose-800 text-xs">
+                {enrollError}
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowEnrollModal(false)}
+                disabled={isSubmittingEnroll}
+              >
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                onClick={handleConfirmEnrollment}
+                isLoading={isSubmittingEnroll}
+                disabled={!enrollTargetEmpId || isSubmittingEnroll}
+                className="bg-blue-600 hover:bg-blue-700 text-white"
+              >
+                Save Encrypted Biometric Template
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
-
