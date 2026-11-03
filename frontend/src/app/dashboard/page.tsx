@@ -5,6 +5,7 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/com
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { api } from "@/lib/api";
+import { getEntranceSocket } from "@/lib/socket";
 import {
   Users,
   CheckCircle,
@@ -13,6 +14,7 @@ import {
   TrendingUp,
   RefreshCw,
   Building,
+  Zap,
 } from "lucide-react";
 import {
   BarChart,
@@ -28,6 +30,7 @@ import {
 export default function DashboardPage() {
   const [summary, setSummary] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isLiveWs, setIsLiveWs] = useState(false);
 
   const fetchDashboardData = async () => {
     setIsLoading(true);
@@ -44,7 +47,30 @@ export default function DashboardPage() {
   useEffect(() => {
     fetchDashboardData();
     const interval = setInterval(fetchDashboardData, 30000);
-    return () => clearInterval(interval);
+
+    const socket = getEntranceSocket();
+    const onConnect = () => setIsLiveWs(true);
+    const onDisconnect = () => setIsLiveWs(false);
+
+    if (socket.connected) {
+      setIsLiveWs(true);
+    }
+
+    const handleLiveEvent = () => {
+      // Auto-refresh summary immediately when an employee checks in or passes gate
+      fetchDashboardData();
+    };
+
+    socket.on("connect", onConnect);
+    socket.on("disconnect", onDisconnect);
+    socket.on("attendance_live_event", handleLiveEvent);
+
+    return () => {
+      clearInterval(interval);
+      socket.off("connect", onConnect);
+      socket.off("disconnect", onDisconnect);
+      socket.off("attendance_live_event", handleLiveEvent);
+    };
   }, []);
 
   const defaultHourly = [
@@ -90,9 +116,23 @@ export default function DashboardPage() {
             Real-time daily attendance monitoring, departmental metrics, and shift status.
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={fetchDashboardData} isLoading={isLoading}>
-          <RefreshCw className="mr-1.5 h-3.5 w-3.5" /> Refresh Realtime Data
-        </Button>
+        <div className="flex items-center gap-2.5">
+          {isLiveWs ? (
+            <Badge variant="outline" className="text-xs flex items-center gap-1.5 bg-emerald-50 text-emerald-800 border-emerald-300">
+              <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+              <Zap className="h-3 w-3 text-emerald-600 fill-emerald-600" />
+              Live Sync
+            </Badge>
+          ) : (
+            <Badge variant="outline" className="text-xs flex items-center gap-1.5 bg-slate-50 text-slate-600 border-slate-200">
+              <span className="h-1.5 w-1.5 rounded-full bg-slate-400" />
+              30s Polling
+            </Badge>
+          )}
+          <Button variant="outline" size="sm" onClick={fetchDashboardData} isLoading={isLoading}>
+            <RefreshCw className="mr-1.5 h-3.5 w-3.5" /> Refresh Realtime Data
+          </Button>
+        </div>
       </div>
 
       {/* 4 Metric Summary Cards */}

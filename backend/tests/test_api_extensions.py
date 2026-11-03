@@ -239,3 +239,46 @@ def test_api_update_employee_and_dynamic_summary(client, app):
     assert isinstance(sum_data["hourly_breakdown"], list)
     assert isinstance(sum_data["department_breakdown"], list)
 
+
+def test_websocket_entrance_streaming_and_broadcast(app):
+    """Verify WebSocket connectivity, station room joining, frame processing, and attendance broadcast."""
+    from backend.socketio_service import socketio, broadcast_attendance_event
+
+    test_client = socketio.test_client(app)
+    assert test_client.is_connected()
+
+    # Verify connection acknowledgment event
+    received = test_client.get_received()
+    assert any(msg["name"] == "connection_ack" for msg in received)
+
+    # Test joining station room
+    test_client.emit("join_station", {"station_code": "ST-GATE-01"})
+    received = test_client.get_received()
+    assert any(
+        msg["name"] == "joined_station" and msg["args"][0]["station_code"] == "ST-GATE-01"
+        for msg in received
+    )
+
+    # Test process_frame event handler
+    test_client.emit("process_frame", {
+        "station_code": "ST-GATE-01",
+        "frame_base64": "",
+        "gate_mode": "AUTO_DETECT",
+        "cooldown_sec": 20,
+    })
+    # Client should remain connected and process gracefully without exception
+    assert test_client.is_connected()
+
+    # Test broadcast_attendance_event
+    broadcast_attendance_event("TEST_EVENT", {"detail": "verification"})
+    received = test_client.get_received()
+    assert any(
+        msg["name"] == "attendance_live_event" and msg["args"][0]["type"] == "TEST_EVENT"
+        for msg in received
+    )
+
+    # Disconnect
+    test_client.disconnect()
+    assert not test_client.is_connected()
+
+

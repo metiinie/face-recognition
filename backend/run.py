@@ -20,9 +20,14 @@ try:
 except ImportError:
     from __init__ import create_app
 
+try:
+    from backend.socketio_service import socketio
+except ImportError:
+    from socketio_service import socketio
+
 app = create_app()
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     debug = os.environ.get("FLASK_ENV") != "production" and os.environ.get("DEBUG", "0") == "1"
-    app.run(host="0.0.0.0", port=port, debug=debug)
+    socketio.run(app, host="0.0.0.0", port=port, debug=debug, allow_unsafe_werkzeug=True)
