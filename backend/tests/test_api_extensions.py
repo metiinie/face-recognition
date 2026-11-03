@@ -206,3 +206,36 @@ def test_api_policies_and_update(client, app):
     )
     assert update_res.status_code == 200
     assert update_res.get_json()["status"] == "CONFIRMED"
+
+
+def test_api_update_employee_and_dynamic_summary(client, app):
+    """Verify updating employee profile details and dynamic summary fields."""
+    with app.app_context():
+        hr = User.query.filter_by(username="hr_officer").first()
+        token = issue_jwt_token(hr)
+        emp = Employee.query.first()
+        emp_id = emp.id
+
+    # Update employee
+    update_res = client.put(
+        f"/api/employees/{emp_id}",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"phone": "+251911999999", "job_category": "REGULAR_STAFF"},
+    )
+    assert update_res.status_code == 200
+    data = update_res.get_json()
+    assert data["status"] == "UPDATED"
+    assert data["employee"]["phone"] == "+251911999999"
+
+    # Verify summary has dynamic fields
+    sum_res = client.get(
+        "/api/attendance/summary",
+        headers={"Authorization": f"Bearer {token}"},
+    )
+    assert sum_res.status_code == 200
+    sum_data = sum_res.get_json()
+    assert "hourly_breakdown" in sum_data
+    assert "department_breakdown" in sum_data
+    assert isinstance(sum_data["hourly_breakdown"], list)
+    assert isinstance(sum_data["department_breakdown"], list)
+
