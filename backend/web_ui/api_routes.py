@@ -1201,6 +1201,8 @@ def api_face_retention_cleanup():
 @api_bp.route("/face/recognize", methods=["POST"])
 def api_face_recognize():
     """Unified endpoint for face recognition and live liveness check."""
+    import time
+    t_start = time.perf_counter()
     data = request.get_json(silent=True) or {}
     station, st_err = _resolve_station(data)
     if st_err:
@@ -1224,6 +1226,8 @@ def api_face_recognize():
         flush=True
     )
 
+    elapsed_ms = round((time.perf_counter() - t_start) * 1000, 1)
+
     if not rec_result["matched"]:
         return jsonify({
             "matched": False,
@@ -1232,7 +1236,7 @@ def api_face_recognize():
             "rejection_message": rec_result.get("message"),
             "quality_score": rec_result.get("quality_score", 0.0),
             "match_score": rec_result.get("recognition_score", 0.0),
-            "latency_ms": 94,
+            "latency_ms": elapsed_ms,
         })
 
     emp = rec_result["employee"]
@@ -1266,7 +1270,7 @@ def api_face_recognize():
         "recognition_token": token,
         "quality_score": rec_result.get("quality_score", 0.9),
         "liveness_passed": True,
-        "latency_ms": 94,
+        "latency_ms": elapsed_ms,
     })
 
 
