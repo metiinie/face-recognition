@@ -15,7 +15,6 @@ import {
   ShieldCheck,
   AlertCircle,
   ArrowRight,
-  Sparkles,
 } from "lucide-react";
 
 export default function LoginPage() {
@@ -45,12 +44,6 @@ export default function LoginPage() {
     } finally {
       setIsLoading(false);
     }
-  };
-
-  const handleQuickFill = (user: string, pass: string) => {
-    setUsername(user);
-    setPassword(pass);
-    setErrorMessage(null);
   };
 
   return (
@@ -148,42 +141,6 @@ export default function LoginPage() {
                 <ArrowRight className="h-4 w-4 ml-1.5" />
               </Button>
             </form>
-
-            {/* Demo Quick-Fill Roles */}
-            <div className="mt-5 border-t border-slate-100 pt-4 dark:border-slate-800">
-              <div className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-500 dark:text-slate-400 mb-2">
-                <Sparkles className="h-3 w-3 text-blue-500" />
-                <span>Authorized Demo Credentials:</span>
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                <button
-                  type="button"
-                  onClick={() => handleQuickFill("hr_officer", "Hr@EIPC2026")}
-                  className="rounded-lg border border-slate-200 bg-slate-50 p-2 text-left hover:border-blue-300 hover:bg-blue-50/50 transition-all dark:border-slate-800 dark:bg-slate-900"
-                >
-                  <p className="text-[11px] font-bold text-slate-800 dark:text-slate-200">HR Officer</p>
-                  <p className="text-[10px] text-slate-500 font-mono">hr_officer</p>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => handleQuickFill("admin", "Admin@EIPC2026")}
-                  className="rounded-lg border border-slate-200 bg-slate-50 p-2 text-left hover:border-blue-300 hover:bg-blue-50/50 transition-all dark:border-slate-800 dark:bg-slate-900"
-                >
-                  <p className="text-[11px] font-bold text-slate-800 dark:text-slate-200">System Admin</p>
-                  <p className="text-[10px] text-slate-500 font-mono">admin</p>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => handleQuickFill("auditor", "Audit@EIPC2026")}
-                  className="rounded-lg border border-slate-200 bg-slate-50 p-2 text-left hover:border-blue-300 hover:bg-blue-50/50 transition-all dark:border-slate-800 dark:bg-slate-900"
-                >
-                  <p className="text-[11px] font-bold text-slate-800 dark:text-slate-200">Auditor</p>
-                  <p className="text-[10px] text-slate-500 font-mono">auditor</p>
-                </button>
-              </div>
-            </div>
           </CardContent>
         </Card>
 

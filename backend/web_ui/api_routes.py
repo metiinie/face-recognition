@@ -425,6 +425,7 @@ def api_station_request_review():
 
 
 @api_bp.route("/departments", methods=["GET"])
+@login_required
 def api_departments():
     depts = Department.query.filter_by(status="ACTIVE").order_by(Department.name.asc()).all()
     return jsonify({
