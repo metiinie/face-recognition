@@ -282,3 +282,22 @@ def test_websocket_entrance_streaming_and_broadcast(app):
     assert not test_client.is_connected()
 
 
+def test_websocket_shared_queue_scalability_configuration(app):
+    """Verify SocketIO dynamically configures shared Redis pub-sub message queue for multi-instance scaling."""
+    from backend.socketio_service import init_socketio
+    from socketio.redis_manager import RedisManager
+
+    # 1. Verify that when SOCKETIO_MESSAGE_QUEUE is configured, RedisManager is instantiated
+    app.config["SOCKETIO_MESSAGE_QUEUE"] = "redis://localhost:6379/0"
+    app.config["TESTING"] = False
+    sio = init_socketio(app)
+    assert isinstance(sio.server.manager, RedisManager)
+
+    # 2. Reset back to in-memory mode for test isolation
+    app.config["TESTING"] = True
+    app.config["SOCKETIO_MESSAGE_QUEUE"] = None
+    sio = init_socketio(app)
+    assert not isinstance(sio.server.manager, RedisManager)
+
+
+

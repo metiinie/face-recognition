@@ -21,6 +21,20 @@ services:
       timeout: 5s
       retries: 5
 
+  redis:
+    image: redis:7-alpine
+    container_name: eipc_redis
+    restart: always
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   backend:
     build:
       context: .
@@ -30,9 +44,13 @@ services:
     depends_on:
       mysql:
         condition: service_healthy
+      redis:
+        condition: service_healthy
     environment:
       MYSQL_DATABASE_URI: mysql+pymysql://eipc_admin:Eipc%40Attendance2026%21@mysql:3306/eipc_attendance
       DATABASE_URL: mysql+pymysql://eipc_admin:Eipc%40Attendance2026%21@mysql:3306/eipc_attendance
+      REDIS_URL: redis://redis:6379/0
+      SOCKETIO_MESSAGE_QUEUE: redis://redis:6379/0
       SECRET_KEY: eipc-dire-dawa-production-secret-key-v1-super-secure-32b
       BIOMETRIC_ENCRYPTION_SECRET: eipc-biometric-fernet-secret-32-chars-long-2026
       ALLOW_SIMULATED_BIOMETRICS: "0"
@@ -68,4 +86,5 @@ services:
 
 volumes:
   mysql_data:
+  redis_data:
 

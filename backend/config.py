@@ -100,6 +100,10 @@ class Config:
     INSTITUTION_NAME = "Ethio-Italy Polytechnic College, Dire Dawa"
     SYSTEM_VERSION = "1.0.0-baseline"
 
+    # Shared message queue for multi-instance / multi-worker WebSocket scalability (Redis pub-sub)
+    REDIS_URL = os.environ.get("REDIS_URL", None)
+    SOCKETIO_MESSAGE_QUEUE = os.environ.get("SOCKETIO_MESSAGE_QUEUE", REDIS_URL)
+
 
 class TestConfig(Config):
     """Isolated configuration for automated acceptance testing (AT-01 through AT-26)."""
@@ -110,6 +114,7 @@ class TestConfig(Config):
     ALLOW_SIMULATED_BIOMETRICS = True
     # Tests replay events at fixed historical times (shift, overnight and 24h scenarios).
     ALLOW_CLIENT_EVENT_TIMESTAMPS = True
+    SOCKETIO_MESSAGE_QUEUE = None
 
 
 class ProductionConfig(Config):

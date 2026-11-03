@@ -3,6 +3,7 @@ WebSocket Real-time Communication Service for EIPC Attendance System.
 Powers bidirectional camera frame streaming for continuous entrance terminals,
 live gate passage feeds, and instant dashboard telemetry updates.
 """
+import os
 import logging
 from flask import request
 from flask_socketio import SocketIO, emit, join_room, leave_room
@@ -17,6 +18,36 @@ socketio = SocketIO(
     ping_interval=10,
     max_http_buffer_size=10 * 1024 * 1024,  # 10MB buffer for frames
 )
+
+
+def init_socketio(app):
+    """
+    Initialize SocketIO with app configuration, registering event listeners and
+    shared message queue (Redis pub-sub) for multi-worker and multi-instance scalability.
+    """
+    msg_queue = app.config.get("SOCKETIO_MESSAGE_QUEUE") or os.environ.get("REDIS_URL")
+    if app.config.get("TESTING", False):
+        msg_queue = None
+
+    socketio.server_options.pop("client_manager", None)
+    socketio.server_options.pop("message_queue", None)
+
+    if msg_queue:
+        logger.info(f"Socket.IO initialized with shared Redis message queue: {msg_queue}")
+    else:
+        logger.info("Socket.IO initialized with in-memory message queue")
+
+    socketio.init_app(
+        app,
+        message_queue=msg_queue,
+        cors_allowed_origins="*",
+        async_mode="threading",
+        ping_timeout=20,
+        ping_interval=10,
+        max_http_buffer_size=10 * 1024 * 1024,
+    )
+    register_socket_events(socketio)
+    return socketio
 
 
 def register_socket_events(sio: SocketIO):

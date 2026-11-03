@@ -49,9 +49,8 @@ def create_app(config_class=Config, seed_db: bool = True) -> Flask:
 
     # Initialize WebSocket real-time communication
     try:
-        from backend.socketio_service import socketio, register_socket_events
-        socketio.init_app(app, cors_allowed_origins="*", async_mode="threading")
-        register_socket_events(socketio)
+        from backend.socketio_service import init_socketio
+        init_socketio(app)
     except Exception as e:
         app.logger.warning(f"Could not initialize SocketIO: {e}")
 
