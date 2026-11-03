@@ -420,6 +420,33 @@ export const api = {
     });
   },
 
+  async updateEmployee(
+    empId: number,
+    data: {
+      first_name?: string;
+      last_name?: string;
+      department_id?: number;
+      job_category?: string;
+      phone?: string;
+    }
+  ): Promise<{ status: string; employee: EmployeeRecord }> {
+    return request(`/api/employees/${empId}`, {
+      method: "PUT",
+      body: JSON.stringify(data),
+    });
+  },
+
+  async setEmployeeStatus(
+    empId: number,
+    status: "ACTIVE" | "INACTIVE",
+    reason?: string
+  ): Promise<{ status: string; employee_id: number; new_status: string }> {
+    return request(`/api/employees/${empId}/status`, {
+      method: "POST",
+      body: JSON.stringify({ status, reason: reason || "HR status update" }),
+    });
+  },
+
   async recognizeFace(payload: {
     image_base64?: string;
     station_id?: string;
@@ -435,6 +462,7 @@ export const api = {
   async confirmAttendance(payload: {
     recognition_token: string;
     station_id: string;
+    event_type?: "CHECK_IN" | "CHECK_OUT";
     override_reason?: string;
   }): Promise<AttendanceConfirmResponse> {
     return request("/api/attendance/confirm", {
@@ -522,6 +550,33 @@ export const api = {
     if (filters?.date_from) query.set("date_from", filters.date_from);
     if (filters?.date_to) query.set("date_to", filters.date_to);
     return request(`/api/reports/sessions?${query.toString()}`);
+  },
+
+  async exportAttendanceCsv(params: Record<string, any>): Promise<Blob> {
+    const searchParams = new URLSearchParams();
+    Object.entries(params).forEach(([key, val]) => {
+      if (val !== undefined && val !== null && val !== "" && val !== "ALL") {
+        searchParams.append(key, String(val));
+      }
+    });
+
+    const token = getStoredToken();
+    const headers: Record<string, string> = {};
+    if (token) {
+      headers["Authorization"] = `Bearer ${token}`;
+    }
+
+    const res = await fetch(`/api/reports/export.csv?${searchParams.toString()}`, {
+      method: "GET",
+      headers,
+    });
+
+    if (!res.ok) {
+      const errJson = await res.json().catch(() => ({}));
+      throw new Error(errJson.error || `Export failed with status ${res.status}`);
+    }
+
+    return await res.blob();
   },
 
   async dismissReviewCase(caseId: number, reason: string): Promise<any> {

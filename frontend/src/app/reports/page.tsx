@@ -94,17 +94,36 @@ export default function ReportsPage() {
     setSelectedCaptureMethod("");
   };
 
-  const handleExportCsv = () => {
-    const params = new URLSearchParams();
-    if (selectedDept) params.set("department_id", selectedDept);
-    if (selectedEmp) params.set("employee_id", selectedEmp);
-    if (selectedStatus) params.set("status", selectedStatus);
-    if (selectedPunctuality) params.set("arrival_status", selectedPunctuality);
-    if (selectedCaptureMethod) params.set("capture_method", selectedCaptureMethod);
-    if (dateFrom) params.set("date_from", dateFrom);
-    if (dateTo) params.set("date_to", dateTo);
+  const [isExporting, setIsExporting] = useState(false);
 
-    window.open(`/api/reports/export.csv?${params.toString()}`, "_blank");
+  const handleExportCsv = async () => {
+    setIsExporting(true);
+    try {
+      const blob = await api.exportAttendanceCsv({
+        department_id: selectedDept ? Number(selectedDept) : undefined,
+        employee_id: selectedEmp ? Number(selectedEmp) : undefined,
+        status: selectedStatus || undefined,
+        arrival_status: selectedPunctuality || undefined,
+        capture_method: selectedCaptureMethod || undefined,
+        date_from: dateFrom || undefined,
+        date_to: dateTo || undefined,
+      });
+
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      const datePart = dateFrom ? `${dateFrom}_to_${dateTo || dateFrom}` : "all";
+      a.download = `eipc_attendance_export_${datePart}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+    } catch (err: any) {
+      console.error("Authenticated CSV export failed:", err);
+      alert(err.message || "Failed to download authenticated CSV export. Please ensure you are logged in.");
+    } finally {
+      setIsExporting(false);
+    }
   };
 
   const handleOpenCorrection = (session: AttendanceSessionRecord) => {
@@ -184,8 +203,15 @@ export default function ReportsPage() {
           <Button variant="outline" size="sm" onClick={fetchSessions} isLoading={isLoading}>
             <RefreshCw className="mr-1.5 h-3.5 w-3.5" /> Refresh
           </Button>
-          <Button variant="success" size="sm" onClick={handleExportCsv}>
-            <Download className="mr-1.5 h-4 w-4" /> Export CSV (AT-25)
+          <Button
+            variant="success"
+            size="sm"
+            onClick={handleExportCsv}
+            isLoading={isExporting}
+            disabled={isExporting}
+          >
+            <Download className="mr-1.5 h-4 w-4" />
+            <span>Export CSV (AT-25)</span>
           </Button>
         </div>
       </div>

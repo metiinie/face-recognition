@@ -20,6 +20,8 @@ import {
   Send,
   UserPlus,
   ArrowRight,
+  LogIn,
+  LogOut,
 } from "lucide-react";
 
 export default function KioskPage() {
@@ -143,15 +145,19 @@ export default function KioskPage() {
     }
   };
 
-  const handleConfirmAttendance = async () => {
+  const [selectedAction, setSelectedAction] = useState<"CHECK_IN" | "CHECK_OUT" | null>(null);
+
+  const handleConfirmAttendance = async (action: "CHECK_IN" | "CHECK_OUT") => {
     if (!recognition?.recognition_token) return;
 
+    setSelectedAction(action);
     setIsConfirming(true);
     setPunchError(null);
     try {
       const outcome = await api.confirmAttendance({
         recognition_token: recognition.recognition_token,
         station_id: stationId,
+        event_type: action,
       });
       setAttendanceOutcome(outcome);
     } catch (err: any) {
@@ -159,6 +165,7 @@ export default function KioskPage() {
       setPunchError(err.message || "Failed to record attendance event.");
     } finally {
       setIsConfirming(false);
+      setSelectedAction(null);
     }
   };
 
@@ -409,22 +416,41 @@ export default function KioskPage() {
                 </div>
               )}
 
-              {/* Confirm Attendance Action Button */}
-              <div className="mt-5 space-y-2">
-                <Button
-                  variant="success"
-                  size="lg"
-                  className="w-full text-base font-bold shadow-lg shadow-emerald-600/20"
-                  onClick={handleConfirmAttendance}
-                  isLoading={isConfirming}
-                >
-                  Confirm Attendance Punch
-                </Button>
+              {/* Explicit Check-In and Check-Out Selection */}
+              <div className="mt-5 space-y-3">
+                <p className="text-xs font-semibold text-slate-700 text-center">
+                  Select Attendance Action to Confirm:
+                </p>
+                <div className="grid grid-cols-2 gap-3">
+                  <Button
+                    variant="success"
+                    size="lg"
+                    className="w-full text-sm font-bold shadow-md shadow-emerald-600/20 flex items-center justify-center gap-2 py-4"
+                    onClick={() => handleConfirmAttendance("CHECK_IN")}
+                    isLoading={isConfirming && selectedAction === "CHECK_IN"}
+                    disabled={isConfirming}
+                  >
+                    <LogIn className="h-5 w-5" />
+                    <span>Check-In (መግቢያ)</span>
+                  </Button>
+                  <Button
+                    variant="primary"
+                    size="lg"
+                    className="w-full text-sm font-bold bg-indigo-600 hover:bg-indigo-700 shadow-md shadow-indigo-600/20 flex items-center justify-center gap-2 py-4"
+                    onClick={() => handleConfirmAttendance("CHECK_OUT")}
+                    isLoading={isConfirming && selectedAction === "CHECK_OUT"}
+                    disabled={isConfirming}
+                  >
+                    <LogOut className="h-5 w-5" />
+                    <span>Check-Out (መውጫ)</span>
+                  </Button>
+                </div>
                 <Button
                   variant="ghost"
                   size="sm"
                   className="w-full text-xs text-slate-500"
                   onClick={handleReset}
+                  disabled={isConfirming}
                 >
                   Rescan / Cancel
                 </Button>

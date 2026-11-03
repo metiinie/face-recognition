@@ -21,6 +21,9 @@ import {
   Building2,
   Briefcase,
   Phone,
+  Pencil,
+  UserX,
+  Power,
 } from "lucide-react";
 
 export default function EmployeesPage() {
@@ -54,6 +57,24 @@ export default function EmployeesPage() {
   const [activePurgeEmployee, setActivePurgeEmployee] = useState<EmployeeRecord | null>(null);
   const [purgeReason, setPurgeReason] = useState("Biometric consent withdrawn / Right to erasure");
   const [isSubmittingPurge, setIsSubmittingPurge] = useState(false);
+
+  // Edit employee modal state
+  const [editingEmployee, setEditingEmployee] = useState<EmployeeRecord | null>(null);
+  const [editForm, setEditForm] = useState({
+    first_name: "",
+    last_name: "",
+    department_id: 1,
+    job_category: "REGULAR_STAFF",
+    phone: "",
+  });
+  const [isSubmittingEdit, setIsSubmittingEdit] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
+
+  // Status toggle modal state
+  const [statusTargetEmployee, setStatusTargetEmployee] = useState<EmployeeRecord | null>(null);
+  const [statusReason, setStatusReason] = useState("");
+  const [isSubmittingStatus, setIsSubmittingStatus] = useState(false);
+  const [statusError, setStatusError] = useState<string | null>(null);
 
   const fetchEmployees = async () => {
     setIsLoading(true);
@@ -191,6 +212,48 @@ export default function EmployeesPage() {
     }
   };
 
+  const handleEditSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingEmployee) return;
+    setIsSubmittingEdit(true);
+    setEditError(null);
+    try {
+      await api.updateEmployee(editingEmployee.id, {
+        first_name: editForm.first_name.trim(),
+        last_name: editForm.last_name.trim(),
+        department_id: Number(editForm.department_id),
+        job_category: editForm.job_category,
+        phone: editForm.phone.trim() || undefined,
+      });
+      setEditingEmployee(null);
+      await fetchEmployees();
+    } catch (err: any) {
+      setEditError(err.message || "Failed to update employee details.");
+    } finally {
+      setIsSubmittingEdit(false);
+    }
+  };
+
+  const handleStatusToggleSubmit = async () => {
+    if (!statusTargetEmployee) return;
+    setIsSubmittingStatus(true);
+    setStatusError(null);
+    const newStatus = statusTargetEmployee.status === "ACTIVE" ? "INACTIVE" : "ACTIVE";
+    try {
+      await api.setEmployeeStatus(
+        statusTargetEmployee.id,
+        newStatus,
+        statusReason.trim() || undefined
+      );
+      setStatusTargetEmployee(null);
+      await fetchEmployees();
+    } catch (err: any) {
+      setStatusError(err.message || "Failed to update employee status.");
+    } finally {
+      setIsSubmittingStatus(false);
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -266,7 +329,15 @@ export default function EmployeesPage() {
                         <span className="font-semibold text-slate-900 block">
                           {emp.first_name} {emp.last_name}
                         </span>
-                        <span className="text-[10px] text-slate-500">{emp.status}</span>
+                        {emp.status === "ACTIVE" ? (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-600">
+                            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500"></span> Active
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 text-[10px] font-medium text-slate-400">
+                            <span className="h-1.5 w-1.5 rounded-full bg-slate-400"></span> Inactive
+                          </span>
+                        )}
                       </div>
                     </div>
                   </td>
@@ -299,6 +370,54 @@ export default function EmployeesPage() {
                   </td>
                   <td className="py-3 px-4 text-right">
                     <div className="flex items-center justify-end gap-1.5">
+                      {/* Edit Profile Button */}
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          setEditingEmployee(emp);
+                          setEditForm({
+                            first_name: emp.first_name || "",
+                            last_name: emp.last_name || "",
+                            department_id: emp.department_id || (departments[0]?.id || 1),
+                            job_category: emp.job_category || "REGULAR_STAFF",
+                            phone: (emp as any).phone || "",
+                          });
+                          setEditError(null);
+                        }}
+                        title="Edit Employee Profile"
+                        className="h-8 px-2 text-slate-600 hover:text-slate-900 border-slate-200"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
+
+                      {/* Status Toggle (Activate/Deactivate) */}
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => {
+                          setStatusTargetEmployee(emp);
+                          setStatusReason(
+                            emp.status === "ACTIVE"
+                              ? "Employee leave / administrative deactivation"
+                              : "Employee reactivation"
+                          );
+                          setStatusError(null);
+                        }}
+                        title={emp.status === "ACTIVE" ? "Deactivate Employee (AT-07)" : "Activate Employee"}
+                        className={`h-8 px-2 ${
+                          emp.status === "ACTIVE"
+                            ? "text-slate-400 hover:text-amber-600 hover:bg-amber-50"
+                            : "text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"
+                        }`}
+                      >
+                        {emp.status === "ACTIVE" ? (
+                          <UserX className="h-3.5 w-3.5" />
+                        ) : (
+                          <UserCheck className="h-3.5 w-3.5" />
+                        )}
+                      </Button>
+
                       <Button
                         variant={emp.has_active_template ? "outline" : "primary"}
                         size="sm"
@@ -642,6 +761,209 @@ export default function EmployeesPage() {
                 isLoading={isSubmittingPurge}
               >
                 Permanently Purge
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal 4: Edit Employee Profile */}
+      {editingEmployee && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b pb-3">
+              <div className="flex items-center gap-2">
+                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-100 text-blue-700">
+                  <Pencil className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">Edit Employee Profile</h3>
+                  <p className="text-xs text-slate-500 font-mono">
+                    {editingEmployee.employee_number}
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setEditingEmployee(null)}
+                className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {editError && (
+              <div className="rounded-xl bg-rose-50 p-3 text-xs text-rose-800 border border-rose-200 flex items-center gap-2">
+                <AlertCircle className="h-4 w-4 shrink-0" />
+                <span>{editError}</span>
+              </div>
+            )}
+
+            <form onSubmit={handleEditSubmit} className="space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-[11px] font-semibold text-slate-700 block mb-1">
+                    First Name *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={editForm.first_name}
+                    onChange={(e) => setEditForm({ ...editForm, first_name: e.target.value })}
+                    className="w-full rounded-lg border border-slate-300 p-2 text-xs focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <label className="text-[11px] font-semibold text-slate-700 block mb-1">
+                    Last Name *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={editForm.last_name}
+                    onChange={(e) => setEditForm({ ...editForm, last_name: e.target.value })}
+                    className="w-full rounded-lg border border-slate-300 p-2 text-xs focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-[11px] font-semibold text-slate-700 block mb-1">
+                    Department *
+                  </label>
+                  <select
+                    value={editForm.department_id}
+                    onChange={(e) => setEditForm({ ...editForm, department_id: Number(e.target.value) })}
+                    className="w-full rounded-lg border border-slate-300 p-2 text-xs bg-white focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  >
+                    {departments.map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.name} ({d.code})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-[11px] font-semibold text-slate-700 block mb-1">
+                    Job Category
+                  </label>
+                  <select
+                    value={editForm.job_category}
+                    onChange={(e) => setEditForm({ ...editForm, job_category: e.target.value })}
+                    className="w-full rounded-lg border border-slate-300 p-2 text-xs bg-white focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  >
+                    <option value="REGULAR_STAFF">Regular Academic/Admin Staff</option>
+                    <option value="CLEANING_STAFF">Cleaning / Sanitation Staff</option>
+                    <option value="SECURITY_GUARD">Security Guard (24h/Rotational)</option>
+                  </select>
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[11px] font-semibold text-slate-700 block mb-1">
+                  Phone Number
+                </label>
+                <input
+                  type="text"
+                  placeholder="+251 ..."
+                  value={editForm.phone}
+                  onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })}
+                  className="w-full rounded-lg border border-slate-300 p-2 text-xs focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setEditingEmployee(null)}
+                  disabled={isSubmittingEdit}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  variant="primary"
+                  size="sm"
+                  isLoading={isSubmittingEdit}
+                >
+                  Save Profile Changes
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal 5: Toggle Employee Status (Activate / Deactivate) */}
+      {statusTargetEmployee && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl space-y-4">
+            <div className="flex items-center gap-3">
+              <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${
+                statusTargetEmployee.status === "ACTIVE"
+                  ? "bg-amber-100 text-amber-700"
+                  : "bg-emerald-100 text-emerald-700"
+              }`}>
+                {statusTargetEmployee.status === "ACTIVE" ? (
+                  <UserX className="h-5 w-5" />
+                ) : (
+                  <UserCheck className="h-5 w-5" />
+                )}
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-900">
+                  {statusTargetEmployee.status === "ACTIVE" ? "Deactivate Employee" : "Reactivate Employee"}
+                </h3>
+                <p className="text-xs text-slate-500">
+                  {statusTargetEmployee.first_name} {statusTargetEmployee.last_name} ({statusTargetEmployee.employee_number})
+                </p>
+              </div>
+            </div>
+
+            <p className="text-xs text-slate-600">
+              {statusTargetEmployee.status === "ACTIVE"
+                ? "Deactivating an employee prevents future biometric attendance punches while permanently preserving all historical attendance sessions and audit records (AT-07)."
+                : "Reactivating this employee restores their active status and enables attendance punching."}
+            </p>
+
+            {statusError && (
+              <div className="rounded-xl bg-rose-50 p-2.5 text-xs text-rose-800 border border-rose-200">
+                {statusError}
+              </div>
+            )}
+
+            <div>
+              <label className="text-[11px] font-semibold text-slate-700 block mb-1">
+                Reason for Status Change:
+              </label>
+              <input
+                type="text"
+                value={statusReason}
+                onChange={(e) => setStatusReason(e.target.value)}
+                placeholder="e.g. Leave of absence / transfer / resumed duties"
+                className="w-full rounded-lg border border-slate-300 p-2 text-xs focus:ring-1 focus:ring-blue-500 focus:outline-none"
+              />
+            </div>
+
+            <div className="flex justify-end gap-2 pt-2 border-t">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setStatusTargetEmployee(null)}
+                disabled={isSubmittingStatus}
+              >
+                Cancel
+              </Button>
+              <Button
+                variant={statusTargetEmployee.status === "ACTIVE" ? "danger" : "success"}
+                size="sm"
+                onClick={handleStatusToggleSubmit}
+                isLoading={isSubmittingStatus}
+              >
+                Confirm {statusTargetEmployee.status === "ACTIVE" ? "Deactivation" : "Reactivation"}
               </Button>
             </div>
           </div>

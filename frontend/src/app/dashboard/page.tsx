@@ -47,26 +47,38 @@ export default function DashboardPage() {
     return () => clearInterval(interval);
   }, []);
 
-  const hourlyData = [
-    { hour: "06:00", onTime: 12, late: 0 },
-    { hour: "07:00", onTime: 45, late: 2 },
-    { hour: "08:00", onTime: 88, late: 6 },
-    { hour: "09:00", onTime: 24, late: 11 },
-    { hour: "10:00", onTime: 8, late: 3 },
-    { hour: "11:00", onTime: 4, late: 1 },
-    { hour: "12:00", onTime: 15, late: 0 },
-    { hour: "13:00", onTime: 32, late: 2 },
-    { hour: "14:00", onTime: 20, late: 1 },
+  const defaultHourly = [
+    { hour: "06:00", onTime: 0, late: 0 },
+    { hour: "07:00", onTime: 0, late: 0 },
+    { hour: "08:00", onTime: 0, late: 0 },
+    { hour: "09:00", onTime: 0, late: 0 },
+    { hour: "10:00", onTime: 0, late: 0 },
+    { hour: "11:00", onTime: 0, late: 0 },
+    { hour: "12:00", onTime: 0, late: 0 },
+    { hour: "13:00", onTime: 0, late: 0 },
+    { hour: "14:00", onTime: 0, late: 0 },
+    { hour: "15:00", onTime: 0, late: 0 },
+    { hour: "16:00", onTime: 0, late: 0 },
+    { hour: "17:00", onTime: 0, late: 0 },
+    { hour: "18:00", onTime: 0, late: 0 },
   ];
 
-  const deptData = [
-    { department: "Automotive Tech", rate: 94.5 },
-    { department: "Electrical & Electronics", rate: 91.2 },
-    { department: "Mechanical Eng", rate: 88.0 },
-    { department: "Information Tech", rate: 96.0 },
-    { department: "Garment & Textile", rate: 89.5 },
-    { department: "Administration", rate: 98.0 },
-  ];
+  const hourlyData =
+    summary?.hourly_breakdown && summary.hourly_breakdown.length > 0
+      ? summary.hourly_breakdown
+      : defaultHourly;
+
+  const deptData =
+    summary?.department_breakdown && summary.department_breakdown.length > 0
+      ? summary.department_breakdown
+      : [];
+
+  const totalEmployees = summary?.total_employees ?? 0;
+  const presentCount = summary?.present_count ?? 0;
+  const lateCount = summary?.late_count ?? 0;
+  const unresolvedReviews = summary?.unresolved_reviews ?? 0;
+  const attendanceRate =
+    totalEmployees > 0 ? ((presentCount / totalEmployees) * 100).toFixed(1) : "0.0";
 
   return (
     <div className="space-y-6">
@@ -91,7 +103,7 @@ export default function DashboardPage() {
             <Users className="h-4 w-4 text-blue-600" />
           </div>
           <div className="mt-2 text-2xl font-black text-slate-900">
-            {summary?.total_employees || 28}
+            {totalEmployees}
           </div>
           <p className="mt-1 text-[11px] text-slate-500">Active roster enrolled</p>
         </Card>
@@ -102,9 +114,11 @@ export default function DashboardPage() {
             <CheckCircle className="h-4 w-4 text-emerald-500" />
           </div>
           <div className="mt-2 text-2xl font-black text-slate-900">
-            {summary?.present_count || 24}
+            {presentCount}
           </div>
-          <p className="mt-1 text-[11px] text-emerald-600 font-medium">85.7% Attendance Rate</p>
+          <p className="mt-1 text-[11px] text-emerald-600 font-medium">
+            {attendanceRate}% Attendance Rate
+          </p>
         </Card>
 
         <Card className="p-4 border-l-4 border-l-amber-500">
@@ -113,7 +127,7 @@ export default function DashboardPage() {
             <Clock className="h-4 w-4 text-amber-500" />
           </div>
           <div className="mt-2 text-2xl font-black text-slate-900">
-            {summary?.late_count || 2}
+            {lateCount}
           </div>
           <p className="mt-1 text-[11px] text-amber-600">Grace period: 15 mins</p>
         </Card>
@@ -124,9 +138,11 @@ export default function DashboardPage() {
             <AlertOctagon className="h-4 w-4 text-rose-500" />
           </div>
           <div className="mt-2 text-2xl font-black text-slate-900">
-            {summary?.unresolved_reviews || 0}
+            {unresolvedReviews}
           </div>
-          <p className="mt-1 text-[11px] text-slate-500">Zero active security flags</p>
+          <p className="mt-1 text-[11px] text-slate-500">
+            {unresolvedReviews > 0 ? "Pending HR adjudication" : "Zero active review flags"}
+          </p>
         </Card>
       </div>
 
@@ -136,7 +152,7 @@ export default function DashboardPage() {
         <Card className="lg:col-span-7 p-5">
           <CardHeader className="p-0 pb-4">
             <CardTitle className="text-base">Hourly Scan Inflow (Morning Peak vs Afternoon)</CardTitle>
-            <CardDescription>Breakdown of on-time versus late employee punch scans throughout today.</CardDescription>
+            <CardDescription>Dynamic breakdown of on-time versus late employee punch scans throughout today.</CardDescription>
           </CardHeader>
           <CardContent className="p-0 h-64">
             <ResponsiveContainer width="100%" height="100%">
@@ -157,18 +173,24 @@ export default function DashboardPage() {
         <Card className="lg:col-span-5 p-5">
           <CardHeader className="p-0 pb-4">
             <CardTitle className="text-base">Department Attendance Rates (%)</CardTitle>
-            <CardDescription>Academic, technical, and administrative faculties.</CardDescription>
+            <CardDescription>Real-time attendance percentage across departments today.</CardDescription>
           </CardHeader>
           <CardContent className="p-0 h-64">
-            <ResponsiveContainer width="100%" height="100%">
-              <BarChart layout="vertical" data={deptData} margin={{ top: 5, right: 20, left: 35, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                <XAxis type="number" domain={[70, 100]} unit="%" stroke="#64748b" fontSize={11} />
-                <YAxis type="category" dataKey="department" stroke="#64748b" fontSize={10} width={90} />
-                <Tooltip formatter={(v) => [`${v}%`, "Rate"]} />
-                <Bar dataKey="rate" fill="#3b82f6" radius={[0, 4, 4, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
+            {deptData.length > 0 ? (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart layout="vertical" data={deptData} margin={{ top: 5, right: 20, left: 35, bottom: 5 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                  <XAxis type="number" domain={[0, 100]} unit="%" stroke="#64748b" fontSize={11} />
+                  <YAxis type="category" dataKey="department" stroke="#64748b" fontSize={10} width={90} />
+                  <Tooltip formatter={(v) => [`${v}%`, "Rate"]} />
+                  <Bar dataKey="rate" fill="#3b82f6" radius={[0, 4, 4, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : (
+              <div className="h-full flex flex-col items-center justify-center text-slate-400 text-xs">
+                <span>No department attendance activity recorded yet today.</span>
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
