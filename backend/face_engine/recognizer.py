@@ -923,8 +923,23 @@ def extract_multiple_faces_from_image(img: Image.Image) -> list[dict]:
     orig_w, orig_h = img.size
     img_rgb = img.convert("RGB")
 
-    # 1. High-Accuracy Deep Learning Face Detector (UltraFace ONNX)
-    onnx_faces = detect_faces_onnx(img, conf_thresh=0.45)
+    # 1. High-Accuracy Deep Learning Face Detector (UltraFace ONNX + YuNet fallback)
+    onnx_faces = detect_faces_onnx(img, conf_thresh=0.38)
+    if len(onnx_faces) == 0 and cv2 is not None:
+        try:
+            rgb_tmp = np.asarray(img_rgb, dtype=np.uint8)
+            bgr_tmp = cv2.cvtColor(rgb_tmp, cv2.COLOR_RGB2BGR)
+            det = _get_yunet_detector(bgr_tmp.shape[1], bgr_tmp.shape[0])
+            if det is not None:
+                _, y_faces = det.detect(bgr_tmp)
+                if y_faces is not None and len(y_faces) > 0:
+                    onnx_faces = [
+                        {"box": (int(yf[0]), int(yf[1]), int(yf[2]), int(yf[3])), "score": float(yf[-1])}
+                        for yf in y_faces if yf[2] > 12 and yf[3] > 12
+                    ]
+        except Exception:
+            pass
+
     if onnx_faces:
         faces = []
         for idx, f in enumerate(onnx_faces):
@@ -994,7 +1009,20 @@ def extract_multiple_faces_from_image(img: Image.Image) -> list[dict]:
                 vec = vec / norm
             gradient_vec = [round(float(val), 6) for val in vec]
 
-            aligned_vec = extract_aligned_neural_embedding(face_crop)
+            # Extract landmark-aligned 128-D SFace embedding using full frame (single face) or wide context crop
+            aligned_vec = None
+            if len(onnx_faces) == 1:
+                aligned_vec = extract_aligned_neural_embedding(img_rgb)
+            if aligned_vec is None:
+                wide_side = max(bw, bh) * 1.85
+                wx1 = max(0, int(cx - wide_side / 2))
+                wy1 = max(0, int(cy - wide_side / 2))
+                wx2 = min(orig_w, int(cx + wide_side / 2))
+                wy2 = min(orig_h, int(cy + wide_side / 2))
+                if wx2 - wx1 >= 24 and wy2 - wy1 >= 24:
+                    aligned_vec = extract_aligned_neural_embedding(img_rgb.crop((wx1, wy1, wx2, wy2)))
+            if aligned_vec is None:
+                aligned_vec = extract_aligned_neural_embedding(face_crop)
             embedding = aligned_vec if aligned_vec is not None else (neural_vec if neural_vec is not None else gradient_vec)
 
             faces.append({
@@ -1136,7 +1164,8 @@ def extract_multiple_faces_from_image(img: Image.Image) -> list[dict]:
             vec = vec / norm
         gradient_vec = [round(float(val), 6) for val in vec]
 
-        embedding = neural_vec if neural_vec is not None else gradient_vec
+        aligned_vec = extract_aligned_neural_embedding(img_rgb) if len(clusters) == 1 else extract_aligned_neural_embedding(face_crop)
+        embedding = aligned_vec if aligned_vec is not None else (neural_vec if neural_vec is not None else gradient_vec)
 
         faces.append({
             "track_id": idx + 1,
@@ -1147,6 +1176,7 @@ def extract_multiple_faces_from_image(img: Image.Image) -> list[dict]:
                 "h": orig_bh,
             },
             "embedding": embedding,
+            "aligned_neural_embedding": aligned_vec,
             "neural_embedding": neural_vec,
             "gradient_embedding": gradient_vec,
             "quality_score": round(min(1.0, (sharpness / 60.0) * 0.5 + (1.0 - abs(brightness - 128.0) / 128.0) * 0.5), 3),

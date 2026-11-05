@@ -133,7 +133,7 @@ class ContinuousMultiFaceTracker:
     Performs spatial association between incoming detections and existing active tracks.
     """
 
-    def __init__(self, station_code: str, max_age_seconds: float = 1.8, min_iou: float = 0.22):
+    def __init__(self, station_code: str, max_age_seconds: float = 5.0, min_iou: float = 0.20):
         self.station_code = station_code
         self.max_age_seconds = max_age_seconds
         self.min_iou = min_iou

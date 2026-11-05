@@ -4,7 +4,11 @@ let socketInstance: Socket | null = null;
 
 export function getEntranceSocket(): Socket {
   if (!socketInstance) {
-    socketInstance = io({
+    const url =
+      typeof window !== "undefined" && window.location.port === "3000"
+        ? `http://${window.location.hostname}:5000`
+        : undefined;
+    socketInstance = io(url, {
       path: "/socket.io",
       transports: ["websocket", "polling"],
       reconnection: true,

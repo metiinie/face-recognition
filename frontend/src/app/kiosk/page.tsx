@@ -30,25 +30,20 @@ export default function KioskPage() {
   const [employees, setEmployees] = useState<any[]>([]);
 
   useEffect(() => {
-    api.getStations()
-      .then((data) => {
-        if (data && data.length > 0) {
-          setStationsList(data);
-          setStationId(data[0].station_code);
+    api.getStationDirectory()
+      .then((dir) => {
+        if (dir.stations && dir.stations.length > 0) {
+          setStationsList(dir.stations);
+          setStationId(dir.stations[0].station_code);
+        }
+        if (dir.employees && dir.employees.length > 0) {
+          setEmployees(dir.employees);
+          setEnrollTargetEmpId(dir.employees[0].id);
         }
       })
       .catch((err) => {
-        console.warn("Could not load dynamic stations, using defaults:", err);
+        console.warn("Could not load station directory, using defaults:", err);
       });
-
-    api.getEmployees()
-      .then((data) => {
-        if (data && data.length > 0) {
-          setEmployees(data);
-          setEnrollTargetEmpId(data[0].id);
-        }
-      })
-      .catch((err) => console.warn("Could not load employees for kiosk:", err));
   }, []);
   const [isProcessing, setIsProcessing] = useState(false);
   const [isConfirming, setIsConfirming] = useState(false);
@@ -105,7 +100,7 @@ export default function KioskPage() {
     setIsSubmittingEnroll(true);
     setEnrollError(null);
     try {
-      await api.enrollFace({
+      await api.quickEnrollFace({
         employee_id: Number(enrollTargetEmpId),
         image_base64: lastCapturedImage,
       });

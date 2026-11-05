@@ -86,20 +86,27 @@ export default function ContinuousEntrancePage() {
   // 1. Initial Data Fetch
   const fetchGateData = useCallback(async () => {
     try {
-      const [stList, status, empRes] = await Promise.all([
-        api.getStations(),
-        api.getGateStatus(selectedStation),
-        api.getEmployees(),
-      ]);
-      setStations(stList);
+      const status = await api.getGateStatus(selectedStation);
       setGateStatus(status);
       setRecentPassages(status.recent_passages || []);
-      setEmployees(empRes || []);
       if (status.gate_mode) {
         setGateMode(status.gate_mode as any);
       }
     } catch (err: any) {
-      console.warn("Could not load gate data:", err);
+      console.warn("Could not load gate status:", err);
+    }
+
+    try {
+      const dir = await api.getStationDirectory();
+      if (dir.stations && dir.stations.length > 0) {
+        setStations(dir.stations);
+      }
+      if (dir.employees && dir.employees.length > 0) {
+        setEmployees(dir.employees);
+        setEnrollTargetEmpId((prev) => prev || dir.employees[0].id);
+      }
+    } catch (err: any) {
+      console.warn("Could not load station directory:", err);
     }
   }, [selectedStation]);
 
@@ -177,32 +184,33 @@ export default function ContinuousEntrancePage() {
   };
 
   // 2. Start / Stop Camera Stream
-  const startCamera = async () => {
+  const startCamera = useCallback(async () => {
     try {
       setStreamError(null);
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         throw new Error("Webcam access is not supported by your browser environment.");
       }
       const stream = await navigator.mediaDevices.getUserMedia({
-        video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: "user" },
+        video: { width: { ideal: 640 }, height: { ideal: 480 }, facingMode: "user", frameRate: { ideal: 30 } },
         audio: false,
       });
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
+        isStreamingRef.current = true;
+        setIsStreaming(true);
         videoRef.current.onloadedmetadata = () => {
-          videoRef.current?.play();
-          isStreamingRef.current = true;
-          setIsStreaming(true);
+          videoRef.current?.play().catch(() => {});
         };
+        videoRef.current.play().catch(() => {});
       }
     } catch (err: any) {
       setStreamError("Unable to access optical camera device: " + (err.message || err.name));
       isStreamingRef.current = false;
       setIsStreaming(false);
     }
-  };
+  }, []);
 
-  const stopCamera = () => {
+  const stopCamera = useCallback(() => {
     isStreamingRef.current = false;
     setIsStreaming(false);
     if (videoRef.current && videoRef.current.srcObject) {
@@ -210,9 +218,21 @@ export default function ContinuousEntrancePage() {
       stream.getTracks().forEach((track) => track.stop());
       videoRef.current.srcObject = null;
     }
-    clearOverlays();
+    const canvas = overlayCanvasRef.current;
+    if (canvas) {
+      const ctx = canvas.getContext("2d");
+      ctx?.clearRect(0, 0, canvas.width, canvas.height);
+    }
     setDetectedFaces([]);
-  };
+  }, []);
+
+  // Automatically start optical camera stream when Continuous Entrance page mounts
+  useEffect(() => {
+    startCamera();
+    return () => {
+      stopCamera();
+    };
+  }, [startCamera, stopCamera]);
 
   // Draw Bounding Boxes on Overlay Canvas
   const drawOverlays = useCallback((faces: ContinuousFaceResult[]) => {
@@ -460,11 +480,13 @@ export default function ContinuousEntrancePage() {
       }
 
       // If new passages were confirmed, refresh gate status
-      if (res.summary_actions.length > 0) {
+      if (res.summary_actions && res.summary_actions.length > 0) {
         fetchGateData();
       }
+      setStreamError(null);
     } catch (err: any) {
       console.warn("Continuous frame processing error:", err);
+      setStreamError(err.message || "Frame recognition request failed.");
     } finally {
       isProcessingRef.current = false;
       setIsProcessing(false);
@@ -587,7 +609,7 @@ export default function ContinuousEntrancePage() {
     setIsSubmittingEnroll(true);
     setEnrollError(null);
     try {
-      const res = await api.enrollFace({
+      await api.quickEnrollFace({
         employee_id: Number(enrollTargetEmpId),
         image_base64: enrollSnapshotB64,
       });
@@ -754,9 +776,10 @@ export default function ContinuousEntrancePage() {
                 ref={videoRef}
                 playsInline
                 muted
+                autoPlay
                 className={`w-full h-full object-cover transition-transform duration-150 ${
                   isMirrored ? "-scale-x-100" : ""
-                } ${isStreaming ? "block" : "hidden"}`}
+                } ${isStreaming ? "block" : "opacity-0 pointer-events-none absolute inset-0"}`}
               />
 
               {/* Real-time Overlays Canvas */}
@@ -1007,9 +1030,29 @@ export default function ContinuousEntrancePage() {
                           <Badge variant="success" className="text-[10px]">
                             {face.attendance_action}
                           </Badge>
-                        ) : face.action_status === "COOLDOWN_ACTIVE" ? (
+                        ) : face.action_status === "COOLDOWN_ACTIVE" || face.action_status === "ALREADY_PUNCHED_IN_PASSAGE" ? (
                           <Badge variant="warning" className="text-[10px]">
-                            COOLDOWN
+                            PASSAGE LOGGED
+                          </Badge>
+                        ) : face.action_status === "ACQUIRING_TRACK" ? (
+                          <Badge variant="brand" className="text-[10px]">
+                            TRACKING ({face.frames_seen || 1}/2)
+                          </Badge>
+                        ) : face.action_status === "ALREADY_CHECKED_IN" ? (
+                          <Badge variant="brand" className="text-[10px]">
+                            CHECKED IN
+                          </Badge>
+                        ) : face.action_status === "NO_OPEN_SESSION" ? (
+                          <Badge variant="warning" className="text-[10px]">
+                            NO OPEN SESSION
+                          </Badge>
+                        ) : face.action_status === "SPOOF_BLOCKED" ? (
+                          <Badge variant="danger" className="text-[10px]">
+                            SPOOF BLOCKED
+                          </Badge>
+                        ) : face.matched ? (
+                          <Badge variant="success" className="text-[10px]">
+                            VERIFIED
                           </Badge>
                         ) : (
                           <div className="flex items-center gap-1">

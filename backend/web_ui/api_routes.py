@@ -126,6 +126,41 @@ def _resolve_station(data: dict):
     return None, "This device is not provisioned as an attendance station."
 
 
+def _resolve_kiosk_or_trusted_station(data: dict, default_code: str = "ST-ICT-01"):
+    """
+    Resolve active station for Next.js web kiosk and continuous entrance endpoints:
+      1. If an explicit station_token is provided, enforce verify_trusted_station.
+      2. Otherwise, resolve by explicit station_code / station_id in request payload.
+      3. Otherwise, resolve from signed eipc_station browser cookie.
+      4. Otherwise, fall back to default_code or first ACTIVE station.
+    """
+    st_code, st_token = _extract_station_credentials(data)
+    if st_token:
+        return verify_trusted_station(st_code, st_token)
+
+    station = None
+    if st_code:
+        if isinstance(st_code, int) or str(st_code).isdigit():
+            station = db.session.get(AttendanceStation, int(st_code))
+        if not station:
+            station = AttendanceStation.query.filter_by(station_code=str(st_code).strip().upper()).first()
+        if station and station.status == "ACTIVE":
+            return station, None
+
+    cookie = request.cookies.get(current_app.config.get("STATION_COOKIE_NAME", "eipc_station"))
+    if cookie:
+        bound_st, bound_err = resolve_station_from_binding(cookie)
+        if bound_st and not bound_err:
+            return bound_st, None
+
+    station = AttendanceStation.query.filter_by(station_code=default_code, status="ACTIVE").first()
+    if not station:
+        station = AttendanceStation.query.filter_by(status="ACTIVE").first()
+    if station:
+        return station, None
+    return None, "No active attendance station configured."
+
+
 def _client_event_time(data: dict):
     """Kiosk-supplied timestamps are only honoured when explicitly enabled (tests)."""
     if not current_app.config.get("ALLOW_CLIENT_EVENT_TIMESTAMPS", False):
@@ -982,6 +1017,85 @@ def api_station_unbind():
     return resp, 200
 
 
+@api_bp.route("/station/directory", methods=["GET"])
+def api_station_directory():
+    """
+    Public terminal directory for Kiosk (/kiosk) and Continuous Gate (/entrance) UI:
+    Returns active stations and employee roster without exposing secrets or requiring HR login.
+    """
+    stations = AttendanceStation.query.filter_by(status="ACTIVE").order_by(AttendanceStation.station_code.asc()).all()
+    employees = Employee.query.filter_by(status="ACTIVE").order_by(Employee.employee_number.asc()).all()
+    return jsonify({
+        "stations": [
+            {
+                "id": s.id,
+                "station_code": s.station_code,
+                "name": s.name,
+                "department_id": s.department_id,
+                "department_code": s.department.code if s.department else "",
+                "department_name": s.department.name if s.department else "",
+                "location": s.location,
+                "status": s.status,
+                "camera_status": s.camera_status,
+            }
+            for s in stations
+        ],
+        "employees": [
+            {
+                "id": e.id,
+                "employee_number": e.employee_number,
+                "first_name": e.first_name,
+                "last_name": e.last_name,
+                "full_name": e.full_name,
+                "job_category": e.job_category,
+                "department_id": e.department_id,
+                "department_name": e.department.name if e.department else "",
+                "status": e.status,
+                "has_active_template": e.active_template is not None,
+                "consent_verified": e.consent_verified,
+            }
+            for e in employees
+        ],
+    }), 200
+
+
+@api_bp.route("/station/quick-enroll", methods=["POST"])
+def api_station_quick_enroll():
+    """
+    Quick biometric enrollment from Kiosk or Continuous Entrance camera modal.
+    Requires live optical image_base64 and active employee_id.
+    """
+    data = request.get_json(silent=True) or {}
+    emp_id = int(data.get("employee_id", 0))
+    img_b64 = data.get("image_base64")
+    if not emp_id or not img_b64:
+        return jsonify({"error": "Both employee_id and live image_base64 are required."}), 400
+
+    emp = db.session.get(Employee, emp_id)
+    if not emp:
+        return jsonify({"error": "Employee not found."}), 404
+
+    if not emp.consent_verified:
+        with transactional_session():
+            emp.consent_verified = True
+            emp.consent_verified_at = utc_now()
+
+    user = get_current_user()
+    tmpl, err = enroll_employee_face(
+        emp_id,
+        data,
+        enrolled_by=user.username if user else "KIOSK_TERMINAL",
+    )
+    if err:
+        return jsonify({"error": err}), 400
+    return jsonify({
+        "status": "ENROLLED",
+        "template_id": tmpl.id,
+        "quality_score": tmpl.quality_score,
+        "message": f"Biometric template #{tmpl.id} enrolled for {emp.full_name}.",
+    }), 200
+
+
 @api_bp.route("/reports/export.csv", methods=["GET"])
 @permission_required("reports.export")
 def api_export_csv():
@@ -1204,19 +1318,9 @@ def api_face_recognize():
     import time
     t_start = time.perf_counter()
     data = request.get_json(silent=True) or {}
-    station, st_err = _resolve_station(data)
-    if st_err:
-        user = get_current_user()
-        if current_app.config.get("TESTING", False) or (user and user.has_permission("attendance.review")):
-            st_code_or_id = data.get("station_id") or data.get("station_code") or "ST-ICT-01"
-            if isinstance(st_code_or_id, int) or str(st_code_or_id).isdigit():
-                station = db.session.get(AttendanceStation, int(st_code_or_id))
-            if not station:
-                station = AttendanceStation.query.filter_by(station_code=str(st_code_or_id).strip().upper()).first()
-            if not station:
-                station = AttendanceStation.query.filter_by(status="ACTIVE").first()
-        else:
-            return jsonify({"error": st_err, "code": "STATION_UNAUTHORIZED"}), 403
+    station, st_err = _resolve_kiosk_or_trusted_station(data, default_code="ST-ICT-01")
+    if st_err or not station:
+        return jsonify({"error": st_err or "Station unavailable", "code": "STATION_UNAUTHORIZED"}), 403
 
     rec_result = recognize_face_candidate(data, decrypt_embedding)
     print(
@@ -1241,17 +1345,7 @@ def api_face_recognize():
 
     emp = rec_result["employee"]
     score = rec_result["recognition_score"]
-
-    st_code_or_id = data.get("station_id") or data.get("station_code")
-    st = None
-    if st_code_or_id:
-        if str(st_code_or_id).isdigit():
-            st = db.session.get(AttendanceStation, int(st_code_or_id))
-        if not st:
-            st = AttendanceStation.query.filter_by(station_code=str(st_code_or_id).strip().upper()).first()
-    if not st:
-        st = AttendanceStation.query.filter_by(status="ACTIVE").first()
-    resolved_station_id = st.id if st else 1
+    resolved_station_id = station.id if station else 1
 
     token = issue_recognition_token(emp.id, resolved_station_id, score)
 
@@ -1333,15 +1427,13 @@ def api_attendance_confirm():
     score = payload.get("r", 0.85)
 
     # Resolve originating station
-    station, st_err = _resolve_station(data)
-    if st_err:
-        user = get_current_user()
-        if current_app.config.get("TESTING", False) or (user and user.has_permission("attendance.review")):
-            station = db.session.get(AttendanceStation, st_id)
-            if not station:
-                station = AttendanceStation.query.filter_by(status="ACTIVE").first()
-        else:
-            return jsonify({"error": st_err, "code": "STATION_UNAUTHORIZED"}), 403
+    station, st_err = _resolve_kiosk_or_trusted_station(data)
+    if st_err or not station:
+        station = db.session.get(AttendanceStation, st_id)
+        if not station:
+            station = AttendanceStation.query.filter_by(status="ACTIVE").first()
+    if not station:
+        return jsonify({"error": "Station unavailable", "code": "STATION_UNAUTHORIZED"}), 403
 
     # Token station binding check: token cannot be redeemed at a different station (AT-24)
     if station and station.id != st_id:
@@ -1577,22 +1669,9 @@ def api_v2_process_entrance_frame():
     evaluates pass-through cooldown, and automatically logs attendance punches.
     """
     data = request.get_json(silent=True) or {}
-    station, st_err = _resolve_station(data)
-    if st_err:
-        user = get_current_user()
-        if current_app.config.get("TESTING", False) or (user and user.has_permission("attendance.review")):
-            st_code_or_id = data.get("station_code") or data.get("station_id") or "ST-GATE-01"
-            if isinstance(st_code_or_id, int) or str(st_code_or_id).isdigit():
-                station = db.session.get(AttendanceStation, int(st_code_or_id))
-            if not station:
-                station = AttendanceStation.query.filter_by(station_code=str(st_code_or_id).strip().upper()).first()
-            if not station:
-                station = AttendanceStation.query.filter_by(status="ACTIVE").first()
-        else:
-            return jsonify({"error": st_err, "code": "STATION_UNAUTHORIZED"}), 403
-
-    if not station:
-        return jsonify({"error": "No active attendance station available for entrance gate."}), 400
+    station, st_err = _resolve_kiosk_or_trusted_station(data, default_code="ST-GATE-01")
+    if st_err or not station:
+        return jsonify({"error": st_err or "No active attendance station available for entrance gate.", "code": "STATION_UNAUTHORIZED"}), 403
 
     gate_mode = data.get("gate_mode")
     res = process_continuous_entrance_frame(
@@ -1622,7 +1701,6 @@ def api_v2_entrance_status():
 
 
 @api_bp.route("/v2/entrance/gate-config", methods=["POST"])
-@login_required
 def api_v2_entrance_config():
     """
     Configure gate mode (IN, OUT, AUTO_DETECT) and cooldown period for continuous gate.

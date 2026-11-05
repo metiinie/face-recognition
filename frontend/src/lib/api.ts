@@ -388,6 +388,21 @@ export const api = {
     });
   },
 
+  async getStationDirectory(): Promise<{ stations: StationRecord[]; employees: EmployeeRecord[] }> {
+    return request("/api/station/directory");
+  },
+
+  async quickEnrollFace(payload: {
+    employee_id: number;
+    image_base64: string;
+    quality_mode?: string;
+  }): Promise<any> {
+    return request("/api/station/quick-enroll", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  },
+
   async getAttendanceSummary(): Promise<any> {
     return request("/api/attendance/summary");
   },

@@ -286,9 +286,8 @@ class ContinuousEntranceManager:
                         continue
                     action = "CHECK_OUT"
 
-                else:
-                    # Bidirectional doorway / Auto-detect mode:
-                    # In real optical stream, determine direction from optical motion trajectory
+                elif gate_mode == "BIDIRECTIONAL":
+                    # Bidirectional doorway trajectory mode:
                     if not is_simulation:
                         if motion_dir == "STATIONARY":
                             face_result["action_status"] = "STATIONARY_LINGER"
@@ -300,8 +299,11 @@ class ContinuousEntranceManager:
                         else:  # APPROACHING
                             action = "CHECK_IN"
                     else:
-                        # Simulation fallback: infer from open session
                         action = "CHECK_OUT" if open_sess else "CHECK_IN"
+
+                else:
+                    # AUTO_DETECT mode: infer CHECK_IN vs CHECK_OUT from open attendance session
+                    action = "CHECK_OUT" if open_sess else "CHECK_IN"
 
                 # 7. Atomic Attendance Event Recording
                 result, err_code, err_msg = confirm_attendance_action(
