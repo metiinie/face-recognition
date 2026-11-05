@@ -26,7 +26,7 @@ export default function RootLayout({
               © 2026 Ethio-Italy Polytechnic College (EIPC), Dire Dawa, Ethiopia.
             </span>
             <span className="font-mono text-[11px] text-slate-400">
-              InsightFace ArcFace ONNX • OpenCV • MySQL 8 • EER &lt; 0.9%
+              UltraFace &amp; SFace ONNX (128-D) • OpenCV • MySQL 8 • EER &lt; 0.9%
             </span>
           </div>
         </footer>

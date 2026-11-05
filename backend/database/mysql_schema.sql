@@ -58,7 +58,7 @@ CREATE TABLE IF NOT EXISTS face_templates (
     id INT AUTO_INCREMENT PRIMARY KEY,
     employee_id INT NOT NULL,
     template_data TEXT NOT NULL,
-    model_name VARCHAR(80) NOT NULL DEFAULT 'EIPC-ArcFace-Embedder',
+    model_name VARCHAR(80) NOT NULL DEFAULT 'EIPC-Vision-Embedder',
     model_version VARCHAR(40) NOT NULL DEFAULT '1.0.0',
     quality_score DOUBLE NOT NULL DEFAULT 0.95,
     status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE',

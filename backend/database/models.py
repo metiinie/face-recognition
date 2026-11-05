@@ -146,7 +146,7 @@ class FaceTemplate(db.Model):
     employee_id = db.Column(db.Integer, db.ForeignKey("employees.id"), nullable=False, index=True)
     # Encrypted biometric vector payload (Fernet AES-128-CBC + HMAC)
     template_data = db.Column(db.Text, nullable=False)
-    model_name = db.Column(db.String(80), nullable=False, default="EIPC-ArcFace-Embedder")
+    model_name = db.Column(db.String(80), nullable=False, default="EIPC-Vision-Embedder")
     model_version = db.Column(db.String(40), nullable=False, default="1.0.0")
     quality_score = db.Column(db.Float, nullable=False, default=0.95)
     status = db.Column(db.String(20), nullable=False, default="ACTIVE")  # ACTIVE, REPLACED, REVOKED

@@ -211,7 +211,7 @@ export default function KioskPage() {
           <div className="flex items-center gap-2">
             <h1 className="text-xl sm:text-2xl font-bold tracking-tight">Kiosk Attendance Terminal</h1>
             <Badge variant="brand" className="bg-blue-500/20 text-blue-300 border-blue-400/30">
-              ArcFace ONNX + OpenCV
+              UltraFace + SFace ONNX (OpenCV)
             </Badge>
           </div>
           <p className="mt-1 text-xs sm:text-sm text-slate-300">

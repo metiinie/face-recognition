@@ -104,11 +104,11 @@ export default function BiometricsLabPage() {
   const curveData = metrics?.roc_det_curves?.length ? metrics.roc_det_curves : defaultCurveData;
 
   const latencyBreakdown = [
-    { stage: "OpenCV Detection & Crop", ms: metrics?.recognition_latency_ms?.breakdown?.detection_ms || 18 },
-    { stage: "Affine Alignment", ms: metrics?.recognition_latency_ms?.breakdown?.alignment_ms || 5 },
-    { stage: "Anti-Spoofing (PAD)", ms: metrics?.recognition_latency_ms?.breakdown?.liveness_ms || 12 },
-    { stage: "ArcFace ONNX Inference", ms: metrics?.recognition_latency_ms?.breakdown?.onnx_inference_ms || 54 },
-    { stage: "Decryption & DB Search", ms: metrics?.recognition_latency_ms?.breakdown?.db_search_ms || 9 },
+    { stage: "OpenCV Detection & Crop", ms: metrics?.recognition_latency_ms?.breakdown?.detection_ms || 28 },
+    { stage: "Affine Alignment", ms: metrics?.recognition_latency_ms?.breakdown?.alignment_ms || 1 },
+    { stage: "Anti-Spoofing (PAD)", ms: metrics?.recognition_latency_ms?.breakdown?.liveness_ms || 19 },
+    { stage: "SFace ONNX Inference (128-D)", ms: metrics?.recognition_latency_ms?.breakdown?.onnx_inference_ms || 28 },
+    { stage: "Decryption & DB Search", ms: metrics?.recognition_latency_ms?.breakdown?.db_search_ms || 29 },
   ];
 
   const livenessStats = [
@@ -367,7 +367,7 @@ export default function BiometricsLabPage() {
             <div className="space-y-2 text-xs">
               <div className="flex items-center justify-between rounded-lg bg-slate-50 p-2.5 border border-slate-200">
                 <span className="text-slate-600 font-medium">Primary Deep Architecture:</span>
-                <span className="font-mono font-bold text-slate-900">InsightFace + ArcFace ONNX (512-D)</span>
+                <span className="font-mono font-bold text-slate-900">OpenCV Zoo SFace ONNX (128-D) + UltraFace / YuNet</span>
               </div>
               <div className="flex items-center justify-between rounded-lg bg-slate-50 p-2.5 border border-slate-200">
                 <span className="text-slate-600 font-medium">Active Database Model:</span>
