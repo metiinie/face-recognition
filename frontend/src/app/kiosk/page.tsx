@@ -38,7 +38,6 @@ export default function KioskPage() {
         }
         if (dir.employees && dir.employees.length > 0) {
           setEmployees(dir.employees);
-          setEnrollTargetEmpId(dir.employees[0].id);
         }
       })
       .catch((err) => {
@@ -440,15 +439,32 @@ export default function KioskPage() {
                     <span>Check-Out (መውጫ)</span>
                   </Button>
                 </div>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  className="w-full text-xs text-slate-500"
-                  onClick={handleReset}
-                  disabled={isConfirming}
-                >
-                  Rescan / Cancel
-                </Button>
+                <div className="flex gap-2">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    className="flex-1 text-xs text-slate-500"
+                    onClick={handleReset}
+                    disabled={isConfirming}
+                  >
+                    Rescan / Cancel
+                  </Button>
+                  {lastCapturedImage && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="flex-1 text-xs text-blue-700 border-blue-200 bg-white hover:bg-blue-50"
+                      onClick={() => {
+                        setEnrollError(null);
+                        setShowEnrollModal(true);
+                      }}
+                      disabled={isConfirming}
+                    >
+                      <UserPlus className="mr-1 h-3.5 w-3.5 text-blue-600" />
+                      Not You? Re-Enroll Face
+                    </Button>
+                  )}
+                </div>
               </div>
             </Card>
           )}
@@ -656,9 +672,10 @@ export default function KioskPage() {
               <label className="text-xs font-semibold text-slate-700">Select Employee Profile:</label>
               <select
                 value={enrollTargetEmpId}
-                onChange={(e) => setEnrollTargetEmpId(Number(e.target.value))}
+                onChange={(e) => setEnrollTargetEmpId(e.target.value ? Number(e.target.value) : "")}
                 className="w-full rounded-lg border border-slate-300 p-2 text-xs font-medium text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
+                <option value="">— Select your Employee Name &amp; ID —</option>
                 {employees.map((emp) => (
                   <option key={emp.id} value={emp.id}>
                     {emp.employee_number} — {emp.first_name || emp.full_name} {emp.last_name || ""} ({emp.department_name || emp.department || "Staff"})

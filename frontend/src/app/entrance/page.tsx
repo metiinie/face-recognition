@@ -103,7 +103,6 @@ export default function ContinuousEntrancePage() {
       }
       if (dir.employees && dir.employees.length > 0) {
         setEmployees(dir.employees);
-        setEnrollTargetEmpId((prev) => prev || dir.employees[0].id);
       }
     } catch (err: any) {
       console.warn("Could not load station directory:", err);
@@ -1175,9 +1174,10 @@ export default function ContinuousEntrancePage() {
               <label className="text-xs font-semibold text-slate-700">Select Employee Profile:</label>
               <select
                 value={enrollTargetEmpId}
-                onChange={(e) => setEnrollTargetEmpId(Number(e.target.value))}
+                onChange={(e) => setEnrollTargetEmpId(e.target.value ? Number(e.target.value) : "")}
                 className="w-full rounded-lg border border-slate-300 p-2 text-xs font-medium text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
+                <option value="">— Select your Employee Name &amp; ID —</option>
                 {employees.map((emp) => (
                   <option key={emp.id} value={emp.id}>
                     {emp.first_name} {emp.last_name} ({emp.employee_number}) — {emp.department_name}

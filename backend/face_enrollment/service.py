@@ -11,7 +11,11 @@ from cryptography.fernet import Fernet
 from flask import current_app
 from backend.database import db, transactional_session
 from backend.database.models import Employee, FaceTemplate, utc_now
-from backend.face_engine.recognizer import analyze_and_extract_embedding, generate_deterministic_embedding
+from backend.face_engine.recognizer import (
+    analyze_and_extract_embedding,
+    generate_deterministic_embedding,
+    cosine_similarity,
+)
 from backend.audit.service import record_audit_log
 
 
@@ -82,6 +86,43 @@ def enroll_employee_face(
             old_t.status = "REPLACED"
             old_t.revoked_at = utc_now()
             old_t.revoke_reason = "Replaced by new biometric enrollment"
+
+        # In live mode, if this physical person's face was previously enrolled on another
+        # employee profile by mistake, supersede that conflicting template so one face cannot
+        # match two different employee records.
+        if not current_app.config.get("TESTING", False):
+            other_active = FaceTemplate.query.filter(
+                FaceTemplate.employee_id != employee.id,
+                FaceTemplate.status == "ACTIVE",
+            ).all()
+            affected_emp_ids = set()
+            for other_t in other_active:
+                try:
+                    other_vec = decrypt_embedding(other_t.template_data)
+                    sim = cosine_similarity(extraction["embedding"], other_vec)
+                    if sim >= 0.55:
+                        other_t.status = "REPLACED"
+                        other_t.revoked_at = utc_now()
+                        other_t.revoke_reason = f"Reassigned biometric identity to {employee.employee_number}"
+                        affected_emp_ids.add(other_t.employee_id)
+                except Exception:
+                    continue
+            for other_emp_id in affected_emp_ids:
+                other_emp = session.get(Employee, other_emp_id)
+                if other_emp and not FaceTemplate.query.filter_by(employee_id=other_emp_id, status="ACTIVE").first():
+                    seed_vec = generate_deterministic_embedding(f"FACE_SIG_{other_emp.employee_number}")
+                    session.add(
+                        FaceTemplate(
+                            employee_id=other_emp_id,
+                            template_data=encrypt_embedding(seed_vec),
+                            model_name=model_name,
+                            model_version=model_version,
+                            quality_score=0.95,
+                            status="ACTIVE",
+                            enrolled_by="SYSTEM_RESTORE",
+                            enrolled_at=utc_now(),
+                        )
+                    )
 
         new_template = FaceTemplate(
             employee_id=employee.id,

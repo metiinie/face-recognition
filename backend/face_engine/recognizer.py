@@ -268,6 +268,14 @@ def cosine_similarity(vec_a: list[float] | np.ndarray, vec_b: list[float] | np.n
     return float(np.dot(a, b) / (norm_a * norm_b))
 
 
+def _is_gradient_descriptor(vec: list[float] | np.ndarray | None) -> bool:
+    """Return True if vec is a zero-mean spatial gradient histogram descriptor."""
+    if not vec:
+        return False
+    arr = np.asarray(vec, dtype=np.float64)
+    return bool(abs(float(np.sum(arr))) < 1e-3)
+
+
 def _extract_embedding_from_pil(img: Image.Image) -> tuple[list[float], dict]:
     """
     Production-grade computer vision pipeline using Pillow and NumPy:
@@ -839,10 +847,12 @@ def recognize_face_candidate(capture_payload: dict, decrypt_fn) -> dict:
     for tmpl in active_templates:
         try:
             stored_vec = decrypt_fn(tmpl.template_data)
-            score_aligned = cosine_similarity(probe_aligned, stored_vec) if probe_aligned else -1.0
-            score_neural = cosine_similarity(probe_neural, stored_vec) if probe_neural else -1.0
-            score_gradient = cosine_similarity(probe_gradient, stored_vec) if probe_gradient else -1.0
-            score = max(score_aligned, score_neural, score_gradient)
+            if _is_gradient_descriptor(stored_vec):
+                score = cosine_similarity(probe_gradient, stored_vec) if probe_gradient else -1.0
+            else:
+                score_aligned = cosine_similarity(probe_aligned, stored_vec) if probe_aligned else -1.0
+                score_neural = cosine_similarity(probe_neural, stored_vec) if probe_neural else -1.0
+                score = max(score_aligned, score_neural)
             if score > best_score:
                 best_score = score
                 best_template = tmpl
@@ -1267,10 +1277,12 @@ def recognize_multi_face_frame(capture_payload: dict, decrypt_fn) -> dict:
         for tmpl in active_templates:
             try:
                 stored_vec = decrypt_fn(tmpl.template_data)
-                score_aligned = cosine_similarity(probe_aligned, stored_vec) if probe_aligned else -1.0
-                score_neural = cosine_similarity(probe_neural, stored_vec) if probe_neural else -1.0
-                score_gradient = cosine_similarity(probe_gradient, stored_vec) if probe_gradient else -1.0
-                score = max(score_aligned, score_neural, score_gradient)
+                if _is_gradient_descriptor(stored_vec):
+                    score = cosine_similarity(probe_gradient, stored_vec) if probe_gradient else -1.0
+                else:
+                    score_aligned = cosine_similarity(probe_aligned, stored_vec) if probe_aligned else -1.0
+                    score_neural = cosine_similarity(probe_neural, stored_vec) if probe_neural else -1.0
+                    score = max(score_aligned, score_neural)
                 if score > best_score:
                     best_score = score
                     best_template = tmpl
