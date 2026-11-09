@@ -20,7 +20,9 @@ RUN pip install --no-cache-dir -r requirements.txt \
     flask-cors \
     flask-socketio \
     redis \
-    gunicorn
+    gunicorn \
+    gevent \
+    gevent-websocket
 
 # Copy application source code
 COPY . .
@@ -28,7 +30,8 @@ COPY . .
 EXPOSE 5000
 
 ENV FLASK_ENV=production \
+    SOCKETIO_ASYNC_MODE=gevent \
     PYTHONUNBUFFERED=1
 
-CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "2", "--threads", "4", "--timeout", "120", "run:app"]
+CMD ["gunicorn", "--worker-class", "geventwebsocket.gunicorn.workers.GeventWebSocketWorker", "--bind", "0.0.0.0:5000", "--workers", "1", "--timeout", "120", "run:app"]
 

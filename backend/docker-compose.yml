@@ -55,6 +55,7 @@ services:
       BIOMETRIC_ENCRYPTION_SECRET: eipc-biometric-fernet-secret-32-chars-long-2026
       ALLOW_SIMULATED_BIOMETRICS: "0"
       FLASK_ENV: production
+      SOCKETIO_ASYNC_MODE: gevent
     ports:
       - "5000:5000"
 

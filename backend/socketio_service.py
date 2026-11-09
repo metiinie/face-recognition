@@ -11,9 +11,28 @@ from backend.database.models import AttendanceStation
 
 logger = logging.getLogger(__name__)
 
+
+def _detect_async_mode() -> str:
+    """Auto-detect optimal async mode: gevent in production, threading in development/tests."""
+    configured = os.environ.get("SOCKETIO_ASYNC_MODE")
+    if configured:
+        return configured
+    try:
+        import gevent  # noqa: F401
+        return "gevent"
+    except ImportError:
+        pass
+    try:
+        import eventlet  # noqa: F401
+        return "eventlet"
+    except ImportError:
+        pass
+    return "threading"
+
+
 socketio = SocketIO(
     cors_allowed_origins="*",
-    async_mode="threading",
+    async_mode=_detect_async_mode(),
     ping_timeout=20,
     ping_interval=10,
     max_http_buffer_size=10 * 1024 * 1024,  # 10MB buffer for frames
@@ -32,16 +51,18 @@ def init_socketio(app):
     socketio.server_options.pop("client_manager", None)
     socketio.server_options.pop("message_queue", None)
 
+    active_mode = app.config.get("SOCKETIO_ASYNC_MODE") or _detect_async_mode()
+
     if msg_queue:
-        logger.info(f"Socket.IO initialized with shared Redis message queue: {msg_queue}")
+        logger.info(f"Socket.IO initialized with shared Redis queue ({msg_queue}) in '{active_mode}' mode")
     else:
-        logger.info("Socket.IO initialized with in-memory message queue")
+        logger.info(f"Socket.IO initialized with in-memory queue in '{active_mode}' mode")
 
     socketio.init_app(
         app,
         message_queue=msg_queue,
         cors_allowed_origins="*",
-        async_mode="threading",
+        async_mode=active_mode,
         ping_timeout=20,
         ping_interval=10,
         max_http_buffer_size=10 * 1024 * 1024,
