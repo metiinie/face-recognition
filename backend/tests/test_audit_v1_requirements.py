@@ -580,3 +580,110 @@ def test_area_12_model_compatibility_and_migration(app):
         updated_report = get_model_compatibility_report()
         assert updated_report["status"] == "COMPATIBLE"
         assert updated_report["outdated_active_templates"] == 0
+
+
+# ==============================================================================
+# AREA 13: END-TO-END BIOMETRIC CONSENT ENFORCEMENT
+# ==============================================================================
+def test_biometric_consent_enforcement_end_to_end(app):
+    """
+    Verify strict biometric consent enforcement:
+      1. When consent_verified is True, recognition and attendance confirm succeed.
+      2. When consent_verified is False (withdrawn or unverified):
+         - Single-person kiosk returns matched=False and status='CONSENT_NOT_VERIFIED'
+         - Continuous entrance returns matched=False and action_status='CONSENT_BLOCKED'
+         - Biometric attendance confirmation is rejected with 'BIOMETRIC_CONSENT_REQUIRED'
+         - Manual HR attendance override (non-biometric) is still permitted
+      3. Updating employee consent_verified to False automatically revokes active templates
+    """
+    from backend.attendance.service import confirm_attendance_action
+    from backend.employees.service import update_employee
+    from backend.continuous_entrance.service import process_continuous_entrance_frame
+    from backend.face_engine.recognizer import recognize_multi_face_frame
+    from backend.database.models import AttendanceStation
+
+    with app.app_context():
+        emp = db.session.get(Employee, 1)
+        station = AttendanceStation.query.filter_by(station_code="ST-ICT-01").first()
+
+        # Step 1: Ensure consent is verified and template is active
+        emp.consent_verified = True
+        db.session.commit()
+
+        # Test single-person scan matching succeeds
+        res_valid = recognize_face_candidate({"biometric_signature": f"FACE_SIG_{emp.employee_number}"}, decrypt_fn=decrypt_embedding)
+        assert res_valid["matched"] is True
+        assert res_valid["status"] == "MATCHED"
+
+        # Step 2: Revoke consent via update_employee (simulating employee consent withdrawal)
+        updated_emp, err_upd = update_employee(emp.id, consent_verified=False, actor="HR_OFFICER")
+        assert err_upd is None
+        assert updated_emp.consent_verified is False
+
+        # Active templates should be revoked
+        active_templates = FaceTemplate.query.filter_by(employee_id=emp.id, status="ACTIVE").all()
+        assert len(active_templates) == 0
+
+        # Audit log for consent withdrawal must be recorded
+        withdraw_log = AuditLog.query.filter_by(action="BIOMETRIC_CONSENT_WITHDRAWN", target_id=emp.employee_number).first()
+        assert withdraw_log is not None
+
+        # Step 3: Re-add an active template to specifically test matching block when consent_verified is False
+        test_vec = generate_deterministic_embedding(f"FACE_SIG_{emp.employee_number}")
+        from backend.face_enrollment.service import encrypt_embedding
+        orphan_template = FaceTemplate(
+            employee_id=emp.id,
+            template_data=encrypt_embedding(test_vec),
+            model_name="EIPC-Vision-Embedder",
+            model_version="1.0.0",
+            quality_score=0.95,
+            status="ACTIVE",
+            enrolled_at=utc_now(),
+        )
+        db.session.add(orphan_template)
+        db.session.commit()
+
+        # Step 4: Kiosk scan with revoked consent must reject
+        res_blocked = recognize_face_candidate({"biometric_signature": f"FACE_SIG_{emp.employee_number}"}, decrypt_fn=decrypt_embedding)
+        assert res_blocked["matched"] is False
+        assert res_blocked["status"] == "CONSENT_NOT_VERIFIED"
+        assert res_blocked["rejection_code"] == "CONSENT_NOT_VERIFIED"
+
+        # Step 5: Continuous entrance multi-face frame must block
+        multi_res = recognize_multi_face_frame({"simulated_signatures": [f"FACE_SIG_{emp.employee_number}"]}, decrypt_fn=decrypt_embedding)
+        assert multi_res["faces_detected"] == 1
+        assert multi_res["faces"][0]["matched"] is False
+        assert multi_res["faces"][0]["status"] == "CONSENT_NOT_VERIFIED"
+
+        # Continuous gate processing must label as CONSENT_BLOCKED
+        gate_res = process_continuous_entrance_frame(
+            station=station,
+            frame_payload={"simulated_staff": [emp.employee_number]},
+        )
+        assert len(gate_res["faces"]) == 1
+        assert gate_res["faces"][0]["action_status"] == "CONSENT_BLOCKED"
+
+        # Step 6: Direct biometric attendance commit attempt must be blocked
+        att_res, att_code, att_msg = confirm_attendance_action(
+            employee_id=emp.id,
+            station=station,
+            event_type="CHECK_IN",
+            capture_method="BIOMETRIC",
+        )
+        assert att_res is None
+        assert att_code == "BIOMETRIC_CONSENT_REQUIRED"
+
+        # Step 7: Manual HR attendance (non-biometric) is still permitted
+        manual_res, manual_code, manual_msg = confirm_attendance_action(
+            employee_id=emp.id,
+            station=station,
+            event_type="CHECK_IN",
+            capture_method="MANUAL_HR",
+            manual_reason="Documented physical verification while biometric consent is pending",
+            evidence_ref="REG-BOOK-01",
+        )
+        assert manual_code is None
+        assert manual_res is not None
+        assert manual_res["event_type"] == "CHECK_IN"
+        assert manual_res["capture_method"] == "MANUAL_HR"
+

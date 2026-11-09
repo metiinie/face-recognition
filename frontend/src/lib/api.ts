@@ -168,7 +168,7 @@ export interface ContinuousFaceResult {
   track_id: number;
   bounding_box: { x: number; y: number; w: number; h: number };
   matched: boolean;
-  status: "MATCHED" | "UNCERTAIN_MATCH" | "UNKNOWN_FACE" | "EMPLOYEE_INACTIVE" | string;
+  status: "MATCHED" | "UNCERTAIN_MATCH" | "UNKNOWN_FACE" | "EMPLOYEE_INACTIVE" | "CONSENT_NOT_VERIFIED" | string;
   recognition_score: number;
   quality_score: number;
   liveness_passed: boolean;
@@ -180,7 +180,7 @@ export interface ContinuousFaceResult {
     job_category?: string;
     status: string;
   } | null;
-  action_status: "CONFIRMED" | "COOLDOWN_ACTIVE" | "ALREADY_CHECKED_IN" | "NO_OPEN_SESSION" | "UNKNOWN_VISITOR" | "REJECTED" | "ACQUIRING_TRACK" | "ALREADY_PUNCHED_IN_PASSAGE" | "SPOOF_BLOCKED" | "STATIONARY_LINGER" | string;
+  action_status: "CONFIRMED" | "COOLDOWN_ACTIVE" | "ALREADY_CHECKED_IN" | "NO_OPEN_SESSION" | "UNKNOWN_VISITOR" | "REJECTED" | "ACQUIRING_TRACK" | "ALREADY_PUNCHED_IN_PASSAGE" | "SPOOF_BLOCKED" | "STATIONARY_LINGER" | "CONSENT_BLOCKED" | string;
   attendance_action?: "CHECK_IN" | "CHECK_OUT" | null;
   session_id?: number | null;
   is_late?: boolean;
@@ -245,7 +245,7 @@ export interface GateStatusResponse {
 
 export interface RecognitionResult {
   matched: boolean;
-  status: "MATCH_CONFIRMED" | "UNCERTAIN_MATCH" | "UNKNOWN_FACE" | "REJECTED";
+  status: "MATCH_CONFIRMED" | "UNCERTAIN_MATCH" | "UNKNOWN_FACE" | "REJECTED" | "CONSENT_NOT_VERIFIED";
   employee?: {
     id: number;
     employee_number: string;
@@ -443,6 +443,7 @@ export const api = {
       department_id?: number;
       job_category?: string;
       phone?: string;
+      consent_verified?: boolean;
     }
   ): Promise<{ status: string; employee: EmployeeRecord }> {
     return request(`/api/employees/${empId}`, {

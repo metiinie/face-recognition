@@ -583,6 +583,7 @@ def api_update_employee(emp_id: int):
         department_id=int(data["department_id"]) if data.get("department_id") else None,
         job_category=data.get("job_category"),
         phone=data.get("phone"),
+        consent_verified=data.get("consent_verified"),
         actor=user.username if user else "HR Officer",
     )
     if err:

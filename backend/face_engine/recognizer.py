@@ -910,6 +910,22 @@ def recognize_face_candidate(capture_payload: dict, decrypt_fn) -> dict:
             "quality_details": extraction["quality_details"],
         }
 
+    if not employee.consent_verified:
+        # Biometric consent enforcement: Match blocked if consent not verified or withdrawn
+        return {
+            "matched": False,
+            "status": "CONSENT_NOT_VERIFIED",
+            "employee": employee,
+            "recognition_score": best_score_clamped,
+            "quality_score": extraction["quality_score"],
+            "message": (
+                f"Biometric consent for {employee.full_name} ({employee.employee_number}) is not verified "
+                "or has been withdrawn. Biometric recognition is blocked per college privacy policy."
+            ),
+            "rejection_code": "CONSENT_NOT_VERIFIED",
+            "quality_details": extraction["quality_details"],
+        }
+
     return {
         "matched": True,
         "status": "MATCHED",
@@ -1308,6 +1324,17 @@ def recognize_multi_face_frame(capture_payload: dict, decrypt_fn) -> dict:
                 "employee_number": emp.employee_number,
                 "full_name": emp.full_name,
                 "department": emp.department.name if emp.department else "",
+                "status": emp.status,
+            }
+        elif emp and not emp.consent_verified:
+            status = "CONSENT_NOT_VERIFIED"
+            is_matched = False
+            emp_info = {
+                "id": emp.id,
+                "employee_number": emp.employee_number,
+                "full_name": emp.full_name,
+                "department": emp.department.name if emp.department else "",
+                "job_category": emp.job_category,
                 "status": emp.status,
             }
         else:

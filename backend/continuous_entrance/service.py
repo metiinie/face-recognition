@@ -391,6 +391,13 @@ class ContinuousEntranceManager:
                 face_result["action_status"] = "INACTIVE_BLOCKED"
                 face_result["message"] = "Inactive employee blocked at gate."
 
+            elif status == "CONSENT_NOT_VERIFIED":
+                face_result["action_status"] = "CONSENT_BLOCKED"
+                face_result["message"] = (
+                    f"Biometric consent not verified for {emp_info.get('full_name') if emp_info else 'employee'}. "
+                    "Autonomous passage blocked per college privacy policy."
+                )
+
             processed_faces.append(face_result)
 
         latency_ms = round((time.perf_counter() - start_time) * 1000, 1)

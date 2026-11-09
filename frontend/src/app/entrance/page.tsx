@@ -284,6 +284,10 @@ export default function ContinuousEntrancePage() {
         strokeColor = "#dc2626"; // red
         fillColor = "rgba(220, 38, 38, 0.22)";
         tagText = "SPOOF ATTACK BLOCKED";
+      } else if (face.action_status === "CONSENT_BLOCKED" || face.status === "CONSENT_NOT_VERIFIED") {
+        strokeColor = "#dc2626"; // red
+        fillColor = "rgba(220, 38, 38, 0.22)";
+        tagText = "CONSENT NOT VERIFIED (BLOCKED)";
       } else if (face.action_status === "STATIONARY_LINGER") {
         strokeColor = "#7c3aed"; // violet
         fillColor = "rgba(124, 58, 237, 0.12)";
@@ -1048,6 +1052,10 @@ export default function ContinuousEntrancePage() {
                         ) : face.action_status === "SPOOF_BLOCKED" ? (
                           <Badge variant="danger" className="text-[10px]">
                             SPOOF BLOCKED
+                          </Badge>
+                        ) : face.action_status === "CONSENT_BLOCKED" || face.status === "CONSENT_NOT_VERIFIED" ? (
+                          <Badge variant="danger" className="text-[10px]">
+                            CONSENT BLOCKED
                           </Badge>
                         ) : face.matched ? (
                           <Badge variant="success" className="text-[10px]">

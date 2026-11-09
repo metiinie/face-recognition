@@ -105,6 +105,7 @@ def update_employee(
     department_id: int | None = None,
     job_category: str | None = None,
     phone: str | None = None,
+    consent_verified: bool | None = None,
     actor: str = "HR Officer",
 ) -> tuple[Employee | None, str | None]:
     emp = db.session.get(Employee, employee_id)
@@ -128,6 +129,23 @@ def update_employee(
             emp.job_category = cat
         if phone is not None:
             emp.phone = phone.strip()
+        if consent_verified is not None:
+            old_consent = emp.consent_verified
+            emp.consent_verified = bool(consent_verified)
+            # If consent was withdrawn, revoke any active face templates immediately
+            if old_consent and not emp.consent_verified:
+                for tmpl in emp.face_templates.filter_by(status="ACTIVE").all():
+                    tmpl.status = "REVOKED"
+                    tmpl.revoked_at = utc_now()
+                    tmpl.revoke_reason = "Biometric consent withdrawn by employee"
+                record_audit_log(
+                    action="BIOMETRIC_CONSENT_WITHDRAWN",
+                    target_type="EMPLOYEE",
+                    target_id=emp.employee_number,
+                    reason="Biometric consent withdrawn via HR update; active templates revoked",
+                    details={"employee_id": emp.id},
+                    actor_username=actor,
+                )
         emp.updated_at = utc_now()
 
         record_audit_log(
@@ -138,6 +156,7 @@ def update_employee(
                 "full_name": emp.full_name,
                 "department_id": emp.department_id,
                 "job_category": emp.job_category,
+                "consent_verified": emp.consent_verified,
             },
             actor_username=actor,
         )

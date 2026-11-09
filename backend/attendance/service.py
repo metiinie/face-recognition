@@ -102,6 +102,15 @@ def confirm_attendance_action(
                     f"Employee {emp.employee_number} is INACTIVE. New attendance events are blocked.",
                 )
 
+            if capture_method in {"BIOMETRIC", "CONTINUOUS_ENTRANCE"} and not emp.consent_verified:
+                # Enforce biometric consent: automated biometric punches blocked without verified consent
+                return (
+                    None,
+                    "BIOMETRIC_CONSENT_REQUIRED",
+                    f"Employee {emp.employee_number} does not have verified biometric consent. "
+                    "Biometric attendance recording is blocked per college privacy policy.",
+                )
+
             if not station or station.status != "ACTIVE":
                 return None, "STATION_INACTIVE", "Attendance station is not active."
 

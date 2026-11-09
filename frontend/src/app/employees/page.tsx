@@ -66,6 +66,7 @@ export default function EmployeesPage() {
     department_id: 1,
     job_category: "REGULAR_STAFF",
     phone: "",
+    consent_verified: true,
   });
   const [isSubmittingEdit, setIsSubmittingEdit] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
@@ -224,6 +225,7 @@ export default function EmployeesPage() {
         department_id: Number(editForm.department_id),
         job_category: editForm.job_category,
         phone: editForm.phone.trim() || undefined,
+        consent_verified: editForm.consent_verified,
       });
       setEditingEmployee(null);
       await fetchEmployees();
@@ -382,6 +384,7 @@ export default function EmployeesPage() {
                             department_id: emp.department_id || (departments[0]?.id || 1),
                             job_category: emp.job_category || "REGULAR_STAFF",
                             phone: (emp as any).phone || "",
+                            consent_verified: Boolean(emp.consent_verified),
                           });
                           setEditError(null);
                         }}
@@ -871,6 +874,22 @@ export default function EmployeesPage() {
                   onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })}
                   className="w-full rounded-lg border border-slate-300 p-2 text-xs focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                 />
+              </div>
+
+              <div className="flex items-start gap-2.5 rounded-xl border border-slate-200 bg-slate-50/70 p-3">
+                <input
+                  type="checkbox"
+                  id="edit_consent_verified"
+                  checked={editForm.consent_verified}
+                  onChange={(e) =>
+                    setEditForm({ ...editForm, consent_verified: e.target.checked })
+                  }
+                  className="mt-0.5 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                />
+                <label htmlFor="edit_consent_verified" className="text-xs text-slate-700 cursor-pointer">
+                  <strong>Biometric Consent Verified (POL-01):</strong> Employee has an active signed consent agreement.
+                  Unchecking will immediately withdraw consent and revoke active face templates.
+                </label>
               </div>
 
               <div className="flex justify-end gap-2 pt-3 border-t">
