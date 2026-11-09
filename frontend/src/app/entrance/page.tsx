@@ -275,7 +275,11 @@ export default function ContinuousEntrancePage() {
       } else if (face.action_status === "ACQUIRING_TRACK") {
         strokeColor = "#0284c7"; // sky blue
         fillColor = "rgba(2, 132, 199, 0.12)";
-        tagText = `TRACKING (${face.frames_seen || 1}/2 FRAMES)`;
+        tagText = `TRACKING (${face.frames_seen || 1}/${gateStatus?.min_persistence_frames || 3} FRAMES)`;
+      } else if (face.action_status === "UNCERTAIN_TRACK") {
+        strokeColor = "#eab308"; // yellow
+        fillColor = "rgba(234, 179, 8, 0.12)";
+        tagText = "IDENTITY UNCERTAIN (STEP CLOSER)";
       } else if (face.action_status === "ALREADY_PUNCHED_IN_PASSAGE") {
         strokeColor = "#059669"; // green
         fillColor = "rgba(5, 150, 105, 0.12)";
@@ -1041,7 +1045,11 @@ export default function ContinuousEntrancePage() {
                           </Badge>
                         ) : face.action_status === "ACQUIRING_TRACK" ? (
                           <Badge variant="brand" className="text-[10px]">
-                            TRACKING ({face.frames_seen || 1}/2)
+                            TRACKING ({face.frames_seen || 1}/{gateStatus?.min_persistence_frames || 3})
+                          </Badge>
+                        ) : face.action_status === "UNCERTAIN_TRACK" ? (
+                          <Badge variant="warning" className="text-[10px]">
+                            UNCERTAIN
                           </Badge>
                         ) : face.action_status === "ALREADY_CHECKED_IN" ? (
                           <Badge variant="brand" className="text-[10px]">

@@ -87,12 +87,15 @@ class ContinuousEntranceManager:
             default_mode = "IN" if code.endswith("-IN") else ("OUT" if code.endswith("-OUT") else "AUTO_DETECT")
             try:
                 min_mins = current_app.config.get("MIN_AUTO_CHECKOUT_ELAPSED_MINUTES", 15)
+                min_pers = current_app.config.get("TRACK_MIN_PERSISTENCE_FRAMES", 3)
             except Exception:
                 min_mins = 15
+                min_pers = 3
             self._gate_configs[code] = {
                 "gate_mode": default_mode,  # "IN", "OUT", "AUTO_DETECT", "BIDIRECTIONAL"
                 "cooldown_sec": 20,
                 "min_checkout_elapsed_mins": min_mins,
+                "min_persistence_frames": min_pers,
             }
         return self._gate_configs[code]
 
@@ -102,8 +105,9 @@ class ContinuousEntranceManager:
         gate_mode: str,
         cooldown_sec: int = 20,
         min_checkout_elapsed_mins: int = 15,
+        min_persistence_frames: int = 3,
     ) -> dict:
-        """Update gate direction, cooldown settings, and minimum checkout elapsed duration."""
+        """Update gate direction, cooldown settings, and tracking persistence frames."""
         code = (station_code or "").upper().strip()
         mode = gate_mode.upper().strip()
         if mode not in {"IN", "OUT", "AUTO_DETECT", "BIDIRECTIONAL"}:
@@ -112,6 +116,7 @@ class ContinuousEntranceManager:
             "gate_mode": mode,
             "cooldown_sec": max(5, min(300, int(cooldown_sec))),
             "min_checkout_elapsed_mins": max(1, min(180, int(min_checkout_elapsed_mins))),
+            "min_persistence_frames": max(1, min(10, int(min_persistence_frames))),
         }
         self._gate_configs[code] = cfg
         return cfg
@@ -185,8 +190,12 @@ class ContinuousEntranceManager:
                 "matched": is_matched,
                 "status": status,
                 "recognition_score": score,
+                "average_match_score": face.get("average_match_score", score),
+                "matched_frames_count": face.get("matched_frames_count", 1),
+                "identity_consensus_ratio": face.get("identity_consensus_ratio", 1.0),
                 "quality_score": face.get("quality_score", 0.0),
                 "liveness_passed": liveness_passed,
+                "is_confirmed_live": face.get("is_confirmed_live", liveness_passed),
                 "spoof_detected": spoof_detected,
                 "spoof_type": spoof_type,
                 "frames_seen": frames_seen,
@@ -266,13 +275,77 @@ class ContinuousEntranceManager:
                     processed_faces.append(face_result)
                     continue
 
-                # 5. Multi-Frame Tracking Persistence (Prevents False Automatic Attendance)
-                # In live camera mode, require at least 2 frames of persistent track before punch
-                if not is_simulation and frames_seen < 2 and not is_punch_committed:
-                    face_result["action_status"] = "ACQUIRING_TRACK"
-                    face_result["message"] = f"Tracking {emp_info.get('full_name')} (Acquiring persistence {frames_seen}/2)..."
-                    processed_faces.append(face_result)
-                    continue
+                # 5. Multi-Frame Tracking Persistence & Identity Consensus (Prevents False Automatic Attendance)
+                enforce_persistence = (not is_simulation) or bool(frame_payload.get("enforce_persistence"))
+
+                if enforce_persistence and not is_punch_committed:
+                    min_persistence_frames = cfg.get(
+                        "min_persistence_frames",
+                        current_app.config.get("TRACK_MIN_PERSISTENCE_FRAMES", 3) if current_app else 3,
+                    )
+                    min_matched_frames = current_app.config.get("TRACK_MIN_MATCHED_FRAMES", 2) if current_app else 2
+                    min_duration_sec = current_app.config.get("TRACK_MIN_DURATION_SECONDS", 0.25) if current_app else 0.25
+                    match_thresh = current_app.config.get("RECOGNITION_MATCH_THRESHOLD", 0.35) if current_app else 0.35
+
+                    # Rule 5A: Target frame count persistence across the track
+                    if frames_seen < min_persistence_frames:
+                        face_result["action_status"] = "ACQUIRING_TRACK"
+                        face_result["message"] = (
+                            f"Tracking {emp_info.get('full_name')} "
+                            f"(Acquiring persistence {frames_seen}/{min_persistence_frames} frames)..."
+                        )
+                        processed_faces.append(face_result)
+                        continue
+
+                    # Rule 5B: Biometric match consistency across track (at least min_matched_frames)
+                    matched_count = face.get("matched_frames_count", 1)
+                    if matched_count < min_matched_frames:
+                        face_result["action_status"] = "ACQUIRING_TRACK"
+                        face_result["message"] = (
+                            f"Verifying biometric match for {emp_info.get('full_name')} "
+                            f"(Confirmed {matched_count}/{min_matched_frames} frames)..."
+                        )
+                        processed_faces.append(face_result)
+                        continue
+
+                    # Rule 5C: Identity consensus (prevent transient cross-identity switching)
+                    consensus_ratio = face.get("identity_consensus_ratio", 1.0)
+                    min_consensus_ratio = current_app.config.get("TRACK_IDENTITY_CONSENSUS_RATIO", 0.60) if current_app else 0.60
+                    if consensus_ratio < min_consensus_ratio:
+                        face_result["action_status"] = "UNCERTAIN_TRACK"
+                        face_result["message"] = (
+                            f"Identity conflict across track ({int(consensus_ratio*100)}% consensus). "
+                            "Please step forward individually."
+                        )
+                        processed_faces.append(face_result)
+                        continue
+
+                    # Rule 5D: Track average match score stability
+                    avg_score = face.get("average_match_score", score)
+                    if avg_score < match_thresh:
+                        face_result["action_status"] = "UNCERTAIN_TRACK"
+                        face_result["message"] = (
+                            f"Track average match score ({avg_score:.3f}) below threshold ({match_thresh:.3f})."
+                        )
+                        processed_faces.append(face_result)
+                        continue
+
+                    # Rule 5E: Track duration threshold
+                    track_duration = face.get("track_duration_sec", 0.0)
+                    if min_duration_sec > 0 and track_duration < min_duration_sec:
+                        face_result["action_status"] = "ACQUIRING_TRACK"
+                        face_result["message"] = (
+                            f"Confirming optical transit duration ({track_duration:.2f}s/{min_duration_sec:.2f}s)..."
+                        )
+                        processed_faces.append(face_result)
+                        continue
+
+                    # Rule 5F: Multi-frame Liveness / Anti-spoofing consensus
+                    if not face.get("is_confirmed_live", True):
+                        face_result["action_status"] = "SPOOF_BLOCKED"
+                        face_result["message"] = "Multi-frame liveness verification failed across trajectory."
+                        processed_faces.append(face_result)
+                        continue
 
                 # If this track already punched during this physical pass-through, prevent re-fire (live camera mode)
                 if not is_simulation and is_punch_committed:
@@ -565,6 +638,7 @@ class ContinuousEntranceManager:
             "gate_mode": cfg.get("gate_mode", "AUTO_DETECT"),
             "cooldown_sec": cfg.get("cooldown_sec", 20),
             "min_checkout_elapsed_mins": cfg.get("min_checkout_elapsed_mins", 15),
+            "min_persistence_frames": cfg.get("min_persistence_frames", 3),
             "today_total_passages": len(today_events),
             "today_checkins": check_ins,
             "today_checkouts": check_outs,

@@ -100,6 +100,12 @@ class Config:
     # Prevents accidental premature checkouts when an employee lingers or re-crosses the entrance area.
     MIN_AUTO_CHECKOUT_ELAPSED_MINUTES = int(os.environ.get("MIN_AUTO_CHECKOUT_ELAPSED_MINUTES", "15"))
 
+    # Continuous entrance multi-frame tracking persistence parameters (prevents false single-frame punches)
+    TRACK_MIN_PERSISTENCE_FRAMES = int(os.environ.get("TRACK_MIN_PERSISTENCE_FRAMES", "3"))
+    TRACK_MIN_DURATION_SECONDS = float(os.environ.get("TRACK_MIN_DURATION_SECONDS", "0.25"))
+    TRACK_IDENTITY_CONSENSUS_RATIO = float(os.environ.get("TRACK_IDENTITY_CONSENSUS_RATIO", "0.60"))
+    TRACK_MIN_MATCHED_FRAMES = int(os.environ.get("TRACK_MIN_MATCHED_FRAMES", "2"))
+
     # College metadata
     INSTITUTION_NAME = "Ethio-Italy Polytechnic College, Dire Dawa"
     SYSTEM_VERSION = "1.0.0-baseline"
@@ -119,6 +125,9 @@ class TestConfig(Config):
     # Tests replay events at fixed historical times (shift, overnight and 24h scenarios).
     ALLOW_CLIENT_EVENT_TIMESTAMPS = True
     SOCKETIO_MESSAGE_QUEUE = None
+    TRACK_MIN_PERSISTENCE_FRAMES = 2
+    TRACK_MIN_DURATION_SECONDS = 0.0
+    TRACK_MIN_MATCHED_FRAMES = 1
 
 
 class ProductionConfig(Config):

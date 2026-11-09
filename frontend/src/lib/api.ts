@@ -180,7 +180,7 @@ export interface ContinuousFaceResult {
     job_category?: string;
     status: string;
   } | null;
-  action_status: "CONFIRMED" | "COOLDOWN_ACTIVE" | "ALREADY_CHECKED_IN" | "NO_OPEN_SESSION" | "UNKNOWN_VISITOR" | "REJECTED" | "ACQUIRING_TRACK" | "ALREADY_PUNCHED_IN_PASSAGE" | "SPOOF_BLOCKED" | "STATIONARY_LINGER" | "CONSENT_BLOCKED" | string;
+  action_status: "CONFIRMED" | "COOLDOWN_ACTIVE" | "ALREADY_CHECKED_IN" | "NO_OPEN_SESSION" | "UNKNOWN_VISITOR" | "REJECTED" | "ACQUIRING_TRACK" | "UNCERTAIN_TRACK" | "ALREADY_PUNCHED_IN_PASSAGE" | "SPOOF_BLOCKED" | "STATIONARY_LINGER" | "CONSENT_BLOCKED" | string;
   attendance_action?: "CHECK_IN" | "CHECK_OUT" | null;
   session_id?: number | null;
   is_late?: boolean;
@@ -238,6 +238,7 @@ export interface GateStatusResponse {
   gate_mode: string;
   cooldown_sec: number;
   min_checkout_elapsed_mins?: number;
+  min_persistence_frames?: number;
   today_total_passages: number;
   today_checkins: number;
   today_checkouts: number;
@@ -741,6 +742,7 @@ export const api = {
     gate_mode: string;
     cooldown_sec?: number;
     min_checkout_elapsed_mins?: number;
+    min_persistence_frames?: number;
   }): Promise<any> {
     return request('/api/v2/entrance/gate-config', {
       method: 'POST',

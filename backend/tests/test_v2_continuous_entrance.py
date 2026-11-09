@@ -154,9 +154,12 @@ def test_v2_auto_detect_motion_direction_guards(app):
         station = AttendanceStation.query.filter_by(station_code="ST-GATE-01").first()
         manager = ContinuousEntranceManager.get_instance()
         manager._cooldown_cache.clear()
+        manager._trackers.clear()
+        manager.configure_gate(station.station_code, gate_mode="AUTO_DETECT", cooldown_sec=20)
 
         emp = Employee.query.filter_by(employee_number="EIPC-EMP-004").first()
         AttendanceSession.query.filter_by(employee_id=emp.id).delete()
+        AttendanceEvent.query.filter_by(employee_id=emp.id).delete()
         db.session.commit()
 
         # 1. Staff arrives and checks in
@@ -166,6 +169,7 @@ def test_v2_auto_detect_motion_direction_guards(app):
         assert res1["faces"][0]["attendance_action"] == "CHECK_IN"
 
         # Advance session past min elapsed duration
+        db.session.expire_all()
         sess = AttendanceSession.query.filter_by(employee_id=emp.id, status="OPEN").first()
         assert sess is not None
         sess.check_in_event.occurred_at = utc_now() - timedelta(minutes=60)
@@ -199,9 +203,12 @@ def test_v2_auto_detect_force_action_override(app):
         station = AttendanceStation.query.filter_by(station_code="ST-GATE-01").first()
         manager = ContinuousEntranceManager.get_instance()
         manager._cooldown_cache.clear()
+        manager._trackers.clear()
+        manager.configure_gate(station.station_code, gate_mode="AUTO_DETECT", cooldown_sec=20)
 
         emp = Employee.query.filter_by(employee_number="EIPC-EMP-005").first()
         AttendanceSession.query.filter_by(employee_id=emp.id).delete()
+        AttendanceEvent.query.filter_by(employee_id=emp.id).delete()
         db.session.commit()
 
         # 1. Staff checks in
@@ -210,8 +217,8 @@ def test_v2_auto_detect_force_action_override(app):
         assert res1["faces"][0]["action_status"] == "CONFIRMED"
         assert res1["faces"][0]["attendance_action"] == "CHECK_IN"
 
-        # 2. Cooldown expired (30s later), session is only 30s old, but user explicitly forces CHECK_OUT
-        manager._cooldown_cache[(station.station_code, emp.id)] = utc_now() - timedelta(seconds=30)
+        # 2. Cooldown expired (60s later), session is only 60s old (< 15 mins), but user explicitly forces CHECK_OUT
+        manager._cooldown_cache[(station.station_code, emp.id)] = utc_now() - timedelta(seconds=60)
         payload_force = {"simulated_staff": ["EIPC-EMP-005"], "force_action": "CHECK_OUT"}
         res_force = manager.process_frame(station, payload_force, override_gate_mode="AUTO_DETECT")
         assert res_force["faces"][0]["action_status"] == "CONFIRMED"
@@ -330,3 +337,90 @@ def test_v2_presentation_attack_rejection(app):
             override_gate_mode="IN",
         )
         assert res["station_code"] == "ST-GATE-01"
+
+
+def test_v2_tracking_persistence_prevents_single_frame_false_punch(app):
+    """Verify tracking persistence blocks single-frame false triggers and requires multi-frame track."""
+    with app.app_context():
+        station = AttendanceStation.query.filter_by(station_code="ST-GATE-01").first()
+        manager = ContinuousEntranceManager.get_instance()
+        manager._cooldown_cache.clear()
+        manager._trackers.clear()
+
+        emp = Employee.query.filter_by(employee_number="EIPC-EMP-004").first()
+        AttendanceSession.query.filter_by(employee_id=emp.id).delete()
+        AttendanceEvent.query.filter_by(employee_id=emp.id).delete()
+        db.session.commit()
+
+        manager.configure_gate(station.station_code, gate_mode="IN", min_persistence_frames=3)
+
+        payload = {
+            "simulated_staff": ["EIPC-EMP-004"],
+            "enforce_persistence": True,
+        }
+
+        # Frame 1: Track acquired (1/3 frames) -> ACQUIRING_TRACK, no attendance write
+        res1 = manager.process_frame(station, payload, override_gate_mode="IN")
+        assert res1["faces"][0]["action_status"] == "ACQUIRING_TRACK"
+        assert res1["faces"][0]["frames_seen"] == 1
+        assert AttendanceEvent.query.filter_by(employee_id=emp.id).count() == 0
+
+        # Frame 2: Track persistence accumulating (2/3 frames) -> ACQUIRING_TRACK, no write
+        res2 = manager.process_frame(station, payload, override_gate_mode="IN")
+        assert res2["faces"][0]["action_status"] == "ACQUIRING_TRACK"
+        assert res2["faces"][0]["frames_seen"] == 2
+        assert AttendanceEvent.query.filter_by(employee_id=emp.id).count() == 0
+
+        # Frame 3: Target persistence satisfied (3/3 frames) -> CONFIRMED, attendance event recorded!
+        res3 = manager.process_frame(station, payload, override_gate_mode="IN")
+        assert res3["faces"][0]["action_status"] == "CONFIRMED"
+        assert res3["faces"][0]["attendance_action"] == "CHECK_IN"
+        assert AttendanceEvent.query.filter_by(employee_id=emp.id).count() == 1
+
+
+def test_v2_tracking_identity_consensus_voting(app):
+    """Verify track identity consensus voting prevents a single glitch frame from firing a false punch."""
+    with app.app_context():
+        station = AttendanceStation.query.filter_by(station_code="ST-GATE-01").first()
+        manager = ContinuousEntranceManager.get_instance()
+        manager._cooldown_cache.clear()
+        manager._trackers.clear()
+
+        emp4 = Employee.query.filter_by(employee_number="EIPC-EMP-004").first()
+        emp5 = Employee.query.filter_by(employee_number="EIPC-EMP-005").first()
+        AttendanceSession.query.filter(AttendanceSession.employee_id.in_([emp4.id, emp5.id])).delete()
+        AttendanceEvent.query.filter(AttendanceEvent.employee_id.in_([emp4.id, emp5.id])).delete()
+        db.session.commit()
+
+        manager.configure_gate(station.station_code, gate_mode="IN", min_persistence_frames=3)
+
+        # Frame 1: EMP-004 detected
+        res1 = manager.process_frame(
+            station,
+            {"simulated_staff": ["EIPC-EMP-004"], "enforce_persistence": True},
+            override_gate_mode="IN",
+        )
+        assert res1["faces"][0]["action_status"] == "ACQUIRING_TRACK"
+
+        # Frame 2: EMP-004 confirmed
+        res2 = manager.process_frame(
+            station,
+            {"simulated_staff": ["EIPC-EMP-004"], "enforce_persistence": True},
+            override_gate_mode="IN",
+        )
+        assert res2["faces"][0]["action_status"] == "ACQUIRING_TRACK"
+
+        # Frame 3: Transient glitch frame matches EMP-005 instead of EMP-004
+        # Consensus identity for the track remains EMP-004 (2 out of 3 = 66.7%), so EMP-004 is confirmed!
+        res3 = manager.process_frame(
+            station,
+            {"simulated_staff": ["EIPC-EMP-005"], "enforce_persistence": True},
+            override_gate_mode="IN",
+        )
+        assert res3["faces"][0]["action_status"] == "CONFIRMED"
+        assert res3["faces"][0]["attendance_action"] == "CHECK_IN"
+        assert res3["faces"][0]["employee"]["employee_number"] == "EIPC-EMP-004"
+        # EMP-005 MUST NOT have an attendance event (prevented false punch)
+        assert AttendanceEvent.query.filter_by(employee_id=emp5.id).count() == 0
+        # EMP-004 MUST have the attendance event
+        assert AttendanceEvent.query.filter_by(employee_id=emp4.id).count() == 1

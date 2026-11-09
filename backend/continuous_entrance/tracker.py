@@ -5,6 +5,7 @@ optical trajectories (motion vectors), enforces multi-frame persistence,
 and protects against single-frame false attendance triggers.
 """
 from datetime import datetime, timezone
+from collections import Counter
 import math
 
 
@@ -39,7 +40,16 @@ def compute_centroid_distance(c1: tuple[float, float], c2: tuple[float, float]) 
 class TrackedFace:
     """Represents a persistent individual tracked across consecutive camera frames."""
 
-    def __init__(self, track_id: int, bbox: dict, score: float, timestamp: datetime):
+    def __init__(
+        self,
+        track_id: int,
+        bbox: dict,
+        score: float,
+        timestamp: datetime,
+        initial_emp: dict | None = None,
+        initial_match_score: float = 0.0,
+        initial_liveness: bool = True,
+    ):
         self.track_id = track_id
         self.bbox = bbox  # {x, y, w, h}
         self.centroid = (bbox["x"] + bbox["w"] / 2.0, bbox["y"] + bbox["h"] / 2.0)
@@ -53,10 +63,19 @@ class TrackedFace:
         # Trajectory history: list of (timestamp, centroid, area)
         self.history = [(timestamp, self.centroid, self.area)]
 
-        # Identity accumulation
-        self.candidate_employee = None
-        self.match_scores = []
-        self.liveness_history = []
+        # Multi-frame identity accumulation and consensus voting
+        self.candidate_employee = initial_emp
+        self.identity_history: list[int | None] = []
+        self.identity_details: dict[int, dict] = {}
+        if initial_emp and initial_emp.get("id"):
+            eid = int(initial_emp["id"])
+            self.identity_history.append(eid)
+            self.identity_details[eid] = initial_emp
+        else:
+            self.identity_history.append(None)
+
+        self.match_scores: list[float] = [initial_match_score] if initial_match_score > 0 else []
+        self.liveness_history: list[bool] = [initial_liveness]
 
         # Attendance authorization state
         self.is_punch_committed = False
@@ -66,7 +85,15 @@ class TrackedFace:
         # Trajectory vector
         self.motion_direction = "APPROACHING"  # APPROACHING, RECEDING, STATIONARY
 
-    def update(self, bbox: dict, score: float, timestamp: datetime, candidate_emp: dict | None, match_score: float, liveness: bool):
+    def update(
+        self,
+        bbox: dict,
+        score: float,
+        timestamp: datetime,
+        candidate_emp: dict | None,
+        match_score: float,
+        liveness: bool,
+    ):
         """Update track with new detection in the current frame."""
         self.bbox = bbox
         new_centroid = (bbox["x"] + bbox["w"] / 2.0, bbox["y"] + bbox["h"] / 2.0)
@@ -98,16 +125,67 @@ class TrackedFace:
         if len(self.history) > 15:
             self.history.pop(0)
 
-        if candidate_emp:
+        # Accumulate identity history
+        if candidate_emp and candidate_emp.get("id"):
+            emp_id = int(candidate_emp["id"])
+            self.identity_history.append(emp_id)
+            self.identity_details[emp_id] = candidate_emp
+        else:
+            self.identity_history.append(None)
+
+        if len(self.identity_history) > 15:
+            self.identity_history.pop(0)
+
+        # Determine consensus employee identity
+        consensus = self.consensus_employee
+        if consensus:
+            self.candidate_employee = consensus
+        elif candidate_emp:
             self.candidate_employee = candidate_emp
+
         if match_score > 0:
             self.match_scores.append(match_score)
-            if len(self.match_scores) > 10:
+            if len(self.match_scores) > 15:
                 self.match_scores.pop(0)
 
         self.liveness_history.append(liveness)
-        if len(self.liveness_history) > 10:
+        if len(self.liveness_history) > 15:
             self.liveness_history.pop(0)
+
+    @property
+    def consensus_employee_id(self) -> int | None:
+        """Return the employee ID with the highest consensus in the track history."""
+        valid_ids = [eid for eid in self.identity_history if eid is not None]
+        if not valid_ids:
+            return None
+        counts = Counter(valid_ids)
+        most_common_id, count = counts.most_common(1)[0]
+        if (count / len(valid_ids)) >= 0.50:
+            return most_common_id
+        return None
+
+    @property
+    def consensus_employee(self) -> dict | None:
+        """Return the employee dictionary for the consensus employee ID."""
+        cid = self.consensus_employee_id
+        if cid and cid in self.identity_details:
+            return self.identity_details[cid]
+        return self.candidate_employee
+
+    @property
+    def identity_consensus_ratio(self) -> float:
+        """Fraction of matched frames that agree on the consensus identity."""
+        valid_ids = [eid for eid in self.identity_history if eid is not None]
+        if not valid_ids:
+            return 0.0
+        counts = Counter(valid_ids)
+        _, count = counts.most_common(1)[0]
+        return count / len(valid_ids)
+
+    @property
+    def matched_frames_count(self) -> int:
+        """Total number of frames where a valid employee was matched."""
+        return sum(1 for eid in self.identity_history if eid is not None)
 
     @property
     def average_match_score(self) -> float:
@@ -133,10 +211,17 @@ class ContinuousMultiFaceTracker:
     Performs spatial association between incoming detections and existing active tracks.
     """
 
-    def __init__(self, station_code: str, max_age_seconds: float = 5.0, min_iou: float = 0.20):
+    def __init__(
+        self,
+        station_code: str,
+        max_age_seconds: float = 5.0,
+        min_iou: float = 0.20,
+        max_consecutive_misses: int = 5,
+    ):
         self.station_code = station_code
         self.max_age_seconds = max_age_seconds
         self.min_iou = min_iou
+        self.max_consecutive_misses = max_consecutive_misses
         self._next_track_id = 1
         self.active_tracks: dict[int, TrackedFace] = {}
 
@@ -145,12 +230,13 @@ class ContinuousMultiFaceTracker:
         Associate frame detections with active tracks.
         detections format:
           [{ 'bounding_box': {x, y, w, h}, 'score': float, 'employee': dict, 'recognition_score': float, 'liveness_passed': bool, ... }]
-        Returns enriched detections with persistent track_id, frames_seen, and trajectory.
+        Returns enriched detections with persistent track_id, frames_seen, trajectory, and consensus identity.
         """
-        # Purge stale tracks older than max_age_seconds
+        # Purge stale tracks older than max_age_seconds or missing for too many consecutive frames
         to_purge = [
             tid for tid, track in self.active_tracks.items()
             if (timestamp - track.last_seen).total_seconds() > self.max_age_seconds
+            or track.consecutive_misses > self.max_consecutive_misses
         ]
         for tid in to_purge:
             del self.active_tracks[tid]
@@ -188,7 +274,11 @@ class ContinuousMultiFaceTracker:
                 unmatched_tracks.remove(best_track_id)
                 unmatched_detections.remove(d_idx)
 
-        # 2. Update matched tracks
+        # 2. Increment misses on active tracks not detected in this frame
+        for tid in unmatched_tracks:
+            self.active_tracks[tid].consecutive_misses += 1
+
+        # 3. Update matched tracks
         for tid, d_idx in matches:
             det = detections[d_idx]
             track = self.active_tracks[tid]
@@ -202,15 +292,21 @@ class ContinuousMultiFaceTracker:
             )
             if "motion_direction" in det:
                 track.motion_direction = det["motion_direction"]
-            # Enrich detection with persistent tracking state
+
+            # Enrich detection with persistent tracking state and consensus identity
             det["track_id"] = track.track_id
             det["frames_seen"] = track.frames_seen
             det["track_duration_sec"] = round(track.track_duration_seconds, 2)
             det["motion_direction"] = track.motion_direction
             det["is_punch_committed"] = track.is_punch_committed
             det["average_match_score"] = round(track.average_match_score, 4)
+            det["matched_frames_count"] = track.matched_frames_count
+            det["identity_consensus_ratio"] = round(track.identity_consensus_ratio, 3)
+            det["is_confirmed_live"] = track.is_confirmed_live
+            if track.consensus_employee:
+                det["employee"] = track.consensus_employee
 
-        # 3. Create new tracks for unmatched detections
+        # 4. Create new tracks for unmatched detections
         for d_idx in unmatched_detections:
             det = detections[d_idx]
             tid = self._next_track_id
@@ -220,14 +316,12 @@ class ContinuousMultiFaceTracker:
                 bbox=det.get("bounding_box", {}),
                 score=det.get("quality_score", 0.8),
                 timestamp=timestamp,
+                initial_emp=det.get("employee"),
+                initial_match_score=det.get("recognition_score", 0.0),
+                initial_liveness=det.get("liveness_passed", True),
             )
             if "motion_direction" in det:
                 new_track.motion_direction = det["motion_direction"]
-            if det.get("employee"):
-                new_track.candidate_employee = det["employee"]
-            if det.get("recognition_score", 0) > 0:
-                new_track.match_scores.append(det["recognition_score"])
-            new_track.liveness_history.append(det.get("liveness_passed", True))
 
             self.active_tracks[tid] = new_track
             det["track_id"] = tid
@@ -236,6 +330,9 @@ class ContinuousMultiFaceTracker:
             det["motion_direction"] = new_track.motion_direction
             det["is_punch_committed"] = False
             det["average_match_score"] = round(det.get("recognition_score", 0.0), 4)
+            det["matched_frames_count"] = new_track.matched_frames_count
+            det["identity_consensus_ratio"] = round(new_track.identity_consensus_ratio, 3)
+            det["is_confirmed_live"] = new_track.is_confirmed_live
 
         return detections
 
