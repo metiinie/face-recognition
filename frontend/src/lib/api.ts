@@ -245,6 +245,100 @@ export interface GateStatusResponse {
   recent_passages: GatePassageRecord[];
 }
 
+export interface MultiFaceBenchmarkResponse {
+  hardware: {
+    cpu_count: number;
+    platform: string;
+    processor: string;
+    ram_gb: number;
+  };
+  samples_per_scenario: number;
+  enrolled_templates: number;
+  frame_resolution: string;
+  concurrency_results: Record<
+    number,
+    {
+      faces_requested: number;
+      faces_detected: number;
+      fps: number;
+      e2e_latency: { mean: number; p50: number; p95: number };
+      decode_ms: number;
+      detect_ms: number;
+      align_ms: number;
+      liveness_ms: number;
+      sface_ms: number;
+      vector_search_ms: number;
+      linear_search_ms: number;
+      search_speedup: number;
+      usable: boolean;
+    }
+  >;
+}
+
+export interface KeyRotationResponse {
+  status: "SUCCESS" | "ERROR";
+  rotated_count: number;
+  total_templates: number;
+}
+
+export interface BackupRecord {
+  archive_name: string;
+  archive_path: string;
+  checksum_path: string;
+  size_bytes: number;
+  size_human: string;
+  created_at: string;
+  has_valid_checksum: boolean;
+  checksum_sha256: string;
+}
+
+export interface BackupListResponse {
+  backups: BackupRecord[];
+  count: number;
+}
+
+export interface BackupCreationResponse {
+  status: string;
+  archive_name: string;
+  archive_path: string;
+  checksum_path: string;
+  sha256: string;
+  size_bytes: number;
+  tables_included: string[];
+}
+
+export interface BackupVerificationResponse {
+  valid: boolean;
+  archive_name: string;
+  calculated_sha256: string;
+  expected_sha256: string;
+  checksum_matched: boolean;
+  decompressed_size_bytes: number;
+  tables_found: string[];
+  tables_missing: string[];
+  error?: string;
+}
+
+export interface BackupRestoreResponse {
+  status: string;
+  archive_name: string;
+  records_restored: Record<string, number>;
+  total_records_restored: number;
+  relational_integrity: {
+    foreign_keys_valid: boolean;
+    broken_constraints: any[];
+  };
+}
+
+export interface BackupPruneResponse {
+  status: string;
+  retention_days: number;
+  keep_minimum: number;
+  pruned_count: number;
+  pruned_archives: string[];
+  remaining_count: number;
+}
+
 export interface RecognitionResult {
   matched: boolean;
   status: "MATCH_CONFIRMED" | "UNCERTAIN_MATCH" | "UNKNOWN_FACE" | "REJECTED" | "CONSENT_NOT_VERIFIED";
@@ -758,6 +852,62 @@ export const api = {
     return request('/api/v2/entrance/simulate', {
       method: 'POST',
       body: JSON.stringify(payload),
+    });
+  },
+
+  async runMultiFaceBenchmark(payload?: {
+    face_counts?: number[];
+    num_samples?: number;
+    num_enrolled?: number;
+  }): Promise<MultiFaceBenchmarkResponse> {
+    return request('/api/v2/entrance/benchmark', {
+      method: 'POST',
+      body: JSON.stringify(payload || {}),
+    });
+  },
+
+  async rotateBiometricKeys(payload?: {
+    new_secret?: string;
+    old_secrets?: string[];
+  }): Promise<KeyRotationResponse> {
+    return request('/api/v2/security/rotate-biometric-keys', {
+      method: 'POST',
+      body: JSON.stringify(payload || {}),
+    });
+  },
+
+  async listBackups(): Promise<BackupListResponse> {
+    return request('/api/v2/admin/backups');
+  },
+
+  async createBackup(payload?: { label?: string }): Promise<BackupCreationResponse> {
+    return request('/api/v2/admin/backups/create', {
+      method: 'POST',
+      body: JSON.stringify(payload || {}),
+    });
+  },
+
+  async verifyBackup(filename: string): Promise<BackupVerificationResponse> {
+    return request('/api/v2/admin/backups/verify', {
+      method: 'POST',
+      body: JSON.stringify({ filename }),
+    });
+  },
+
+  async restoreBackup(filename: string): Promise<BackupRestoreResponse> {
+    return request('/api/v2/admin/backups/restore', {
+      method: 'POST',
+      body: JSON.stringify({ filename }),
+    });
+  },
+
+  async pruneBackups(payload?: {
+    retention_days?: number;
+    keep_minimum?: number;
+  }): Promise<BackupPruneResponse> {
+    return request('/api/v2/admin/backups/prune', {
+      method: 'POST',
+      body: JSON.stringify(payload || {}),
     });
   },
 };

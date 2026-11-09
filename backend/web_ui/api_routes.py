@@ -1755,6 +1755,31 @@ def api_v2_entrance_simulate():
     return jsonify(res), 200
 
 
+@api_bp.route("/v2/entrance/benchmark", methods=["POST"])
+@admin_required
+def api_v2_gate_benchmark():
+    """
+    Execute on-demand multi-face gate acceleration benchmark across concurrent face counts.
+    Returns hardware specs, stage latencies (decode, detect, align, liveness, sface, BLAS search),
+    and gate usability determination.
+    """
+    data = request.get_json(silent=True) or {}
+    face_counts = data.get("face_counts", [1, 2, 3])
+    num_samples = min(10, max(1, data.get("num_samples", 3)))
+    num_enrolled = min(100, max(5, data.get("num_enrolled", 20)))
+
+    try:
+        from backend.face_engine.benchmark import run_multi_face_benchmark
+        results = run_multi_face_benchmark(
+            face_counts=face_counts,
+            num_samples=num_samples,
+            num_enrolled=num_enrolled,
+        )
+        return jsonify(results), 200
+    except Exception as e:
+        return jsonify({"error": str(e), "status": "ERROR"}), 500
+
+
 @api_bp.route("/v2/security/rotate-biometric-keys", methods=["POST"])
 @admin_required
 def api_v2_rotate_biometric_keys():
