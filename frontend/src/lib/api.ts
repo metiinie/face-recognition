@@ -237,6 +237,7 @@ export interface GateStatusResponse {
   camera_status: string;
   gate_mode: string;
   cooldown_sec: number;
+  min_checkout_elapsed_mins?: number;
   today_total_passages: number;
   today_checkins: number;
   today_checkouts: number;
@@ -739,6 +740,7 @@ export const api = {
     station_code: string;
     gate_mode: string;
     cooldown_sec?: number;
+    min_checkout_elapsed_mins?: number;
   }): Promise<any> {
     return request('/api/v2/entrance/gate-config', {
       method: 'POST',

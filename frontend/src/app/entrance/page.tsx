@@ -537,7 +537,9 @@ export default function ContinuousEntrancePage() {
       });
       setSimMessage({
         type: "success",
-        text: `Gate mode switched to ${mode}. Directional punches will apply automatically.`,
+        text: mode === "AUTO_DETECT"
+          ? "Gate mode set to Auto-Detect with accidental checkout protection (15m debounce)."
+          : `Gate mode switched to ${mode}. Directional punches will apply automatically.`,
       });
     } catch (err: any) {
       console.error("Failed to update gate mode:", err);

@@ -1710,9 +1710,15 @@ def api_v2_entrance_config():
     st_code = data.get("station_code", "ST-GATE-01")
     gate_mode = data.get("gate_mode", "AUTO_DETECT")
     cooldown = data.get("cooldown_sec", 20)
+    min_elapsed = data.get("min_checkout_elapsed_mins", 15)
 
     manager = ContinuousEntranceManager.get_instance()
-    cfg = manager.configure_gate(st_code, gate_mode=gate_mode, cooldown_sec=cooldown)
+    cfg = manager.configure_gate(
+        st_code,
+        gate_mode=gate_mode,
+        cooldown_sec=cooldown,
+        min_checkout_elapsed_mins=min_elapsed,
+    )
     return jsonify({
         "station_code": st_code,
         "configured": True,

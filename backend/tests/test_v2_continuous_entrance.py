@@ -127,13 +127,95 @@ def test_v2_continuous_gate_checkin_and_cooldown(app):
         assert face_immediate["action_status"] == "COOLDOWN_ACTIVE"
         assert "Cooldown active" in face_immediate["message"]
 
-        # 3. Simulate advance past cooldown (e.g. 25 seconds later)
+        # 3. Simulate advance past cooldown (e.g. 30 seconds later)
+        # AUTO_DETECT mode MUST prevent premature/accidental checkout because session is active < 15 mins
         manager._cooldown_cache[(station.station_code, emp.id)] = utc_now() - timedelta(seconds=30)
-        # Auto-detect should now recognize that employee has an OPEN session and perform CHECK_OUT
+        frame_res_accidental = manager.process_frame(station, payload, override_gate_mode="AUTO_DETECT")
+        face_accidental = frame_res_accidental["faces"][0]
+        assert face_accidental["action_status"] == "ALREADY_CHECKED_IN"
+        assert "Premature auto-checkout blocked" in face_accidental["message"]
+
+        # 4. Advance session check-in timestamp past MIN_AUTO_CHECKOUT_ELAPSED_MINUTES (e.g. 20 minutes active)
+        sess = AttendanceSession.query.filter_by(employee_id=emp.id, status="OPEN").first()
+        sess.check_in_event.occurred_at = utc_now() - timedelta(minutes=20)
+        sess.created_at = utc_now() - timedelta(minutes=20)
+        db.session.commit()
+
+        # Legitimate departure: auto-detect should now recognize shift elapsed time and confirm CHECK_OUT
         frame_res_checkout = manager.process_frame(station, payload, override_gate_mode="AUTO_DETECT")
         face_checkout = frame_res_checkout["faces"][0]
         assert face_checkout["action_status"] == "CONFIRMED"
         assert face_checkout["attendance_action"] == "CHECK_OUT"
+
+
+def test_v2_auto_detect_motion_direction_guards(app):
+    """Verify trajectory direction guards in AUTO_DETECT prevent checkout on approach or linger."""
+    with app.app_context():
+        station = AttendanceStation.query.filter_by(station_code="ST-GATE-01").first()
+        manager = ContinuousEntranceManager.get_instance()
+        manager._cooldown_cache.clear()
+
+        emp = Employee.query.filter_by(employee_number="EIPC-EMP-004").first()
+        AttendanceSession.query.filter_by(employee_id=emp.id).delete()
+        db.session.commit()
+
+        # 1. Staff arrives and checks in
+        payload_in = {"simulated_staff": ["EIPC-EMP-004"], "motion_direction": "APPROACHING"}
+        res1 = manager.process_frame(station, payload_in, override_gate_mode="AUTO_DETECT")
+        assert res1["faces"][0]["action_status"] == "CONFIRMED"
+        assert res1["faces"][0]["attendance_action"] == "CHECK_IN"
+
+        # Advance session past min elapsed duration
+        sess = AttendanceSession.query.filter_by(employee_id=emp.id, status="OPEN").first()
+        assert sess is not None
+        sess.check_in_event.occurred_at = utc_now() - timedelta(minutes=60)
+        sess.created_at = utc_now() - timedelta(minutes=60)
+        db.session.commit()
+        manager._cooldown_cache[(station.station_code, emp.id)] = utc_now() - timedelta(seconds=60)
+
+        # 2. Staff is approaching gate (returning from outside / entering) -> AUTO_DETECT holds checkout
+        payload_approach = {"simulated_staff": ["EIPC-EMP-004"], "motion_direction": "APPROACHING"}
+        res_approach = manager.process_frame(station, payload_approach, override_gate_mode="AUTO_DETECT")
+        assert res_approach["faces"][0]["action_status"] == "ALREADY_CHECKED_IN"
+        assert "withheld for entry trajectory" in res_approach["faces"][0]["message"]
+
+        # 3. Staff is stationary (lingering) -> AUTO_DETECT holds checkout
+        manager._cooldown_cache[(station.station_code, emp.id)] = utc_now() - timedelta(seconds=60)
+        payload_stationary = {"simulated_staff": ["EIPC-EMP-004"], "motion_direction": "STATIONARY"}
+        res_stationary = manager.process_frame(station, payload_stationary, override_gate_mode="AUTO_DETECT")
+        assert res_stationary["faces"][0]["action_status"] == "STATIONARY_LINGER"
+
+        # 4. Staff is receding (departing campus) -> AUTO_DETECT confirms CHECK_OUT
+        manager._cooldown_cache[(station.station_code, emp.id)] = utc_now() - timedelta(seconds=60)
+        payload_receding = {"simulated_staff": ["EIPC-EMP-004"], "motion_direction": "RECEDING"}
+        res_receding = manager.process_frame(station, payload_receding, override_gate_mode="AUTO_DETECT")
+        assert res_receding["faces"][0]["action_status"] == "CONFIRMED"
+        assert res_receding["faces"][0]["attendance_action"] == "CHECK_OUT"
+
+
+def test_v2_auto_detect_force_action_override(app):
+    """Verify force_action allows immediate check-out even when session is very fresh."""
+    with app.app_context():
+        station = AttendanceStation.query.filter_by(station_code="ST-GATE-01").first()
+        manager = ContinuousEntranceManager.get_instance()
+        manager._cooldown_cache.clear()
+
+        emp = Employee.query.filter_by(employee_number="EIPC-EMP-005").first()
+        AttendanceSession.query.filter_by(employee_id=emp.id).delete()
+        db.session.commit()
+
+        # 1. Staff checks in
+        payload = {"simulated_staff": ["EIPC-EMP-005"]}
+        res1 = manager.process_frame(station, payload, override_gate_mode="AUTO_DETECT")
+        assert res1["faces"][0]["action_status"] == "CONFIRMED"
+        assert res1["faces"][0]["attendance_action"] == "CHECK_IN"
+
+        # 2. Cooldown expired (30s later), session is only 30s old, but user explicitly forces CHECK_OUT
+        manager._cooldown_cache[(station.station_code, emp.id)] = utc_now() - timedelta(seconds=30)
+        payload_force = {"simulated_staff": ["EIPC-EMP-005"], "force_action": "CHECK_OUT"}
+        res_force = manager.process_frame(station, payload_force, override_gate_mode="AUTO_DETECT")
+        assert res_force["faces"][0]["action_status"] == "CONFIRMED"
+        assert res_force["faces"][0]["attendance_action"] == "CHECK_OUT"
 
 
 def test_v2_gate_api_endpoints(client, app):

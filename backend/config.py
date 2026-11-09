@@ -96,6 +96,10 @@ class Config:
     # Duplicate event / rapid scan cooldown window in seconds (AT-11, AT-12)
     DUPLICATE_EVENT_COOLDOWN_SECONDS = int(os.environ.get("DUPLICATE_EVENT_COOLDOWN_SECONDS", "60"))
 
+    # Minimum elapsed session duration in minutes before AUTO_DETECT mode permits automated CHECK_OUT.
+    # Prevents accidental premature checkouts when an employee lingers or re-crosses the entrance area.
+    MIN_AUTO_CHECKOUT_ELAPSED_MINUTES = int(os.environ.get("MIN_AUTO_CHECKOUT_ELAPSED_MINUTES", "15"))
+
     # College metadata
     INSTITUTION_NAME = "Ethio-Italy Polytechnic College, Dire Dawa"
     SYSTEM_VERSION = "1.0.0-baseline"

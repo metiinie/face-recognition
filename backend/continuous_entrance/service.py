@@ -85,14 +85,25 @@ class ContinuousEntranceManager:
         if code not in self._gate_configs:
             # Default dedicated lane if code ends with -IN or -OUT
             default_mode = "IN" if code.endswith("-IN") else ("OUT" if code.endswith("-OUT") else "AUTO_DETECT")
+            try:
+                min_mins = current_app.config.get("MIN_AUTO_CHECKOUT_ELAPSED_MINUTES", 15)
+            except Exception:
+                min_mins = 15
             self._gate_configs[code] = {
                 "gate_mode": default_mode,  # "IN", "OUT", "AUTO_DETECT", "BIDIRECTIONAL"
                 "cooldown_sec": 20,
+                "min_checkout_elapsed_mins": min_mins,
             }
         return self._gate_configs[code]
 
-    def configure_gate(self, station_code: str, gate_mode: str, cooldown_sec: int = 20) -> dict:
-        """Update gate direction and cooldown settings."""
+    def configure_gate(
+        self,
+        station_code: str,
+        gate_mode: str,
+        cooldown_sec: int = 20,
+        min_checkout_elapsed_mins: int = 15,
+    ) -> dict:
+        """Update gate direction, cooldown settings, and minimum checkout elapsed duration."""
         code = (station_code or "").upper().strip()
         mode = gate_mode.upper().strip()
         if mode not in {"IN", "OUT", "AUTO_DETECT", "BIDIRECTIONAL"}:
@@ -100,6 +111,7 @@ class ContinuousEntranceManager:
         cfg = {
             "gate_mode": mode,
             "cooldown_sec": max(5, min(300, int(cooldown_sec))),
+            "min_checkout_elapsed_mins": max(1, min(180, int(min_checkout_elapsed_mins))),
         }
         self._gate_configs[code] = cfg
         return cfg
@@ -138,6 +150,12 @@ class ContinuousEntranceManager:
         # 1. Multi-face recognition engine (UltraFace ONNX + SFace neural embedding)
         multi_rec = recognize_multi_face_frame(frame_payload, decrypt_fn=decrypt_embedding)
         raw_faces = multi_rec.get("faces", [])
+
+        # Propagate motion_direction if specified in frame_payload (e.g. simulation or test override)
+        motion_override = frame_payload.get("motion_direction")
+        if motion_override:
+            for rf in raw_faces:
+                rf["motion_direction"] = motion_override
 
         # 2. Multi-face persistent tracking (Centroid + IoU MOT)
         tracker = self.get_tracker(station.station_code)
@@ -295,15 +313,99 @@ class ContinuousEntranceManager:
                             processed_faces.append(face_result)
                             continue
                         elif motion_dir == "RECEDING":
+                            if not open_sess:
+                                face_result["action_status"] = "NO_OPEN_SESSION"
+                                face_result["attendance_action"] = "CHECK_OUT"
+                                face_result["message"] = f"No open check-in session found for {emp_info.get('full_name')}."
+                                processed_faces.append(face_result)
+                                continue
                             action = "CHECK_OUT"
                         else:  # APPROACHING
+                            if open_sess:
+                                face_result["action_status"] = "ALREADY_CHECKED_IN"
+                                face_result["attendance_action"] = "CHECK_IN"
+                                face_result["message"] = f"{emp_info.get('full_name')} already has an open check-in session."
+                                processed_faces.append(face_result)
+                                continue
                             action = "CHECK_IN"
                     else:
                         action = "CHECK_OUT" if open_sess else "CHECK_IN"
 
                 else:
-                    # AUTO_DETECT mode: infer CHECK_IN vs CHECK_OUT from open attendance session
-                    action = "CHECK_OUT" if open_sess else "CHECK_IN"
+                    # AUTO_DETECT mode: intelligently disambiguate CHECK_IN vs CHECK_OUT
+                    # and actively protect against accidental checkout
+                    if not open_sess:
+                        # No active attendance session: passage indicates campus arrival (CHECK_IN)
+                        has_motion_signal = (not is_simulation) or ("motion_direction" in frame_payload)
+                        if has_motion_signal and motion_dir == "STATIONARY":
+                            face_result["action_status"] = "STATIONARY_LINGER"
+                            face_result["message"] = f"{emp_info.get('full_name')} is stationary near gate. Step forward to register check-in."
+                            processed_faces.append(face_result)
+                            continue
+                        action = "CHECK_IN"
+                    else:
+                        # Open attendance session exists. Evaluate guards before allowing automated CHECK_OUT:
+                        is_forced_checkout = (
+                            frame_payload.get("force_action") == "CHECK_OUT"
+                            or frame_payload.get("intent") == "CHECK_OUT"
+                        )
+
+                        if not is_forced_checkout:
+                            # Guard 1: Enforce minimum active session duration to prevent rapid flip-flop checkout
+                            check_in_time = (
+                                open_sess.check_in_event.occurred_at
+                                if (open_sess.check_in_event and open_sess.check_in_event.occurred_at)
+                                else open_sess.created_at
+                            )
+                            if check_in_time:
+                                if check_in_time.tzinfo is not None:
+                                    check_in_time = check_in_time.replace(tzinfo=None)
+                                now_naive = now.replace(tzinfo=None) if now.tzinfo is not None else now
+                                elapsed_sec = (now_naive - check_in_time).total_seconds()
+                            else:
+                                elapsed_sec = 0
+
+                            min_checkout_elapsed_mins = cfg.get(
+                                "min_checkout_elapsed_mins",
+                                current_app.config.get("MIN_AUTO_CHECKOUT_ELAPSED_MINUTES", 15) if current_app else 15
+                            )
+                            min_checkout_elapsed_sec = min_checkout_elapsed_mins * 60
+
+                            if elapsed_sec < min_checkout_elapsed_sec:
+                                face_result["action_status"] = "ALREADY_CHECKED_IN"
+                                face_result["attendance_action"] = "CHECK_IN"
+                                elapsed_mins_display = max(1, int(elapsed_sec // 60))
+                                face_result["message"] = (
+                                    f"{emp_info.get('full_name')} is currently checked in "
+                                    f"(session active {elapsed_mins_display}m). "
+                                    "Premature auto-checkout blocked to prevent accidental departure."
+                                )
+                                processed_faces.append(face_result)
+                                continue
+
+                            # Guard 2: Motion trajectory validation
+                            has_motion_signal = (not is_simulation) or ("motion_direction" in frame_payload)
+                            if has_motion_signal:
+                                if motion_dir == "STATIONARY":
+                                    face_result["action_status"] = "STATIONARY_LINGER"
+                                    face_result["message"] = (
+                                        f"{emp_info.get('full_name')} is stationary near gate. "
+                                        "Step forward to register departure."
+                                    )
+                                    processed_faces.append(face_result)
+                                    continue
+                                elif motion_dir == "APPROACHING":
+                                    face_result["action_status"] = "ALREADY_CHECKED_IN"
+                                    face_result["attendance_action"] = "CHECK_IN"
+                                    face_result["message"] = (
+                                        f"{emp_info.get('full_name')} is approaching gate with active session. "
+                                        "Auto-checkout withheld for entry trajectory."
+                                    )
+                                    processed_faces.append(face_result)
+                                    continue
+
+                        # All guards passed or forced checkout: authorize automated departure
+                        action = "CHECK_OUT"
 
                 # 7. Atomic Attendance Event Recording
                 result, err_code, err_msg = confirm_attendance_action(
@@ -462,6 +564,7 @@ class ContinuousEntranceManager:
             "last_heartbeat": station.last_heartbeat.isoformat() if station.last_heartbeat else None,
             "gate_mode": cfg.get("gate_mode", "AUTO_DETECT"),
             "cooldown_sec": cfg.get("cooldown_sec", 20),
+            "min_checkout_elapsed_mins": cfg.get("min_checkout_elapsed_mins", 15),
             "today_total_passages": len(today_events),
             "today_checkins": check_ins,
             "today_checkouts": check_outs,

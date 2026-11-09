@@ -200,6 +200,8 @@ class ContinuousMultiFaceTracker:
                 match_score=det.get("recognition_score", 0.0),
                 liveness=det.get("liveness_passed", True),
             )
+            if "motion_direction" in det:
+                track.motion_direction = det["motion_direction"]
             # Enrich detection with persistent tracking state
             det["track_id"] = track.track_id
             det["frames_seen"] = track.frames_seen
@@ -219,6 +221,8 @@ class ContinuousMultiFaceTracker:
                 score=det.get("quality_score", 0.8),
                 timestamp=timestamp,
             )
+            if "motion_direction" in det:
+                new_track.motion_direction = det["motion_direction"]
             if det.get("employee"):
                 new_track.candidate_employee = det["employee"]
             if det.get("recognition_score", 0) > 0:
@@ -229,7 +233,7 @@ class ContinuousMultiFaceTracker:
             det["track_id"] = tid
             det["frames_seen"] = 1
             det["track_duration_sec"] = 0.0
-            det["motion_direction"] = "APPROACHING"
+            det["motion_direction"] = new_track.motion_direction
             det["is_punch_committed"] = False
             det["average_match_score"] = round(det.get("recognition_score", 0.0), 4)
 
