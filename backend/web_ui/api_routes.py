@@ -2,6 +2,7 @@
 JSON REST API endpoints for Station Kiosks, HR Management, Scheduling, Reporting,
 Security/RBAC enforcement, and Automated Acceptance Tests (AT-01 through AT-26).
 """
+import os
 from datetime import datetime, date
 from flask import Blueprint, request, jsonify, Response, current_app
 from backend.database import db, transactional_session
@@ -1752,3 +1753,123 @@ def api_v2_entrance_simulate():
     manager = ContinuousEntranceManager.get_instance()
     res = manager.process_frame(station, payload, override_gate_mode=gate_mode)
     return jsonify(res), 200
+
+
+@api_bp.route("/v2/security/rotate-biometric-keys", methods=["POST"])
+@admin_required
+def api_v2_rotate_biometric_keys():
+    """
+    Administrator endpoint to rotate encryption keys for all stored face templates in DB.
+    Re-encrypts all templates in place, logs an immutable audit event, and invalidates in-memory vector cache.
+    """
+    data = request.get_json(silent=True) or {}
+    new_secret = data.get("new_secret")
+    old_secrets = data.get("old_secrets")
+    actor = get_current_user()
+    actor_username = actor.username if actor else "ADMIN"
+
+    try:
+        from backend.face_enrollment.service import rotate_biometric_encryption_keys
+        result = rotate_biometric_encryption_keys(
+            new_secret=new_secret,
+            old_secrets=old_secrets,
+            actor=actor_username,
+        )
+        return jsonify(result), 200
+    except ValueError as ve:
+        return jsonify({"error": str(ve), "status": "ERROR"}), 400
+    except Exception as e:
+        return jsonify({"error": str(e), "status": "ERROR"}), 500
+
+
+@api_bp.route("/v2/admin/backups/create", methods=["POST"])
+@admin_required
+def api_v2_create_backup():
+    """Trigger on-demand consistent database backup snapshot with SHA-256 checksum."""
+    data = request.get_json(silent=True) or {}
+    label = data.get("label", "manual")
+    actor = get_current_user()
+    actor_username = actor.username if actor else "ADMIN"
+
+    try:
+        from backend.database.backup_service import ProductionBackupManager
+        result = ProductionBackupManager.create_backup(label=label, actor=actor_username)
+        return jsonify(result), 200
+    except Exception as e:
+        return jsonify({"error": str(e), "status": "ERROR"}), 500
+
+
+@api_bp.route("/v2/admin/backups", methods=["GET"])
+@admin_required
+def api_v2_list_backups():
+    """List available database backups with file sizes, timestamps, and checksums."""
+    try:
+        from backend.database.backup_service import ProductionBackupManager
+        backups = ProductionBackupManager.list_backups()
+        return jsonify({"backups": backups, "count": len(backups)}), 200
+    except Exception as e:
+        return jsonify({"error": str(e), "status": "ERROR"}), 500
+
+
+@api_bp.route("/v2/admin/backups/verify", methods=["POST"])
+@admin_required
+def api_v2_verify_backup():
+    """Verify cryptographic checksum and decompression integrity of a backup archive."""
+    data = request.get_json(silent=True) or {}
+    filename = data.get("filename")
+    if not filename:
+        return jsonify({"error": "Filename is required"}), 400
+
+    from backend.database.backup_service import ProductionBackupManager
+    target_dir = ProductionBackupManager.get_backup_dir()
+    archive_path = os.path.join(target_dir, os.path.basename(filename))
+
+    actor = get_current_user()
+    actor_username = actor.username if actor else "ADMIN"
+    report = ProductionBackupManager.verify_backup_archive(archive_path, actor=actor_username)
+    return jsonify(report), 200 if report.get("valid") else 400
+
+
+@api_bp.route("/v2/admin/backups/restore", methods=["POST"])
+@admin_required
+def api_v2_restore_backup():
+    """Restore database from a verified backup archive with relational integrity checks."""
+    data = request.get_json(silent=True) or {}
+    filename = data.get("filename")
+    if not filename:
+        return jsonify({"error": "Filename is required"}), 400
+
+    from backend.database.backup_service import ProductionBackupManager
+    target_dir = ProductionBackupManager.get_backup_dir()
+    archive_path = os.path.join(target_dir, os.path.basename(filename))
+
+    actor = get_current_user()
+    actor_username = actor.username if actor else "ADMIN"
+
+    try:
+        res = ProductionBackupManager.restore_backup(archive_path, actor=actor_username)
+        return jsonify(res), 200
+    except Exception as e:
+        return jsonify({"error": str(e), "status": "ERROR"}), 500
+
+
+@api_bp.route("/v2/admin/backups/prune", methods=["POST"])
+@admin_required
+def api_v2_prune_backups():
+    """Prune expired backup archives according to retention policy."""
+    data = request.get_json(silent=True) or {}
+    days = data.get("retention_days", 30)
+    keep_min = data.get("keep_minimum", 5)
+    actor = get_current_user()
+    actor_username = actor.username if actor else "ADMIN"
+
+    try:
+        from backend.database.backup_service import ProductionBackupManager
+        res = ProductionBackupManager.apply_retention_policy(
+            retention_days=int(days),
+            keep_minimum=int(keep_min),
+            actor=actor_username,
+        )
+        return jsonify(res), 200
+    except Exception as e:
+        return jsonify({"error": str(e), "status": "ERROR"}), 500

@@ -64,6 +64,12 @@ class Config:
         "BIOMETRIC_ENCRYPTION_SECRET",
         INSECURE_DEFAULT_BIOMETRIC
     )
+    # Previous / fallback biometric encryption secrets for zero-downtime key rotation
+    BIOMETRIC_ENCRYPTION_SECRETS_FALLBACK = [
+        s.strip()
+        for s in os.environ.get("BIOMETRIC_ENCRYPTION_SECRETS_FALLBACK", "").split(",")
+        if s.strip()
+    ]
 
     # Face recognition engine configuration.
     # Native computer vision embedder with YCbCr skin locus segmentation,
@@ -113,6 +119,14 @@ class Config:
     # Shared message queue for multi-instance / multi-worker WebSocket scalability (Redis pub-sub)
     REDIS_URL = os.environ.get("REDIS_URL", None)
     SOCKETIO_MESSAGE_QUEUE = os.environ.get("SOCKETIO_MESSAGE_QUEUE", REDIS_URL)
+
+    # Production database backup and disaster recovery configuration (Section 5, POL-02)
+    BACKUP_STORAGE_DIR = os.environ.get(
+        "BACKUP_STORAGE_DIR",
+        os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "backups")
+    )
+    BACKUP_RETENTION_DAYS = int(os.environ.get("BACKUP_RETENTION_DAYS", "30"))
+    BACKUP_KEEP_MINIMUM = int(os.environ.get("BACKUP_KEEP_MINIMUM", "5"))
 
 
 class TestConfig(Config):

@@ -58,6 +58,8 @@ services:
       SOCKETIO_ASYNC_MODE: gevent
     ports:
       - "5000:5000"
+    volumes:
+      - ./backups:/app/backups
 
   frontend:
     build:

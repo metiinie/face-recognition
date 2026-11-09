@@ -7,7 +7,7 @@ import base64
 import hashlib
 import json
 from datetime import timedelta
-from cryptography.fernet import Fernet
+from cryptography.fernet import Fernet, MultiFernet, InvalidToken
 from flask import current_app
 from backend.database import db, transactional_session
 from backend.database.models import Employee, FaceTemplate, utc_now
@@ -20,15 +20,31 @@ from backend.face_engine.recognizer import (
 from backend.audit.service import record_audit_log
 
 
-def _get_fernet() -> Fernet:
-    """Derive a 32-byte URL-safe base64 Fernet key from BIOMETRIC_ENCRYPTION_SECRET."""
-    secret = current_app.config.get(
-        "BIOMETRIC_ENCRYPTION_SECRET",
-        "eipc-biometric-template-protection-secret-key-2026"
-    )
+def _derive_fernet_key(secret: str) -> Fernet:
+    """Derive a 32-byte URL-safe base64 Fernet key from a secret string via SHA-256."""
     digest = hashlib.sha256(secret.encode("utf-8")).digest()
     fernet_key = base64.urlsafe_b64encode(digest)
     return Fernet(fernet_key)
+
+
+def _get_fernet() -> MultiFernet:
+    """
+    Return a MultiFernet instance supporting zero-downtime key rotation.
+    Primary key (first in list) is used for new encryptions and rotation targets.
+    Fallback keys are used for decrypting legacy tokens during key transition.
+    """
+    primary_secret = current_app.config.get(
+        "BIOMETRIC_ENCRYPTION_SECRET",
+        "eipc-biometric-template-protection-secret-key-2026",
+    )
+    fallback_secrets = current_app.config.get("BIOMETRIC_ENCRYPTION_SECRETS_FALLBACK", [])
+
+    keys = [_derive_fernet_key(primary_secret)]
+    for s in fallback_secrets:
+        if s and s != primary_secret:
+            keys.append(_derive_fernet_key(s))
+
+    return MultiFernet(keys)
 
 
 def encrypt_embedding(embedding: list[float]) -> str:
@@ -352,5 +368,75 @@ def sync_legacy_templates_for_model(
         "migrated_count": migrated,
         "target_model_name": model_name,
         "target_model_version": model_version,
+    }
+
+
+def rotate_biometric_encryption_keys(
+    new_secret: str | None = None,
+    old_secrets: list[str] | None = None,
+    actor: str = "SYSTEM",
+) -> dict:
+    """
+    Rotate encryption keys for all stored biometric face templates in the database.
+    Re-encrypts all active, replaced, and revoked face templates under the primary key
+    in an atomic transaction, invalidates in-memory vector cache, and records an audit log.
+    """
+    if new_secret:
+        clean_new = new_secret.strip()
+        if len(clean_new) < 16:
+            raise ValueError("New encryption secret must be at least 16 characters long.")
+        current_primary = current_app.config.get("BIOMETRIC_ENCRYPTION_SECRET")
+        current_fallbacks = list(current_app.config.get("BIOMETRIC_ENCRYPTION_SECRETS_FALLBACK", []))
+        if current_primary and current_primary not in current_fallbacks:
+            current_fallbacks.insert(0, current_primary)
+        if old_secrets:
+            for s in old_secrets:
+                clean_s = (s or "").strip()
+                if clean_s and clean_s not in current_fallbacks:
+                    current_fallbacks.append(clean_s)
+        current_app.config["BIOMETRIC_ENCRYPTION_SECRET"] = clean_new
+        current_app.config["BIOMETRIC_ENCRYPTION_SECRETS_FALLBACK"] = current_fallbacks
+
+    mf = _get_fernet()
+
+    with transactional_session():
+        all_templates = FaceTemplate.query.all()
+        rotated_count = 0
+        failed_count = 0
+
+        for tmpl in all_templates:
+            token_bytes = tmpl.template_data.encode("utf-8")
+            try:
+                rotated_bytes = mf.rotate(token_bytes)
+                tmpl.template_data = rotated_bytes.decode("utf-8")
+                rotated_count += 1
+            except InvalidToken:
+                failed_count += 1
+
+        if failed_count > 0:
+            raise RuntimeError(
+                f"Key rotation aborted: {failed_count} templates could not be decrypted "
+                f"with any available keys. Transaction rolled back."
+            )
+
+        record_audit_log(
+            action="BIOMETRIC_KEYS_ROTATED",
+            target_type="BIOMETRIC_SECURITY",
+            target_id="FACE_TEMPLATES_KEYSTORE",
+            reason=f"Rotated encryption keys for {rotated_count} biometric templates.",
+            details={
+                "rotated_count": rotated_count,
+                "total_templates": len(all_templates),
+                "actor": actor,
+            },
+            actor_username=actor,
+        )
+
+    invalidate_template_cache()
+
+    return {
+        "status": "SUCCESS",
+        "rotated_count": rotated_count,
+        "total_templates": len(all_templates),
     }
 

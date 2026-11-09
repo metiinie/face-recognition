@@ -56,6 +56,8 @@ def run_latency_benchmark(num_samples: int = 100, num_enrolled: int = 100) -> di
         extract_multiple_faces_from_image,
         cosine_similarity,
         generate_deterministic_embedding,
+        _get_yunet_detector,
+        _get_sface_session,
     )
     from backend.face_enrollment.service import encrypt_embedding, decrypt_embedding
 
@@ -105,8 +107,8 @@ def run_latency_benchmark(num_samples: int = 100, num_enrolled: int = 100) -> di
 
         cv_img = cv2.imread(test_img_path)
         h, w, _ = cv_img.shape
-        detector = cv2.FaceDetectorYN.create(yunet_path, "", (w, h), score_threshold=0.4, nms_threshold=0.3) if has_onnx_models else None
-        recognizer = cv2.FaceRecognizerSF.create(sface_path, "") if has_onnx_models else None
+        detector = _get_yunet_detector(w, h)
+        recognizer = _get_sface_session()
 
         for _ in range(num_samples):
             t_start = time.perf_counter()
@@ -220,6 +222,8 @@ def run_multi_face_benchmark(
     from backend.face_engine.recognizer import (
         generate_deterministic_embedding,
         cosine_similarity,
+        _get_yunet_detector,
+        _get_sface_session,
     )
     from backend.face_enrollment.service import encrypt_embedding, decrypt_embedding
 
@@ -248,8 +252,8 @@ def run_multi_face_benchmark(
         norms = np.linalg.norm(db_matrix, axis=1, keepdims=True)
         db_matrix = db_matrix / np.maximum(norms, 1e-9)
 
-        detector = cv2.FaceDetectorYN.create(yunet_path, "", (frame_w, frame_h), score_threshold=0.4, nms_threshold=0.3)
-        recognizer = cv2.FaceRecognizerSF.create(sface_path, "")
+        detector = _get_yunet_detector(frame_w, frame_h)
+        recognizer = _get_sface_session()
 
         concurrency_results = {}
 

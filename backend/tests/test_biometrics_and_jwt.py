@@ -119,3 +119,119 @@ def test_api_biometric_metrics_endpoint(client, app):
         assert "liveness_pad" in data
         assert "roc_det_curves" in data
 
+
+def test_biometric_key_rotation_in_place_and_fallback_decryption(app):
+    """
+    P2 Encryption Key Rotation:
+    Verify MultiFernet fallback decryption, in-place atomic database re-encryption,
+    cache invalidation, and immutable audit logging.
+    """
+    from backend.database.models import FaceTemplate, AuditLog
+    from backend.face_enrollment.service import (
+        encrypt_embedding,
+        decrypt_embedding,
+        rotate_biometric_encryption_keys,
+        _derive_fernet_key,
+    )
+    from backend.face_engine.recognizer import (
+        generate_deterministic_embedding,
+        recognize_face_candidate,
+    )
+    from cryptography.fernet import InvalidToken
+
+    with app.app_context():
+        # Baseline templates count in seeded database
+        initial_templates = FaceTemplate.query.all()
+        assert len(initial_templates) > 0
+        total_initial = len(initial_templates)
+
+        original_primary_secret = app.config.get("BIOMETRIC_ENCRYPTION_SECRET")
+        key_v1 = _derive_fernet_key(original_primary_secret)
+
+        # 1. Verify original templates decrypt under original key
+        sample_tmpl = initial_templates[0]
+        sample_vec_v1 = decrypt_embedding(sample_tmpl.template_data)
+        assert len(sample_vec_v1) == 128
+
+        # 2. Perform Key Rotation to a new cryptographically strong secret
+        new_secret_v2 = "eipc-new-rotated-biometric-secret-2026-secure-key"
+        rot_res = rotate_biometric_encryption_keys(
+            new_secret=new_secret_v2,
+            actor="security_admin",
+        )
+        assert rot_res["status"] == "SUCCESS"
+        assert rot_res["rotated_count"] == total_initial
+
+        # 3. Verify that new key alone decrypts the rotated template
+        key_v2 = _derive_fernet_key(new_secret_v2)
+        refreshed_tmpl = db.session.get(FaceTemplate, sample_tmpl.id)
+        decrypted_by_v2 = decrypt_embedding(refreshed_tmpl.template_data)
+        assert len(decrypted_by_v2) == 128
+        assert decrypted_by_v2 == sample_vec_v1
+
+        # 4. Verify that the old key alone CANNOT decrypt the rotated template (re-encryption verified)
+        with pytest.raises(InvalidToken):
+            key_v1.decrypt(refreshed_tmpl.template_data.encode("utf-8"))
+
+        # 5. Verify immutable audit log recorded BIOMETRIC_KEYS_ROTATED
+        audit_entry = AuditLog.query.filter_by(action="BIOMETRIC_KEYS_ROTATED").first()
+        assert audit_entry is not None
+        assert audit_entry.target_type == "BIOMETRIC_SECURITY"
+        assert audit_entry.details["rotated_count"] == total_initial
+        assert audit_entry.actor_username == "security_admin"
+
+        # 6. Verify recognition candidate matching still works flawlessly after rotation
+        emp = sample_tmpl.employee
+        probe_sig = f"FACE_SIG_{emp.employee_number}"
+        rec_res = recognize_face_candidate(
+            {"biometric_signature": probe_sig},
+            decrypt_fn=decrypt_embedding,
+        )
+        assert rec_res["matched"] is True
+        assert rec_res["employee"].id == emp.id
+
+
+def test_api_security_rotate_biometric_keys_endpoint(client, app):
+    """Verify REST API /api/v2/security/rotate-biometric-keys enforces RBAC and rotates keys."""
+    from backend.database.models import User
+    from backend.security.tokens import issue_jwt_token
+
+    with app.app_context():
+        # Case A: Unauthenticated request rejected (401)
+        resp_unauth = client.post("/api/v2/security/rotate-biometric-keys", json={})
+        assert resp_unauth.status_code == 401
+
+        # Case B: Non-admin (HR Officer) request rejected (403)
+        hr = User.query.filter_by(username="hr_officer").first()
+        token_hr = issue_jwt_token(hr)
+        resp_hr = client.post(
+            "/api/v2/security/rotate-biometric-keys",
+            headers={"Authorization": f"Bearer {token_hr}"},
+            json={"new_secret": "short"},
+        )
+        assert resp_hr.status_code == 403
+
+        # Case C: Admin with short secret rejected (400 Bad Request)
+        admin = User.query.filter_by(username="admin").first()
+        token_admin = issue_jwt_token(admin)
+        resp_bad = client.post(
+            "/api/v2/security/rotate-biometric-keys",
+            headers={"Authorization": f"Bearer {token_admin}"},
+            json={"new_secret": "short-key"},
+        )
+        assert resp_bad.status_code == 400
+        assert "at least 16 characters" in resp_bad.get_json()["error"]
+
+        # Case D: Admin with valid new secret succeeds (200 OK)
+        new_key = "eipc-api-rotated-secret-2026-unique-hash"
+        resp_ok = client.post(
+            "/api/v2/security/rotate-biometric-keys",
+            headers={"Authorization": f"Bearer {token_admin}"},
+            json={"new_secret": new_key},
+        )
+        assert resp_ok.status_code == 200
+        data = resp_ok.get_json()
+        assert data["status"] == "SUCCESS"
+        assert data["rotated_count"] > 0
+
+
