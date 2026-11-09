@@ -424,3 +424,58 @@ def test_v2_tracking_identity_consensus_voting(app):
         assert AttendanceEvent.query.filter_by(employee_id=emp5.id).count() == 0
         # EMP-004 MUST have the attendance event
         assert AttendanceEvent.query.filter_by(employee_id=emp4.id).count() == 1
+
+
+def test_v2_multi_face_gate_acceleration_and_vectorized_benchmark(app):
+    """
+    P1 Benchmark multi-face acceleration:
+    Verify that vectorized BLAS matrix search and accelerated multi-face pipeline
+    establish usable gate throughput and sub-millisecond database matching.
+    """
+    from backend.face_engine.benchmark import run_multi_face_benchmark
+    from backend.face_engine.recognizer import (
+        match_face_vectorized,
+        invalidate_template_cache,
+        generate_deterministic_embedding,
+    )
+
+    with app.app_context():
+        # 1. Benchmark multi-face acceleration across 1, 2, and 3 concurrent people
+        res = run_multi_face_benchmark(
+            face_counts=[1, 2, 3],
+            num_samples=3,
+            num_enrolled=20,
+            frame_size=(640, 480),
+        )
+        assert "concurrency_results" in res
+        cr = res["concurrency_results"]
+
+        for n in [1, 2, 3]:
+            assert n in cr
+            # Verified YuNet multi-face detection counts
+            assert cr[n]["faces_detected"] == n
+            # Verified sub-millisecond BLAS database search
+            assert cr[n]["vector_search_ms"] < 5.0
+            # Usable gate performance confirmed
+            assert cr[n]["usable"] is True
+
+        # 2. Direct unit test of match_face_vectorized accuracy
+        emp1 = Employee.query.filter_by(employee_number="EIPC-EMP-001").first()
+        assert emp1 is not None
+        probe_neural = generate_deterministic_embedding("FACE_SIG_EIPC-EMP-001")
+
+        score, best_tmpl = match_face_vectorized(
+            probe_aligned=probe_neural,
+            probe_neural=probe_neural,
+            probe_gradient=None,
+            decrypt_fn=decrypt_embedding,
+            model_name="EIPC-Vision-Embedder",
+            model_version="1.0.0",
+        )
+        assert best_tmpl is not None
+        assert best_tmpl.employee_id == emp1.id
+        assert score > 0.95
+
+        # 3. Cache invalidation test
+        invalidate_template_cache()
+

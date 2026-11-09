@@ -15,6 +15,7 @@ from backend.face_engine.recognizer import (
     analyze_and_extract_embedding,
     generate_deterministic_embedding,
     cosine_similarity,
+    invalidate_template_cache,
 )
 from backend.audit.service import record_audit_log
 
@@ -152,6 +153,7 @@ def enroll_employee_face(
             actor_username=enrolled_by,
         )
 
+    invalidate_template_cache()
     return new_template, None
 
 
@@ -186,6 +188,7 @@ def revoke_employee_templates(
             actor_username=revoked_by,
         )
 
+    invalidate_template_cache()
     return len(active_list), None
 
 
@@ -228,6 +231,7 @@ def purge_employee_biometrics(
             actor_username=actor,
         )
 
+    invalidate_template_cache()
     return purged_count, None
 
 

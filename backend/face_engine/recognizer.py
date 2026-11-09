@@ -14,6 +14,11 @@ from PIL import Image
 
 try:
     import cv2
+    if cv2 is not None:
+        try:
+            cv2.setNumThreads(min(8, max(1, os.cpu_count() or 4)))
+        except Exception:
+            pass
 except ImportError:
     cv2 = None
 
@@ -83,15 +88,17 @@ def _get_yunet_detector(width: int = 320, height: int = 320):
     if _YUNET_INIT_FAILED or cv2 is None or not hasattr(cv2, "FaceDetectorYN"):
         return None
     try:
+        w_clamped = max(32, int(width))
+        h_clamped = max(32, int(height))
         base_dir = os.path.dirname(os.path.abspath(__file__))
         model_path = os.path.join(base_dir, "models", "face_detection_yunet_2023mar.onnx")
         if os.path.exists(model_path):
             if _YUNET_DETECTOR is None:
                 _YUNET_DETECTOR = cv2.FaceDetectorYN.create(
-                    model_path, "", (width, height), score_threshold=0.40, nms_threshold=0.3
+                    model_path, "", (w_clamped, h_clamped), score_threshold=0.40, nms_threshold=0.3
                 )
             else:
-                _YUNET_DETECTOR.setInputSize((width, height))
+                _YUNET_DETECTOR.setInputSize((w_clamped, h_clamped))
             return _YUNET_DETECTOR
         else:
             _YUNET_INIT_FAILED = True
@@ -274,6 +281,237 @@ def _is_gradient_descriptor(vec: list[float] | np.ndarray | None) -> bool:
         return False
     arr = np.asarray(vec, dtype=np.float64)
     return bool(abs(float(np.sum(arr))) < 1e-3)
+
+
+def _extract_fast_gradient_descriptor(crop_gray: np.ndarray) -> list[float]:
+    """
+    Extract 128-D zero-mean spatial gradient orientation histogram descriptor.
+    Resizes crop to 160x160 canonical space and computes 4x4 cell histograms.
+    """
+    if crop_gray.shape[0] != 160 or crop_gray.shape[1] != 160:
+        im = Image.fromarray(crop_gray.astype(np.uint8)).resize((160, 160), Image.Resampling.BILINEAR)
+        arr = np.asarray(im, dtype=np.float64)
+    else:
+        arr = crop_gray.astype(np.float64)
+
+    gx = np.diff(arr, axis=1)
+    gy = np.diff(arr, axis=0)
+    gx = np.pad(gx, ((0, 0), (0, 1)), mode="edge")[16:144, 16:144]
+    gy = np.pad(gy, ((0, 1), (0, 0)), mode="edge")[16:144, 16:144]
+
+    magnitude = np.sqrt(gx**2 + gy**2)
+    orientation = (np.arctan2(gy, gx) * (180.0 / np.pi)) % 180.0
+
+    cell_h, cell_w = 32, 32
+    descriptor_128 = []
+    for cy_i in range(4):
+        for cx_i in range(4):
+            c_mag = magnitude[cy_i * cell_h : (cy_i + 1) * cell_h, cx_i * cell_w : (cx_i + 1) * cell_w]
+            c_ori = orientation[cy_i * cell_h : (cy_i + 1) * cell_h, cx_i * cell_w : (cx_i + 1) * cell_w]
+            hist, _ = np.histogram(c_ori, bins=8, range=(0.0, 180.0), weights=c_mag)
+            descriptor_128.extend(hist.tolist())
+
+    vec = np.asarray(descriptor_128, dtype=np.float64)
+    vec = vec - np.mean(vec)
+    norm = np.linalg.norm(vec)
+    if norm > 0:
+        vec = vec / norm
+    return [round(float(val), 6) for val in vec]
+
+
+# ---------------------------------------------------------------------------
+# Vectorized In-Memory Template Cache & Acceleration (BLAS Matrix Dot Products)
+# ---------------------------------------------------------------------------
+_VECTOR_CACHE_SIGNATURE = None
+_VECTOR_CACHE_NEURAL_MATRIX: np.ndarray | None = None
+_VECTOR_CACHE_NEURAL_TEMPLATES: list[FaceTemplate] = []
+_VECTOR_CACHE_GRADIENT_MATRIX: np.ndarray | None = None
+_VECTOR_CACHE_GRADIENT_TEMPLATES: list[FaceTemplate] = []
+_DECRYPTED_BLOB_CACHE: dict[int, tuple[str, np.ndarray, bool]] = {}
+
+
+def invalidate_template_cache():
+    """Explicitly reset in-memory vectorized template cache on enrollment/revocation."""
+    global _VECTOR_CACHE_SIGNATURE, _VECTOR_CACHE_NEURAL_MATRIX, _VECTOR_CACHE_NEURAL_TEMPLATES
+    global _VECTOR_CACHE_GRADIENT_MATRIX, _VECTOR_CACHE_GRADIENT_TEMPLATES, _DECRYPTED_BLOB_CACHE
+    _VECTOR_CACHE_SIGNATURE = None
+    _VECTOR_CACHE_NEURAL_MATRIX = None
+    _VECTOR_CACHE_NEURAL_TEMPLATES = []
+    _VECTOR_CACHE_GRADIENT_MATRIX = None
+    _VECTOR_CACHE_GRADIENT_TEMPLATES = []
+    _DECRYPTED_BLOB_CACHE.clear()
+
+
+def get_vectorized_template_cache(
+    decrypt_fn,
+    model_name: str = "EIPC-Vision-Embedder",
+    model_version: str = "1.0.0",
+) -> tuple[np.ndarray | None, list[FaceTemplate], np.ndarray | None, list[FaceTemplate]]:
+    """
+    Retrieve pre-cached unit-normalized matrices for active enrolled templates.
+    Caches decrypted vectors so decryption executes once per template lifecycle.
+    """
+    global _VECTOR_CACHE_SIGNATURE, _VECTOR_CACHE_NEURAL_MATRIX, _VECTOR_CACHE_NEURAL_TEMPLATES
+    global _VECTOR_CACHE_GRADIENT_MATRIX, _VECTOR_CACHE_GRADIENT_TEMPLATES, _DECRYPTED_BLOB_CACHE
+
+    if not has_app_context():
+        return None, [], None, []
+
+    active_tmpls = (
+        FaceTemplate.query.filter_by(status="ACTIVE")
+        .filter(FaceTemplate.model_name == model_name, FaceTemplate.model_version == model_version)
+        .all()
+    )
+
+    current_sig = (
+        model_name,
+        model_version,
+        tuple(sorted((t.id, t.model_version, t.status) for t in active_tmpls)),
+    )
+
+    if (
+        current_sig == _VECTOR_CACHE_SIGNATURE
+        and (_VECTOR_CACHE_NEURAL_MATRIX is not None or _VECTOR_CACHE_GRADIENT_MATRIX is not None)
+    ):
+        return (
+            _VECTOR_CACHE_NEURAL_MATRIX,
+            _VECTOR_CACHE_NEURAL_TEMPLATES,
+            _VECTOR_CACHE_GRADIENT_MATRIX,
+            _VECTOR_CACHE_GRADIENT_TEMPLATES,
+        )
+
+    neural_vecs = []
+    neural_tmpls = []
+    grad_vecs = []
+    grad_tmpls = []
+
+    for t in active_tmpls:
+        raw_blob = t.template_data
+        cached_entry = _DECRYPTED_BLOB_CACHE.get(t.id)
+
+        if cached_entry and cached_entry[0] == raw_blob:
+            _, vec_normed, is_grad = cached_entry
+        else:
+            try:
+                decrypted = decrypt_fn(raw_blob)
+                if decrypted is None:
+                    continue
+                arr = np.asarray(decrypted, dtype=np.float32)
+                is_grad = _is_gradient_descriptor(decrypted)
+                norm = float(np.linalg.norm(arr))
+                vec_normed = (arr / norm) if norm > 0 else arr
+                _DECRYPTED_BLOB_CACHE[t.id] = (raw_blob, vec_normed, is_grad)
+            except Exception:
+                continue
+
+        if is_grad:
+            grad_vecs.append(vec_normed)
+            grad_tmpls.append(t)
+        else:
+            neural_vecs.append(vec_normed)
+            neural_tmpls.append(t)
+
+    _VECTOR_CACHE_NEURAL_MATRIX = np.asarray(neural_vecs, dtype=np.float32) if neural_vecs else None
+    _VECTOR_CACHE_NEURAL_TEMPLATES = neural_tmpls
+    _VECTOR_CACHE_GRADIENT_MATRIX = np.asarray(grad_vecs, dtype=np.float32) if grad_vecs else None
+    _VECTOR_CACHE_GRADIENT_TEMPLATES = grad_tmpls
+    _VECTOR_CACHE_SIGNATURE = current_sig
+
+    return (
+        _VECTOR_CACHE_NEURAL_MATRIX,
+        _VECTOR_CACHE_NEURAL_TEMPLATES,
+        _VECTOR_CACHE_GRADIENT_MATRIX,
+        _VECTOR_CACHE_GRADIENT_TEMPLATES,
+    )
+
+
+def match_face_vectorized(
+    probe_aligned: list[float] | None,
+    probe_neural: list[float] | None,
+    probe_gradient: list[float] | None,
+    decrypt_fn,
+    model_name: str,
+    model_version: str,
+) -> tuple[float, FaceTemplate | None]:
+    """
+    Perform high-speed vectorized cosine matching against in-memory active templates.
+    Returns (best_score, best_template).
+    """
+    neural_mat, neural_tmpls, grad_mat, grad_tmpls = get_vectorized_template_cache(
+        decrypt_fn, model_name, model_version
+    )
+
+    best_score = -1.0
+    best_template = None
+
+    # 1. Match neural embedding against neural templates via BLAS dot product
+    if neural_mat is not None and len(neural_tmpls) > 0:
+        scores_neu = None
+        if probe_neural:
+            p_neu = np.asarray(probe_neural, dtype=np.float32)
+            n_neu = float(np.linalg.norm(p_neu))
+            if n_neu > 0:
+                p_neu = p_neu / n_neu
+                scores_neu = np.dot(neural_mat, p_neu)
+
+        scores_ali = None
+        if probe_aligned:
+            p_ali = np.asarray(probe_aligned, dtype=np.float32)
+            n_ali = float(np.linalg.norm(p_ali))
+            if n_ali > 0:
+                p_ali = p_ali / n_ali
+                scores_ali = np.dot(neural_mat, p_ali)
+
+        if scores_neu is not None and scores_ali is not None:
+            combined = np.maximum(scores_neu, scores_ali)
+        elif scores_neu is not None:
+            combined = scores_neu
+        elif scores_ali is not None:
+            combined = scores_ali
+        else:
+            combined = None
+
+        if combined is not None and len(combined) > 0:
+            best_idx = int(np.argmax(combined))
+            score_val = float(combined[best_idx])
+            if score_val > best_score:
+                best_score = score_val
+                best_template = neural_tmpls[best_idx]
+
+    # 2. Match gradient descriptor against gradient templates
+    if grad_mat is not None and len(grad_tmpls) > 0 and probe_gradient:
+        p_grad = np.asarray(probe_gradient, dtype=np.float32)
+        n_grad = float(np.linalg.norm(p_grad))
+        if n_grad > 0:
+            p_grad = p_grad / n_grad
+            scores_grad = np.dot(grad_mat, p_grad)
+            best_idx = int(np.argmax(scores_grad))
+            score_val = float(scores_grad[best_idx])
+            if score_val > best_score:
+                best_score = score_val
+                best_template = grad_tmpls[best_idx]
+
+    # Fallback to direct linear query if cache is empty or outside standard app context
+    if best_template is None and not neural_tmpls and not grad_tmpls and has_app_context():
+        active_templates = FaceTemplate.query.filter_by(
+            status="ACTIVE", model_name=model_name, model_version=model_version
+        ).all()
+        for tmpl in active_templates:
+            try:
+                stored_vec = decrypt_fn(tmpl.template_data)
+                if _is_gradient_descriptor(stored_vec):
+                    score = cosine_similarity(probe_gradient, stored_vec) if probe_gradient else -1.0
+                else:
+                    score_aligned = cosine_similarity(probe_aligned, stored_vec) if probe_aligned else -1.0
+                    score_neural = cosine_similarity(probe_neural, stored_vec) if probe_neural else -1.0
+                    score = max(score_aligned, score_neural)
+                if score > best_score:
+                    best_score = score
+                    best_template = tmpl
+            except Exception:
+                continue
+
+    return best_score, best_template
 
 
 def _extract_embedding_from_pil(img: Image.Image) -> tuple[list[float], dict]:
@@ -837,27 +1075,18 @@ def recognize_face_candidate(capture_payload: dict, decrypt_fn) -> dict:
         if t.model_name == current_model_name and t.model_version == current_model_version
     ]
     incompatible_count = len(all_active) - len(active_templates)
-    best_score = -1.0
-    best_template = None
-
     probe_aligned = extraction.get("aligned_neural_embedding")
     probe_neural = extraction.get("neural_embedding") or probe_embedding
     probe_gradient = extraction.get("gradient_embedding") or probe_embedding
 
-    for tmpl in active_templates:
-        try:
-            stored_vec = decrypt_fn(tmpl.template_data)
-            if _is_gradient_descriptor(stored_vec):
-                score = cosine_similarity(probe_gradient, stored_vec) if probe_gradient else -1.0
-            else:
-                score_aligned = cosine_similarity(probe_aligned, stored_vec) if probe_aligned else -1.0
-                score_neural = cosine_similarity(probe_neural, stored_vec) if probe_neural else -1.0
-                score = max(score_aligned, score_neural)
-            if score > best_score:
-                best_score = score
-                best_template = tmpl
-        except Exception as e:
-            continue
+    best_score, best_template = match_face_vectorized(
+        probe_aligned=probe_aligned,
+        probe_neural=probe_neural,
+        probe_gradient=probe_gradient,
+        decrypt_fn=decrypt_fn,
+        model_name=current_model_name,
+        model_version=current_model_version,
+    )
 
     best_score_clamped = round(max(0.0, min(1.0, best_score)), 4)
 
@@ -949,23 +1178,91 @@ def extract_multiple_faces_from_image(img: Image.Image) -> list[dict]:
     orig_w, orig_h = img.size
     img_rgb = img.convert("RGB")
 
-    # 1. High-Accuracy Deep Learning Face Detector (UltraFace ONNX + YuNet fallback)
-    onnx_faces = detect_faces_onnx(img, conf_thresh=0.38)
-    if len(onnx_faces) == 0 and cv2 is not None:
+    # 1. Primary High-Speed Multi-Face Detection & Native Alignment (YuNet 5-Landmarks + SFace)
+    if cv2 is not None and orig_w >= 32 and orig_h >= 32:
         try:
-            rgb_tmp = np.asarray(img_rgb, dtype=np.uint8)
-            bgr_tmp = cv2.cvtColor(rgb_tmp, cv2.COLOR_RGB2BGR)
-            det = _get_yunet_detector(bgr_tmp.shape[1], bgr_tmp.shape[0])
+            rgb_arr = np.asarray(img_rgb, dtype=np.uint8)
+            bgr_arr = cv2.cvtColor(rgb_arr, cv2.COLOR_RGB2BGR)
+            det = _get_yunet_detector(orig_w, orig_h)
+            rec = _get_sface_session()
             if det is not None:
-                _, y_faces = det.detect(bgr_tmp)
+                _, y_faces = det.detect(bgr_arr)
                 if y_faces is not None and len(y_faces) > 0:
-                    onnx_faces = [
-                        {"box": (int(yf[0]), int(yf[1]), int(yf[2]), int(yf[3])), "score": float(yf[-1])}
-                        for yf in y_faces if yf[2] > 12 and yf[3] > 12
-                    ]
+                    faces = []
+                    for idx, yf in enumerate(y_faces):
+                        bx, by, bw, bh = int(yf[0]), int(yf[1]), int(yf[2]), int(yf[3])
+                        if bw < 14 or bh < 14:
+                            continue
+
+                        # Native 5-landmark affine alignment & canonical 112x112 extraction in C++
+                        aligned_vec = None
+                        if rec is not None and hasattr(rec, "alignCrop") and hasattr(rec, "feature"):
+                            try:
+                                aligned_bgr = rec.alignCrop(bgr_arr, yf)
+                                feat = rec.feature(aligned_bgr)[0]
+                                norm = float(np.linalg.norm(feat))
+                                if norm > 0:
+                                    aligned_vec = [round(float(x), 6) for x in (feat / norm)]
+                            except Exception:
+                                aligned_vec = None
+
+                        # Bounding box crop for liveness and image metrics
+                        x1 = max(0, bx)
+                        y1 = max(0, by)
+                        x2 = min(orig_w, bx + bw)
+                        y2 = min(orig_h, by + bh)
+                        crop_rgb = rgb_arr[y1:y2, x1:x2]
+
+                        if crop_rgb.size == 0 or crop_rgb.shape[0] < 8 or crop_rgb.shape[1] < 8:
+                            continue
+
+                        crop_gray = crop_rgb.mean(axis=2).astype(np.float32)
+                        lap = (
+                            -4 * crop_gray[1:-1, 1:-1]
+                            + crop_gray[:-2, 1:-1]
+                            + crop_gray[2:, 1:-1]
+                            + crop_gray[1:-1, :-2]
+                            + crop_gray[1:-1, 2:]
+                        )
+                        sharpness = float(np.var(lap)) if lap.size > 0 else 0.0
+                        brightness = float(np.mean(crop_gray))
+
+                        r_c, g_c, b_c = crop_rgb[:, :, 0], crop_rgb[:, :, 1], crop_rgb[:, :, 2]
+                        cb_c = -0.1687 * r_c - 0.3313 * g_c + 0.5 * b_c + 128.0
+                        cr_c = 0.5 * r_c - 0.4187 * g_c - 0.0813 * b_c + 128.0
+                        chroma_disp = float(np.std(cr_c) + np.std(cb_c))
+
+                        liveness_score = round(
+                            min(1.0, max(0.20, (min(sharpness, 80.0) / 80.0) * 0.5 + (min(chroma_disp, 30.0) / 30.0) * 0.5)),
+                            3,
+                        )
+                        liveness_passed = bool(liveness_score >= 0.20)
+
+                        gradient_vec = _extract_fast_gradient_descriptor(crop_gray)
+                        embedding = aligned_vec if aligned_vec is not None else gradient_vec
+
+                        faces.append({
+                            "track_id": idx + 1,
+                            "bounding_box": {"x": bx, "y": by, "w": bw, "h": bh},
+                            "embedding": embedding,
+                            "aligned_neural_embedding": aligned_vec,
+                            "neural_embedding": aligned_vec,
+                            "gradient_embedding": gradient_vec,
+                            "quality_score": round(
+                                min(1.0, (sharpness / 60.0) * 0.5 + (1.0 - abs(brightness - 128.0) / 128.0) * 0.5), 3
+                            ),
+                            "liveness_score": liveness_score,
+                            "liveness_passed": liveness_passed,
+                            "brightness": round(brightness, 2),
+                            "sharpness": round(sharpness, 2),
+                        })
+                    if faces:
+                        return faces
         except Exception:
             pass
 
+    # 2. Secondary Deep Learning Face Detector Fallback (UltraFace ONNX)
+    onnx_faces = detect_faces_onnx(img, conf_thresh=0.38)
     if onnx_faces:
         faces = []
         for idx, f in enumerate(onnx_faces):
@@ -982,74 +1279,33 @@ def extract_multiple_faces_from_image(img: Image.Image) -> list[dict]:
                 continue
 
             face_crop = img_rgb.crop((x1, y1, x2, y2)).resize((160, 160), Image.Resampling.BILINEAR)
-            crop_arr = np.asarray(face_crop, dtype=np.float64)
+            crop_arr = np.asarray(face_crop, dtype=np.float32)
             crop_gray = crop_arr.mean(axis=2)
 
-            # Liveness & sharpness on crop
-            laplacian_crop = (
+            lap = (
                 -4 * crop_gray[1:-1, 1:-1]
                 + crop_gray[:-2, 1:-1]
                 + crop_gray[2:, 1:-1]
                 + crop_gray[1:-1, :-2]
                 + crop_gray[1:-1, 2:]
             )
-            sharpness = float(np.var(laplacian_crop)) if laplacian_crop.size > 0 else 0.0
+            sharpness = float(np.var(lap)) if lap.size > 0 else 0.0
             brightness = float(np.mean(crop_gray))
 
             r_c, g_c, b_c = crop_arr[:, :, 0], crop_arr[:, :, 1], crop_arr[:, :, 2]
             cb_c = -0.1687 * r_c - 0.3313 * g_c + 0.5 * b_c + 128.0
             cr_c = 0.5 * r_c - 0.4187 * g_c - 0.0813 * b_c + 128.0
-            chroma_dispersion = float(np.std(cr_c) + np.std(cb_c))
+            chroma_disp = float(np.std(cr_c) + np.std(cb_c))
 
             liveness_score = round(
-                min(1.0, max(0.20, (min(sharpness, 80.0) / 80.0) * 0.5 + (min(chroma_dispersion, 30.0) / 30.0) * 0.5)),
-                3
+                min(1.0, max(0.20, (min(sharpness, 80.0) / 80.0) * 0.5 + (min(chroma_disp, 30.0) / 30.0) * 0.5)),
+                3,
             )
             liveness_passed = bool(liveness_score >= 0.20)
 
-            # 1. Primary: Extract 128-D SFace deep neural embedding
             neural_vec = extract_neural_embedding(face_crop)
-
-            # 2. Extract 128-D spatial gradient descriptor for legacy template matching
-            gx = np.diff(crop_gray, axis=1)
-            gy = np.diff(crop_gray, axis=0)
-            gx = np.pad(gx, ((0, 0), (0, 1)), mode="edge")[16:144, 16:144]
-            gy = np.pad(gy, ((0, 1), (0, 0)), mode="edge")[16:144, 16:144]
-
-            magnitude = np.sqrt(gx**2 + gy**2)
-            orientation = (np.arctan2(gy, gx) * (180.0 / np.pi)) % 180.0
-
-            cell_h, cell_w = 32, 32
-            descriptor_128 = []
-            for cy_i in range(4):
-                for cx_i in range(4):
-                    c_mag = magnitude[cy_i * cell_h : (cy_i + 1) * cell_h, cx_i * cell_w : (cx_i + 1) * cell_w]
-                    c_ori = orientation[cy_i * cell_h : (cy_i + 1) * cell_h, cx_i * cell_w : (cx_i + 1) * cell_w]
-                    hist, _ = np.histogram(c_ori, bins=8, range=(0.0, 180.0), weights=c_mag)
-                    descriptor_128.extend(hist.tolist())
-
-            vec = np.asarray(descriptor_128, dtype=np.float64)
-            vec = vec - np.mean(vec)
-            norm = np.linalg.norm(vec)
-            if norm > 0:
-                vec = vec / norm
-            gradient_vec = [round(float(val), 6) for val in vec]
-
-            # Extract landmark-aligned 128-D SFace embedding using full frame (single face) or wide context crop
-            aligned_vec = None
-            if len(onnx_faces) == 1:
-                aligned_vec = extract_aligned_neural_embedding(img_rgb)
-            if aligned_vec is None:
-                wide_side = max(bw, bh) * 1.85
-                wx1 = max(0, int(cx - wide_side / 2))
-                wy1 = max(0, int(cy - wide_side / 2))
-                wx2 = min(orig_w, int(cx + wide_side / 2))
-                wy2 = min(orig_h, int(cy + wide_side / 2))
-                if wx2 - wx1 >= 24 and wy2 - wy1 >= 24:
-                    aligned_vec = extract_aligned_neural_embedding(img_rgb.crop((wx1, wy1, wx2, wy2)))
-            if aligned_vec is None:
-                aligned_vec = extract_aligned_neural_embedding(face_crop)
-            embedding = aligned_vec if aligned_vec is not None else (neural_vec if neural_vec is not None else gradient_vec)
+            gradient_vec = _extract_fast_gradient_descriptor(crop_gray)
+            embedding = neural_vec if neural_vec is not None else gradient_vec
 
             faces.append({
                 "track_id": idx + 1,
@@ -1060,16 +1316,19 @@ def extract_multiple_faces_from_image(img: Image.Image) -> list[dict]:
                     "h": int(bh),
                 },
                 "embedding": embedding,
-                "aligned_neural_embedding": aligned_vec,
+                "aligned_neural_embedding": neural_vec,
                 "neural_embedding": neural_vec,
                 "gradient_embedding": gradient_vec,
-                "quality_score": round(min(1.0, (sharpness / 60.0) * 0.5 + (1.0 - abs(brightness - 128.0) / 128.0) * 0.5), 3),
+                "quality_score": round(
+                    min(1.0, (sharpness / 60.0) * 0.5 + (1.0 - abs(brightness - 128.0) / 128.0) * 0.5), 3
+                ),
                 "liveness_score": liveness_score,
                 "liveness_passed": liveness_passed,
                 "brightness": round(brightness, 2),
                 "sharpness": round(sharpness, 2),
             })
-        return faces
+        if faces:
+            return faces
 
     # 2. Inclusive Spatial Skin Projection Fallback (for synthetic unit tests & edge cases)
     scaled_img = img_rgb.copy()
@@ -1287,23 +1546,15 @@ def recognize_multi_face_frame(capture_payload: dict, decrypt_fn) -> dict:
         probe_aligned = face.get("aligned_neural_embedding")
         probe_neural = face.get("neural_embedding") or face.get("embedding")
         probe_gradient = face.get("gradient_embedding") or face.get("embedding")
-        best_score = -1.0
-        best_template = None
 
-        for tmpl in active_templates:
-            try:
-                stored_vec = decrypt_fn(tmpl.template_data)
-                if _is_gradient_descriptor(stored_vec):
-                    score = cosine_similarity(probe_gradient, stored_vec) if probe_gradient else -1.0
-                else:
-                    score_aligned = cosine_similarity(probe_aligned, stored_vec) if probe_aligned else -1.0
-                    score_neural = cosine_similarity(probe_neural, stored_vec) if probe_neural else -1.0
-                    score = max(score_aligned, score_neural)
-                if score > best_score:
-                    best_score = score
-                    best_template = tmpl
-            except Exception:
-                continue
+        best_score, best_template = match_face_vectorized(
+            probe_aligned=probe_aligned,
+            probe_neural=probe_neural,
+            probe_gradient=probe_gradient,
+            decrypt_fn=decrypt_fn,
+            model_name=current_model,
+            model_version=current_version,
+        )
 
         score_clamped = round(max(0.0, min(1.0, best_score)), 4)
         emp = best_template.employee if best_template else None
