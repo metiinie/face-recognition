@@ -38,6 +38,9 @@ import {
   UserPlus,
   FlipHorizontal,
   X,
+  Sliders,
+  Settings,
+  Radio,
 } from "lucide-react";
 
 export default function ContinuousEntrancePage() {
@@ -46,6 +49,9 @@ export default function ContinuousEntrancePage() {
   const [selectedStation, setSelectedStation] = useState<string>("ST-GATE-01");
   const [gateMode, setGateMode] = useState<"AUTO_DETECT" | "IN" | "OUT">("AUTO_DETECT");
   const [cooldownSec, setCooldownSec] = useState<number>(20);
+  const [minCheckoutMins, setMinCheckoutMins] = useState<number>(15);
+  const [minPersistenceFrames, setMinPersistenceFrames] = useState<number>(3);
+  const [isSettingsOpen, setIsSettingsOpen] = useState<boolean>(false);
 
   // Video and Stream state
   const [isStreaming, setIsStreaming] = useState<boolean>(false);

@@ -5,7 +5,7 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/com
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { AuthGuard } from "@/components/AuthGuard";
-import { api, BiometricEvaluationMetrics } from "@/lib/api";
+import { api, BiometricEvaluationMetrics, MultiFaceBenchmarkResponse, KeyRotationResponse } from "@/lib/api";
 import {
   LineChart,
   Line,
@@ -32,6 +32,13 @@ import {
   RefreshCw,
   Sliders,
   CheckCircle2,
+  KeyRound,
+  Gauge,
+  Play,
+  X,
+  AlertCircle,
+  AlertTriangle,
+  Clock,
 } from "lucide-react";
 
 export default function BiometricsLabPage() {
@@ -41,6 +48,17 @@ export default function BiometricsLabPage() {
   const [isSyncing, setIsSyncing] = useState(false);
   const [isCleaning, setIsCleaning] = useState(false);
   const [actionMessage, setActionMessage] = useState<string | null>(null);
+
+  // Key Rotation State (M2)
+  const [isRotateModalOpen, setIsRotateModalOpen] = useState(false);
+  const [isRotating, setIsRotating] = useState(false);
+  const [rotationResult, setRotationResult] = useState<KeyRotationResponse | null>(null);
+  const [rotationError, setRotationError] = useState<string | null>(null);
+
+  // Multi-Face Benchmark State (M3)
+  const [isBenchmarking, setIsBenchmarking] = useState(false);
+  const [benchmarkResult, setBenchmarkResult] = useState<MultiFaceBenchmarkResponse | null>(null);
+  const [benchmarkError, setBenchmarkError] = useState<string | null>(null);
 
   const fetchMetrics = async () => {
     setIsLoading(true);
@@ -58,6 +76,36 @@ export default function BiometricsLabPage() {
   useEffect(() => {
     fetchMetrics();
   }, []);
+
+  const handleRotateKeys = async () => {
+    setIsRotating(true);
+    setRotationError(null);
+    setRotationResult(null);
+    try {
+      const res = await api.rotateBiometricKeys();
+      setRotationResult(res);
+      setActionMessage(`Encryption key rotation completed: Re-encrypted ${res.rotated_count} biometric templates.`);
+      fetchMetrics();
+    } catch (err: any) {
+      setRotationError(err.message || "Key rotation failed.");
+    } finally {
+      setIsRotating(false);
+    }
+  };
+
+  const handleRunBenchmark = async () => {
+    setIsBenchmarking(true);
+    setBenchmarkError(null);
+    try {
+      const res = await api.runMultiFaceBenchmark({ face_counts: [1, 2, 3], num_samples: 2 });
+      setBenchmarkResult(res);
+      setActionMessage("Hardware gate benchmark completed successfully.");
+    } catch (err: any) {
+      setBenchmarkError(err.message || "Benchmark failed to run.");
+    } finally {
+      setIsBenchmarking(false);
+    }
+  };
 
   const handleSyncModel = async () => {
     setIsSyncing(true);
@@ -386,7 +434,7 @@ export default function BiometricsLabPage() {
             </div>
           </div>
 
-          <div className="mt-5 pt-4 border-t border-slate-200 flex flex-col sm:flex-row gap-3">
+          <div className="mt-5 pt-4 border-t border-slate-200 flex flex-col sm:flex-row gap-2">
             <Button
               variant="outline"
               size="sm"
@@ -394,7 +442,19 @@ export default function BiometricsLabPage() {
               isLoading={isSyncing}
               className="flex-1 text-xs"
             >
-              <RefreshCw className="mr-1.5 h-3.5 w-3.5" /> Sync & Upgrade Outdated Templates
+              <RefreshCw className="mr-1.5 h-3.5 w-3.5" /> Upgrade Outdated
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setRotationResult(null);
+                setRotationError(null);
+                setIsRotateModalOpen(true);
+              }}
+              className="flex-1 text-xs border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+            >
+              <KeyRound className="mr-1.5 h-3.5 w-3.5" /> Rotate Biometric Keys
             </Button>
             <Button
               variant="danger"
@@ -403,11 +463,232 @@ export default function BiometricsLabPage() {
               isLoading={isCleaning}
               className="flex-1 text-xs"
             >
-              <Database className="mr-1.5 h-3.5 w-3.5" /> Run 90-Day Retention Cleanup
+              <Database className="mr-1.5 h-3.5 w-3.5" /> 90-Day Cleanup
             </Button>
           </div>
         </Card>
       </div>
+
+      {/* Multi-Face Gate Performance Benchmark Runner Card (M3) */}
+      <Card className="p-5 border-slate-200">
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
+          <div>
+            <CardTitle className="text-base flex items-center gap-2">
+              <Gauge className="h-5 w-5 text-indigo-600" />
+              <span>Multi-Face Gate Acceleration & Concurrency Benchmark</span>
+            </CardTitle>
+            <CardDescription className="text-xs">
+              Simulates concurrent face passages (1, 2, 3 faces) through the complete deep pipeline to evaluate real-time gate usability (&ge; 2.5 FPS).
+            </CardDescription>
+          </div>
+
+          <Button
+            variant="primary"
+            size="sm"
+            onClick={handleRunBenchmark}
+            isLoading={isBenchmarking}
+            className="flex items-center gap-1.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold"
+          >
+            <Play className="h-3.5 w-3.5" />
+            <span>Run Multi-Face Benchmark</span>
+          </Button>
+        </div>
+
+        {benchmarkError && (
+          <div className="mt-4 flex items-center gap-2 rounded-lg bg-rose-50 border border-rose-200 p-3 text-xs text-rose-800">
+            <AlertCircle className="h-4 w-4 text-rose-600 shrink-0" />
+            <span>{benchmarkError}</span>
+          </div>
+        )}
+
+        {benchmarkResult ? (
+          <div className="mt-5 space-y-5">
+            {/* Hardware specifications banner */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 rounded-xl bg-slate-50 p-3 border border-slate-200 text-xs font-mono">
+              <div>
+                <span className="text-slate-400 block text-[10px] uppercase font-sans">Platform</span>
+                <span className="font-semibold text-slate-800">{benchmarkResult.hardware.platform}</span>
+              </div>
+              <div>
+                <span className="text-slate-400 block text-[10px] uppercase font-sans">CPU Cores</span>
+                <span className="font-semibold text-slate-800">{benchmarkResult.hardware.cpu_count} Logical</span>
+              </div>
+              <div>
+                <span className="text-slate-400 block text-[10px] uppercase font-sans">System RAM</span>
+                <span className="font-semibold text-slate-800">{benchmarkResult.hardware.ram_gb} GB</span>
+              </div>
+              <div>
+                <span className="text-slate-400 block text-[10px] uppercase font-sans">Processor</span>
+                <span className="font-semibold text-slate-800 truncate block" title={benchmarkResult.hardware.processor}>
+                  {benchmarkResult.hardware.processor || "Standard x86_64"}
+                </span>
+              </div>
+            </div>
+
+            {/* Concurrency Scenarios Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {[1, 2, 3].map((faces) => {
+                const res = benchmarkResult.concurrency_results[faces];
+                if (!res) return null;
+                const isUsable = res.usable;
+
+                return (
+                  <div
+                    key={faces}
+                    className={`rounded-xl border p-4 space-y-3 ${
+                      isUsable
+                        ? "border-emerald-200 bg-emerald-50/20"
+                        : "border-amber-200 bg-amber-50/20"
+                    }`}
+                  >
+                    <div className="flex items-center justify-between border-b pb-2">
+                      <div className="flex items-center gap-1.5">
+                        <Badge variant="brand" className="text-xs font-mono py-0.5 px-2">
+                          {faces} Concurrent Face{faces > 1 ? "s" : ""}
+                        </Badge>
+                      </div>
+                      <Badge
+                        variant={isUsable ? "brand" : "warning"}
+                        className={`text-[10px] ${
+                          isUsable
+                            ? "bg-emerald-100 text-emerald-800 border-emerald-300"
+                            : "bg-amber-100 text-amber-800 border-amber-300"
+                        }`}
+                      >
+                        {isUsable ? "Gate Usable" : "Sub-Optimal"}
+                      </Badge>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 text-center py-1">
+                      <div className="rounded-lg bg-white p-2 border border-slate-100 shadow-sm">
+                        <span className="text-[10px] text-slate-400 uppercase block font-sans">Throughput</span>
+                        <span className="text-lg font-bold font-mono text-slate-900">{res.fps} FPS</span>
+                      </div>
+                      <div className="rounded-lg bg-white p-2 border border-slate-100 shadow-sm">
+                        <span className="text-[10px] text-slate-400 uppercase block font-sans">E2E Latency</span>
+                        <span className="text-lg font-bold font-mono text-slate-900">{res.e2e_latency.mean} ms</span>
+                      </div>
+                    </div>
+
+                    <div className="space-y-1.5 text-[11px] font-mono text-slate-600 bg-white/80 p-2.5 rounded-lg border border-slate-200/80">
+                      <div className="flex justify-between">
+                        <span className="text-slate-500 font-sans">Face Detection:</span>
+                        <span>{res.detect_ms} ms</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-500 font-sans">SFace Extraction:</span>
+                        <span>{res.sface_ms} ms</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span className="text-slate-500 font-sans">PAD Anti-Spoof:</span>
+                        <span>{res.liveness_ms} ms</span>
+                      </div>
+                      <div className="flex justify-between border-t pt-1 font-semibold text-slate-800">
+                        <span className="text-slate-600 font-sans">BLAS Search:</span>
+                        <span>{res.vector_search_ms} ms ({res.search_speedup}x speedup)</span>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ) : (
+          <div className="mt-5 rounded-xl border border-dashed border-slate-300 p-8 text-center text-xs text-slate-500">
+            <Gauge className="mx-auto h-8 w-8 text-slate-400 mb-2" />
+            <p className="font-semibold text-slate-700">No Benchmark Data Recorded in Session</p>
+            <p className="mt-1">
+              Click "Run Multi-Face Benchmark" above to measure your workstation/server's OpenCV ONNX execution speeds across 1, 2, and 3 simultaneous passages.
+            </p>
+          </div>
+        )}
+      </Card>
+
+      {/* Modal: Biometric Key Rotation (M2) */}
+      {isRotateModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b pb-3">
+              <div className="flex items-center gap-2">
+                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-indigo-100 text-indigo-700">
+                  <KeyRound className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">Rotate Biometric Keys</h3>
+                  <p className="text-xs text-slate-500">MultiFernet cryptographic key rotation.</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsRotateModalOpen(false)}
+                className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {rotationError && (
+              <div className="flex items-center gap-2 rounded-lg bg-rose-50 p-3 text-xs text-rose-800 border border-rose-200">
+                <AlertCircle className="h-4 w-4 text-rose-600 shrink-0" />
+                <span>{rotationError}</span>
+              </div>
+            )}
+
+            {rotationResult && (
+              <div className="rounded-lg bg-emerald-50 border border-emerald-200 p-3 text-xs text-emerald-800 space-y-1">
+                <div className="font-bold flex items-center gap-1.5">
+                  <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                  <span>Biometric Key Rotation Successful!</span>
+                </div>
+                <p>
+                  Rotated {rotationResult.rotated_count} out of {rotationResult.total_templates} stored face templates in database. In-memory vector cache reloaded.
+                </p>
+              </div>
+            )}
+
+            {!rotationResult && (
+              <div className="space-y-3 text-xs text-slate-600">
+                <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 text-amber-900 space-y-1">
+                  <p className="font-semibold flex items-center gap-1.5">
+                    <AlertTriangle className="h-4 w-4 text-amber-600" />
+                    <span>Atomic In-Place Re-encryption</span>
+                  </p>
+                  <p className="text-[11px] text-amber-800">
+                    This operation decrypts all existing employee biometric embedding vectors with the active key ring and immediately re-encrypts them under the primary derived key. An immutable audit trail entry is automatically registered.
+                  </p>
+                </div>
+                <p>
+                  Are you sure you want to proceed with rotating all template encryption keys now?
+                </p>
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 pt-3 border-t">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setIsRotateModalOpen(false)}
+                disabled={isRotating}
+              >
+                {rotationResult ? "Close" : "Cancel"}
+              </Button>
+
+              {!rotationResult && (
+                <Button
+                  type="button"
+                  variant="primary"
+                  size="sm"
+                  onClick={handleRotateKeys}
+                  isLoading={isRotating}
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-medium"
+                >
+                  Confirm Key Rotation
+                </Button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
     </AuthGuard>
   );
