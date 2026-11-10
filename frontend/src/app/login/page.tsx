@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useState } from "react";
-import { useRouter } from "next/navigation";
+import React, { useState, Suspense } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -15,10 +15,22 @@ import {
   ShieldCheck,
   AlertCircle,
   ArrowRight,
+  Clock,
+  RefreshCw,
 } from "lucide-react";
 
-export default function LoginPage() {
+function LoginForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const rawRedirect = searchParams.get("redirect") || searchParams.get("next") || "";
+  const isExpired = searchParams.get("expired") === "1" || searchParams.get("reason") === "unauthorized";
+
+  // Sanitize redirect target to ensure it is relative (prevent open-redirect attack)
+  const targetDestination =
+    rawRedirect && rawRedirect.startsWith("/") && !rawRedirect.startsWith("//")
+      ? rawRedirect
+      : "/dashboard";
+
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
@@ -37,8 +49,8 @@ export default function LoginPage() {
 
     try {
       await api.login(username.trim(), password);
-      // Redirect to HR Dashboard upon successful sign-in
-      router.push("/dashboard");
+      // Redirect to preserved destination upon successful sign-in
+      router.push(targetDestination);
     } catch (err: any) {
       setErrorMessage(err.message || "Invalid credentials. Please verify and try again.");
     } finally {
@@ -77,6 +89,18 @@ export default function LoginPage() {
           </CardHeader>
 
           <CardContent className="space-y-4">
+            {/* Session Expired / Redirection Notification */}
+            {isExpired && !errorMessage && (
+              <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-300">
+                <Clock className="h-4 w-4 shrink-0 text-amber-600 mt-0.5" />
+                <div>
+                  <span className="font-semibold">Session Expired:</span> Please sign in again. You will be redirected back to{" "}
+                  <code className="font-mono bg-amber-100 px-1 py-0.5 rounded text-[11px]">{targetDestination}</code> upon authentication.
+                </div>
+              </div>
+            )}
+
+            {/* Error Banner */}
             {errorMessage && (
               <div className="flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800 dark:border-rose-900/60 dark:bg-rose-950/40 dark:text-rose-300">
                 <AlertCircle className="h-4 w-4 shrink-0 text-rose-500 mt-0.5" />
@@ -154,3 +178,16 @@ export default function LoginPage() {
   );
 }
 
+export default function LoginPage() {
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-[80vh] items-center justify-center">
+          <RefreshCw className="h-6 w-6 animate-spin text-blue-600" />
+        </div>
+      }
+    >
+      <LoginForm />
+    </Suspense>
+  );
+}

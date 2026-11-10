@@ -378,6 +378,7 @@ export function getStoredToken(): string | null {
 export function setStoredToken(token: string): void {
   if (typeof window !== "undefined") {
     localStorage.setItem("eipc_jwt_token", token);
+    document.cookie = `eipc_jwt_token=${encodeURIComponent(token)}; path=/; max-age=86400; SameSite=Lax`;
   }
 }
 
@@ -385,6 +386,7 @@ export function removeStoredToken(): void {
   if (typeof window !== "undefined") {
     localStorage.removeItem("eipc_jwt_token");
     localStorage.removeItem("eipc_user");
+    document.cookie = "eipc_jwt_token=; path=/; max-age=0; expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax";
   }
 }
 
@@ -397,6 +399,29 @@ export function getStoredUser(): UserProfile | null {
   } catch {
     return null;
   }
+}
+
+let isRedirectingToLogin = false;
+
+/**
+ * Centralized 401 Unauthorized handler.
+ * Clears expired credentials and redirects to login while preserving the intended destination.
+ */
+export function handleUnauthorized(currentPath?: string): void {
+  removeStoredToken();
+  if (typeof window === "undefined" || isRedirectingToLogin) return;
+
+  const pathname = window.location.pathname;
+  if (pathname === "/login") return;
+
+  // Public kiosk & entrance terminals handle their own terminal errors without hijacking the screen
+  const isPublicTerminal = pathname.startsWith("/kiosk") || pathname.startsWith("/entrance");
+  if (isPublicTerminal && !currentPath) return;
+
+  isRedirectingToLogin = true;
+  const destination = currentPath || (window.location.pathname + window.location.search);
+  const targetUrl = `/login?redirect=${encodeURIComponent(destination)}&expired=1`;
+  window.location.href = targetUrl;
 }
 
 async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
@@ -417,8 +442,8 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
   });
 
   if (res.status === 401 && endpoint !== "/api/auth/login") {
-    // Clear invalid / expired session tokens
-    removeStoredToken();
+    // Clear invalid / expired session tokens and redirect to login preserving destination
+    handleUnauthorized();
     let errMessage = "Authentication required. Please log in.";
     try {
       const errJson = await res.json();

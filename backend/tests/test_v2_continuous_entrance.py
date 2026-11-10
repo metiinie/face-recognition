@@ -280,6 +280,21 @@ def test_v2_gate_api_endpoints(client, app):
     sim_data = sim_res.get_json()
     assert sim_data["faces_detected"] == 2
 
+    # 5. Gate Acceleration Benchmark Endpoint
+    bench_res = client.post(
+        "/api/v2/entrance/benchmark",
+        headers={"Authorization": f"Bearer {token}"},
+        json={
+            "face_counts": [1],
+            "num_samples": 1,
+            "num_enrolled": 5,
+        },
+    )
+    assert bench_res.status_code == 200
+    bench_data = bench_res.get_json()
+    assert "concurrency_results" in bench_data
+    assert "hardware" in bench_data
+
 
 def test_v2_gate_physical_lane_separation(app):
     """Verify dedicated physical IN gate and dedicated physical OUT gate prevent direction inference guessing."""

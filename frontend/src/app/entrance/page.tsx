@@ -263,55 +263,83 @@ export default function ContinuousEntrancePage() {
       const w = bw;
       const h = bh;
 
-      // Color scheme based on status
-      let strokeColor = "#10b981"; // emerald for confirmed
-      let fillColor = "rgba(16, 185, 129, 0.12)";
-      let tagText = "PASSAGE CONFIRMED";
+      // Color scheme based on status:
+      // Neutral default for NONE / unknown / unconfirmed faces (never default to green or confirmed)
+      let strokeColor = "#64748b"; // Neutral slate-500
+      let fillColor = "rgba(100, 116, 139, 0.10)";
+      let tagText = "DETECTING...";
 
-      if (face.action_status === "COOLDOWN_ACTIVE") {
-        strokeColor = "#f59e0b"; // amber
-        fillColor = "rgba(245, 158, 11, 0.12)";
-        tagText = "COOLDOWN (PASSAGE LOGGED)";
-      } else if (face.action_status === "ACQUIRING_TRACK") {
-        strokeColor = "#0284c7"; // sky blue
-        fillColor = "rgba(2, 132, 199, 0.12)";
-        tagText = `TRACKING (${face.frames_seen || 1}/${gateStatus?.min_persistence_frames || 3} FRAMES)`;
-      } else if (face.action_status === "UNCERTAIN_TRACK") {
-        strokeColor = "#eab308"; // yellow
-        fillColor = "rgba(234, 179, 8, 0.12)";
-        tagText = "IDENTITY UNCERTAIN (STEP CLOSER)";
-      } else if (face.action_status === "ALREADY_PUNCHED_IN_PASSAGE") {
-        strokeColor = "#059669"; // green
-        fillColor = "rgba(5, 150, 105, 0.12)";
-        tagText = "PASSAGE AUTHORIZED";
-      } else if (face.action_status === "SPOOF_BLOCKED") {
-        strokeColor = "#dc2626"; // red
+      const actionStatus = face.action_status || "NONE";
+
+      if (actionStatus === "CONFIRMED") {
+        // Green — Passage confirmed
+        strokeColor = "#10b981"; // emerald-500
+        fillColor = "rgba(16, 185, 129, 0.16)";
+        tagText = face.attendance_action === "CHECK_OUT" ? "CHECK-OUT CONFIRMED" : "PASSAGE CONFIRMED";
+      } else if (actionStatus === "REJECTED") {
+        // Red — Recognition rejected
+        strokeColor = "#ef4444"; // red-500
+        fillColor = "rgba(239, 68, 68, 0.20)";
+        tagText = "RECOGNITION REJECTED";
+      } else if (actionStatus === "INACTIVE_BLOCKED") {
+        // Red — Employee inactive
+        strokeColor = "#dc2626"; // red-600
+        fillColor = "rgba(220, 38, 38, 0.20)";
+        tagText = "EMPLOYEE INACTIVE";
+      } else if (actionStatus === "SPOOF_BLOCKED") {
+        // Red — Presentation attack / spoof detected
+        strokeColor = "#dc2626"; // red-600
         fillColor = "rgba(220, 38, 38, 0.22)";
         tagText = "SPOOF ATTACK BLOCKED";
-      } else if (face.action_status === "CONSENT_BLOCKED" || face.status === "CONSENT_NOT_VERIFIED") {
-        strokeColor = "#dc2626"; // red
+      } else if (actionStatus === "CONSENT_BLOCKED" || face.status === "CONSENT_NOT_VERIFIED") {
+        // Red — Biometric consent unverified / revoked
+        strokeColor = "#dc2626"; // red-600
         fillColor = "rgba(220, 38, 38, 0.22)";
-        tagText = "CONSENT NOT VERIFIED (BLOCKED)";
-      } else if (face.action_status === "STATIONARY_LINGER") {
-        strokeColor = "#7c3aed"; // violet
-        fillColor = "rgba(124, 58, 237, 0.12)";
-        tagText = "STEP FORWARD TO REGISTER";
-      } else if (face.action_status === "ALREADY_CHECKED_IN") {
-        strokeColor = "#0891b2"; // cyan
-        fillColor = "rgba(8, 145, 178, 0.12)";
+        tagText = "CONSENT NOT VERIFIED";
+      } else if (actionStatus === "COOLDOWN_ACTIVE") {
+        // Amber — Please wait (Cooldown active)
+        strokeColor = "#f59e0b"; // amber-500
+        fillColor = "rgba(245, 158, 11, 0.15)";
+        tagText = "PLEASE WAIT (COOLDOWN)";
+      } else if (actionStatus === "ACQUIRING_TRACK") {
+        // Blue — Tracking
+        strokeColor = "#0284c7"; // sky-600
+        fillColor = "rgba(2, 132, 199, 0.15)";
+        const targetFrames = gateStatus?.min_persistence_frames || 3;
+        tagText = `TRACKING (${face.frames_seen || 1}/${targetFrames} FRAMES)`;
+      } else if (actionStatus === "ALREADY_PUNCHED_IN_PASSAGE") {
+        strokeColor = "#059669"; // teal/emerald-600
+        fillColor = "rgba(5, 150, 105, 0.14)";
+        tagText = "PASSAGE ALREADY RECORDED";
+      } else if (actionStatus === "ALREADY_CHECKED_IN") {
+        strokeColor = "#0891b2"; // cyan-600
+        fillColor = "rgba(8, 145, 178, 0.14)";
         tagText = "ALREADY CHECKED IN";
-      } else if (face.action_status === "NO_OPEN_SESSION") {
-        strokeColor = "#db2777"; // pink
-        fillColor = "rgba(219, 39, 119, 0.12)";
+      } else if (actionStatus === "NO_OPEN_SESSION") {
+        strokeColor = "#db2777"; // pink-600
+        fillColor = "rgba(219, 39, 119, 0.14)";
         tagText = "NO OPEN SESSION (CANNOT EXIT)";
-      } else if (face.status === "UNKNOWN_FACE" || face.action_status === "UNKNOWN_VISITOR") {
-        strokeColor = "#f43f5e"; // rose
-        fillColor = "rgba(244, 63, 94, 0.15)";
+      } else if (actionStatus === "STATIONARY_LINGER") {
+        strokeColor = "#7c3aed"; // violet-600
+        fillColor = "rgba(124, 58, 237, 0.14)";
+        tagText = "STEP FORWARD TO REGISTER";
+      } else if (actionStatus === "UNKNOWN_VISITOR" || face.status === "UNKNOWN_FACE") {
+        strokeColor = "#f43f5e"; // rose-500
+        fillColor = "rgba(244, 63, 94, 0.16)";
         tagText = "UNKNOWN VISITOR";
-      } else if (face.status === "UNCERTAIN_MATCH") {
-        strokeColor = "#eab308"; // yellow
-        fillColor = "rgba(234, 179, 8, 0.12)";
-        tagText = "UNCERTAIN CANDIDATE";
+      } else if (
+        actionStatus === "UNCERTAIN_TRACK" ||
+        actionStatus === "UNCERTAIN_CANDIDATE" ||
+        face.status === "UNCERTAIN_MATCH"
+      ) {
+        strokeColor = "#eab308"; // yellow-500
+        fillColor = "rgba(234, 179, 8, 0.15)";
+        tagText = "IDENTITY UNCERTAIN (STEP CLOSER)";
+      } else {
+        // Neutral — Detecting (NONE, uncommitted, or unknown)
+        strokeColor = "#64748b";
+        fillColor = "rgba(100, 116, 139, 0.10)";
+        tagText = "DETECTING...";
       }
 
       // Draw box with rounded aesthetic
@@ -350,10 +378,30 @@ export default function ContinuousEntrancePage() {
       ctx.stroke();
 
       // Top Tag Badge
-      const name = face.employee ? face.employee.full_name : tagText;
-      const sub = face.employee
-        ? `${face.employee.employee_number} • ${Math.round(face.recognition_score * 100)}% • ${face.motion_direction || "APPROACHING"}`
-        : `Track #${face.track_id} • ${face.motion_direction || "ACQUIRING"}`;
+      let name = tagText;
+      let sub = `Track #${face.track_id} • ${face.motion_direction || "ACQUIRING"}`;
+
+      if (face.employee) {
+        if (actionStatus === "CONFIRMED") {
+          name = `${face.employee.full_name} • ${face.attendance_action === "CHECK_OUT" ? "OUT" : "IN"}`;
+          sub = `${face.employee.employee_number} • ${Math.round(face.recognition_score * 100)}% • ${face.motion_direction || "APPROACHING"}`;
+        } else if (actionStatus === "INACTIVE_BLOCKED") {
+          name = `${face.employee.full_name} (INACTIVE)`;
+          sub = `ACCESS BLOCKED • ${face.employee.employee_number}`;
+        } else if (actionStatus === "REJECTED") {
+          name = `${face.employee.full_name} (REJECTED)`;
+          sub = `RECOGNITION REJECTED • ${face.employee.employee_number}`;
+        } else if (actionStatus === "COOLDOWN_ACTIVE") {
+          name = `${face.employee.full_name} (PLEASE WAIT)`;
+          sub = `COOLDOWN ACTIVE • ${face.employee.employee_number}`;
+        } else if (actionStatus === "ACQUIRING_TRACK") {
+          name = `${face.employee.full_name} (TRACKING)`;
+          sub = `Acquiring ${face.frames_seen || 1}/${gateStatus?.min_persistence_frames || 3} • ${face.employee.employee_number}`;
+        } else {
+          name = face.employee.full_name;
+          sub = `${face.employee.employee_number} • ${Math.round(face.recognition_score * 100)}% • ${tagText}`;
+        }
+      }
 
       ctx.fillStyle = strokeColor;
       ctx.fillRect(drawX, Math.max(0, y - 26), Math.max(130, w * 0.9), 26);
@@ -365,8 +413,8 @@ export default function ContinuousEntrancePage() {
       ctx.font = "9px monospace";
       ctx.fillText(sub, drawX + 6, Math.max(24, y - 2));
 
-      // Action punch indicator at bottom of box
-      if (face.attendance_action) {
+      // Action punch indicator at bottom of box — ONLY rendered when action was actually confirmed
+      if (actionStatus === "CONFIRMED" && face.attendance_action) {
         ctx.fillStyle = face.attendance_action === "CHECK_IN" ? "#047857" : "#1d4ed8";
         ctx.fillRect(drawX, y + h, Math.max(100, w * 0.8), 20);
         ctx.fillStyle = "#ffffff";
@@ -1039,9 +1087,17 @@ export default function ContinuousEntrancePage() {
                           <Badge variant="success" className="text-[10px]">
                             {face.attendance_action}
                           </Badge>
+                        ) : face.action_status === "REJECTED" ? (
+                          <Badge variant="danger" className="text-[10px]">
+                            REJECTED
+                          </Badge>
+                        ) : face.action_status === "INACTIVE_BLOCKED" ? (
+                          <Badge variant="danger" className="text-[10px]">
+                            INACTIVE
+                          </Badge>
                         ) : face.action_status === "COOLDOWN_ACTIVE" || face.action_status === "ALREADY_PUNCHED_IN_PASSAGE" ? (
                           <Badge variant="warning" className="text-[10px]">
-                            PASSAGE LOGGED
+                            PLEASE WAIT
                           </Badge>
                         ) : face.action_status === "ACQUIRING_TRACK" ? (
                           <Badge variant="brand" className="text-[10px]">
@@ -1067,9 +1123,13 @@ export default function ContinuousEntrancePage() {
                           <Badge variant="danger" className="text-[10px]">
                             CONSENT BLOCKED
                           </Badge>
-                        ) : face.matched ? (
+                        ) : face.matched && face.action_status !== "NONE" ? (
                           <Badge variant="success" className="text-[10px]">
                             VERIFIED
+                          </Badge>
+                        ) : face.action_status === "NONE" ? (
+                          <Badge variant="brand" className="text-[10px] bg-slate-100 text-slate-700 border-slate-300">
+                            DETECTING
                           </Badge>
                         ) : (
                           <div className="flex items-center gap-1">

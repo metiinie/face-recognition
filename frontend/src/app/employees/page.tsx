@@ -5,6 +5,7 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/com
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { CameraCapture } from "@/components/CameraCapture";
+import { AuthGuard } from "@/components/AuthGuard";
 import { api, EmployeeRecord } from "@/lib/api";
 import {
   Users,
@@ -257,7 +258,8 @@ export default function EmployeesPage() {
   };
 
   return (
-    <div className="space-y-6">
+    <AuthGuard>
+      <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-slate-200 pb-5">
         <div>
@@ -989,6 +991,7 @@ export default function EmployeesPage() {
         </div>
       )}
     </div>
+    </AuthGuard>
   );
 }
 

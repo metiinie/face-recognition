@@ -1756,7 +1756,7 @@ def api_v2_entrance_simulate():
 
 
 @api_bp.route("/v2/entrance/benchmark", methods=["POST"])
-@admin_required
+@login_required
 def api_v2_gate_benchmark():
     """
     Execute on-demand multi-face gate acceleration benchmark across concurrent face counts.

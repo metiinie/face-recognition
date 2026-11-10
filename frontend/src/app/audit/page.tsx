@@ -4,6 +4,7 @@ import React, { useState, useEffect } from "react";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
+import { AuthGuard } from "@/components/AuthGuard";
 import { api } from "@/lib/api";
 import {
   ShieldAlert,
@@ -139,7 +140,8 @@ export default function AuditReviewPage() {
     : auditLogs;
 
   return (
-    <div className="space-y-6">
+    <AuthGuard>
+      <div className="space-y-6">
       {/* Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-slate-200 pb-5">
         <div>
@@ -488,6 +490,7 @@ export default function AuditReviewPage() {
         </div>
       )}
     </div>
+    </AuthGuard>
   );
 }
 
