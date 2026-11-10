@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { CameraCapture } from "@/components/CameraCapture";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/Card";
@@ -38,6 +38,59 @@ export default function KioskPage() {
   const [autoConfirmCountdown, setAutoConfirmCountdown] = useState<number | null>(null);
   const [isOnline, setIsOnline] = useState<boolean>(true);
   const [offlineQueueCount, setOfflineQueueCount] = useState<number>(0);
+  const [isSyncingQueue, setIsSyncingQueue] = useState<boolean>(false);
+  const [syncFeedback, setSyncFeedback] = useState<string | null>(null);
+
+  const syncOfflineQueue = useCallback(async () => {
+    if (typeof window === "undefined" || isSyncingQueue) return;
+    try {
+      const stored = localStorage.getItem("eipc_offline_kiosk_queue");
+      if (!stored) return;
+      const queue: Array<{
+        recognition_token: string;
+        station_id: string;
+        event_type?: "CHECK_IN" | "CHECK_OUT" | "AUTO";
+        timestamp: string;
+      }> = JSON.parse(stored);
+      if (!Array.isArray(queue) || queue.length === 0) return;
+
+      setIsSyncingQueue(true);
+      setSyncFeedback(null);
+      const remaining: typeof queue = [];
+      let syncedCount = 0;
+
+      for (const item of queue) {
+        try {
+          await api.confirmAttendance({
+            recognition_token: item.recognition_token,
+            station_id: item.station_id || stationId,
+            event_type: item.event_type === "AUTO" ? undefined : item.event_type,
+          });
+          syncedCount++;
+        } catch (err: any) {
+          if (
+            err.message?.includes("Failed to fetch") ||
+            err.message?.includes("NetworkError") ||
+            err.message?.includes("Failed to communicate")
+          ) {
+            remaining.push(item);
+          } else {
+            console.warn("Discarded unprocessable or expired offline punch:", err);
+          }
+        }
+      }
+
+      localStorage.setItem("eipc_offline_kiosk_queue", JSON.stringify(remaining));
+      setOfflineQueueCount(remaining.length);
+      if (syncedCount > 0) {
+        setSyncFeedback(`Successfully synchronized ${syncedCount} buffered offline punch${syncedCount === 1 ? "" : "es"}.`);
+      }
+    } catch (err) {
+      console.error("Failed to sync offline kiosk queue:", err);
+    } finally {
+      setIsSyncingQueue(false);
+    }
+  }, [isSyncingQueue, stationId]);
 
   useEffect(() => {
     api.getStationDirectory()
@@ -57,7 +110,10 @@ export default function KioskPage() {
     // Network & offline queue listeners
     if (typeof window !== "undefined") {
       setIsOnline(navigator.onLine);
-      const handleOnline = () => setIsOnline(true);
+      const handleOnline = () => {
+        setIsOnline(true);
+        syncOfflineQueue();
+      };
       const handleOffline = () => setIsOnline(false);
       window.addEventListener("online", handleOnline);
       window.addEventListener("offline", handleOffline);
@@ -66,7 +122,12 @@ export default function KioskPage() {
         const stored = localStorage.getItem("eipc_offline_kiosk_queue");
         if (stored) {
           const parsed = JSON.parse(stored);
-          if (Array.isArray(parsed)) setOfflineQueueCount(parsed.length);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setOfflineQueueCount(parsed.length);
+            if (navigator.onLine) {
+              setTimeout(() => syncOfflineQueue(), 1200);
+            }
+          }
         }
       } catch {}
 
@@ -75,7 +136,7 @@ export default function KioskPage() {
         window.removeEventListener("offline", handleOffline);
       };
     }
-  }, []);
+  }, [syncOfflineQueue]);
 
   const [isProcessing, setIsProcessing] = useState(false);
   const [isConfirming, setIsConfirming] = useState(false);
@@ -314,6 +375,20 @@ export default function KioskPage() {
             </span>
           )}
 
+          {/* Offline Buffer Sync Button (E4) */}
+          {offlineQueueCount > 0 && (
+            <button
+              type="button"
+              onClick={syncOfflineQueue}
+              disabled={isSyncingQueue || !isOnline}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-amber-500/25 px-2.5 py-1 text-xs font-semibold text-amber-200 border border-amber-400/40 hover:bg-amber-500/35 transition-colors disabled:opacity-50"
+              title="Click to immediately synchronize buffered offline records with attendance server"
+            >
+              <RefreshCw className={`h-3 w-3 ${isSyncingQueue ? "animate-spin" : ""}`} />
+              <span>{isSyncingQueue ? "Syncing..." : `Sync ${offlineQueueCount} Offline`}</span>
+            </button>
+          )}
+
           {/* Touchless Auto-Punch Toggle (E3) */}
           <button
             type="button"
@@ -379,6 +454,18 @@ export default function KioskPage() {
             {enrollSuccess}
           </span>
           <button onClick={() => setEnrollSuccess(null)} className="text-slate-400 hover:text-slate-600">✕</button>
+        </div>
+      )}
+
+      {syncFeedback && (
+        <div className="rounded-xl border border-emerald-300 bg-emerald-50 p-3.5 text-xs font-medium text-emerald-800 flex items-center justify-between shadow-xs">
+          <span className="flex items-center gap-2">
+            <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+            {syncFeedback}
+          </span>
+          <button onClick={() => setSyncFeedback(null)} className="text-emerald-700 hover:text-emerald-900 underline text-[11px] font-semibold">
+            Dismiss
+          </button>
         </div>
       )}
 

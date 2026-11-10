@@ -68,6 +68,8 @@ export default function ContinuousEntrancePage() {
     host: string;
   } | null>(null);
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
+  const [isAudioSuspended, setIsAudioSuspended] = useState<boolean>(false);
+  const audioCtxRef = useRef<AudioContext | null>(null);
 
   // Telemetry & metrics
   const [fps, setFps] = useState<number>(0);
@@ -193,16 +195,61 @@ export default function ContinuousEntrancePage() {
     };
   }, [selectedStation, fetchGateData]);
 
+  // Audio Context Singleton & Autoplay Policy Resilience (E2)
+  const getAudioContext = useCallback((): AudioContext | null => {
+    if (typeof window === "undefined") return null;
+    try {
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!AudioCtx) return null;
+      if (!audioCtxRef.current) {
+        audioCtxRef.current = new AudioCtx();
+      }
+      return audioCtxRef.current;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  useEffect(() => {
+    const unlockAudio = () => {
+      const ctx = getAudioContext();
+      if (ctx && ctx.state === "suspended") {
+        ctx.resume().then(() => {
+          setIsAudioSuspended(false);
+        }).catch(() => {});
+      } else if (ctx && ctx.state === "running") {
+        setIsAudioSuspended(false);
+      }
+    };
+
+    if (typeof window !== "undefined") {
+      window.addEventListener("click", unlockAudio, { passive: true });
+      window.addEventListener("touchstart", unlockAudio, { passive: true });
+      window.addEventListener("keydown", unlockAudio, { passive: true });
+
+      return () => {
+        window.removeEventListener("click", unlockAudio);
+        window.removeEventListener("touchstart", unlockAudio);
+        window.removeEventListener("keydown", unlockAudio);
+      };
+    }
+  }, [getAudioContext]);
+
   // Audio Chime Synthesizer
   const playSoundChime = (type: "success" | "warning") => {
     if (!soundEnabled || typeof window === "undefined") return;
     try {
-      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-      if (!AudioCtx) return;
-      const ctx = new AudioCtx();
+      const ctx = getAudioContext();
+      if (!ctx) return;
       if (ctx.state === "suspended") {
-        ctx.resume().catch(() => {});
+        setIsAudioSuspended(true);
+        ctx.resume().then(() => {
+          setIsAudioSuspended(false);
+        }).catch(() => {});
+        return;
       }
+      setIsAudioSuspended(false);
+
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.connect(gain);
@@ -915,11 +962,33 @@ export default function ContinuousEntrancePage() {
             <span className="hidden sm:inline">Gate Tuning</span>
           </Button>
 
+          {/* Audio Autoplay Warning Pill (E2) */}
+          {soundEnabled && isAudioSuspended && (
+            <button
+              onClick={() => {
+                const ctx = getAudioContext();
+                ctx?.resume().then(() => setIsAudioSuspended(false)).catch(() => {});
+              }}
+              className="flex items-center gap-1.5 rounded-lg bg-amber-500/15 px-2.5 py-1 text-xs font-medium text-amber-700 dark:text-amber-400 border border-amber-300 dark:border-amber-500/30 hover:bg-amber-500/25 transition-colors"
+              title="Browser autoplay policy suspended gate audio chimes. Click to enable sound."
+            >
+              <VolumeX className="h-3.5 w-3.5 text-amber-500 animate-pulse" />
+              <span className="hidden sm:inline">Tap to Enable Sound</span>
+            </button>
+          )}
+
           {/* Sound Toggle */}
           <Button
             variant="outline"
             size="sm"
-            onClick={() => setSoundEnabled(!soundEnabled)}
+            onClick={() => {
+              const next = !soundEnabled;
+              setSoundEnabled(next);
+              if (next) {
+                const ctx = getAudioContext();
+                ctx?.resume().then(() => setIsAudioSuspended(false)).catch(() => {});
+              }
+            }}
             title={soundEnabled ? "Mute Gate Chime" : "Enable Gate Chime"}
           >
             {soundEnabled ? (
