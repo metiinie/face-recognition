@@ -739,15 +739,15 @@ export default function ContinuousEntrancePage() {
               Screen V2 — Continuous-Entrance Multi-Face Gate
             </h1>
             <Badge variant="brand" className="text-xs">Option B • Autonomous</Badge>
-            {isWsConnected ? (
+            {transportMode === "WEBSOCKET" && isWsConnected ? (
               <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-xs font-semibold text-emerald-700 border border-emerald-500/20">
-                <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
+                <Radio className="h-3 w-3 text-emerald-600 animate-pulse" />
                 WebSocket Live
               </span>
             ) : (
               <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/10 px-2.5 py-0.5 text-xs font-medium text-amber-700 border border-amber-500/20">
-                <span className="h-2 w-2 rounded-full bg-amber-500" />
-                HTTP Mode
+                <Radio className="h-3 w-3 text-amber-600" />
+                HTTP Polling Fallback
               </span>
             )}
           </div>
@@ -810,6 +810,18 @@ export default function ContinuousEntrancePage() {
               Auto-Detect
             </button>
           </div>
+
+          {/* Gate Tuning Button (M4) */}
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setIsSettingsOpen(true)}
+            className="flex items-center gap-1.5 border-slate-300 text-slate-700 hover:bg-slate-50"
+            title="Configure Gate Timing & Persistence"
+          >
+            <Sliders className="h-3.5 w-3.5 text-slate-500" />
+            <span className="hidden sm:inline">Gate Tuning</span>
+          </Button>
 
           {/* Sound Toggle */}
           <Button
