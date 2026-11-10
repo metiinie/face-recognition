@@ -282,14 +282,20 @@ export interface KeyRotationResponse {
 }
 
 export interface BackupRecord {
-  archive_name: string;
-  archive_path: string;
-  checksum_path: string;
+  archive_name?: string;
+  filename?: string;
+  archive_path?: string;
+  path?: string;
+  checksum_path?: string;
   size_bytes: number;
-  size_human: string;
+  size_human?: string;
+  size_kb?: number;
   created_at: string;
-  has_valid_checksum: boolean;
-  checksum_sha256: string;
+  mtime?: number;
+  has_valid_checksum?: boolean;
+  has_checksum?: boolean;
+  checksum_sha256?: string;
+  sha256?: string;
 }
 
 export interface BackupListResponse {
@@ -299,34 +305,50 @@ export interface BackupListResponse {
 
 export interface BackupCreationResponse {
   status: string;
-  archive_name: string;
-  archive_path: string;
-  checksum_path: string;
-  sha256: string;
+  archive_name?: string;
+  filename?: string;
+  archive_path?: string;
+  path?: string;
+  checksum_path?: string;
+  sha256?: string;
   size_bytes: number;
-  tables_included: string[];
+  size_kb?: number;
+  tables_included?: string[];
+  table_counts?: Record<string, number>;
+  total_records?: number;
 }
 
 export interface BackupVerificationResponse {
   valid: boolean;
-  archive_name: string;
-  calculated_sha256: string;
-  expected_sha256: string;
-  checksum_matched: boolean;
-  decompressed_size_bytes: number;
-  tables_found: string[];
-  tables_missing: string[];
+  archive_name?: string;
+  filename?: string;
+  calculated_sha256?: string;
+  expected_sha256?: string;
+  sha256?: string;
+  checksum_matched?: boolean;
+  decompressed_size_bytes?: number;
+  tables_found?: string[];
+  tables_missing?: string[];
+  table_counts?: Record<string, number>;
+  total_records?: number;
+  schema_version?: string;
+  issues?: string[];
   error?: string;
 }
 
 export interface BackupRestoreResponse {
   status: string;
-  archive_name: string;
-  records_restored: Record<string, number>;
-  total_records_restored: number;
-  relational_integrity: {
-    foreign_keys_valid: boolean;
-    broken_constraints: any[];
+  archive_name?: string;
+  filename?: string;
+  restored_at?: string;
+  records_restored?: Record<string, number>;
+  total_records_restored?: number;
+  restored_records?: number;
+  relational_integrity?: {
+    valid?: boolean;
+    foreign_keys_valid?: boolean;
+    broken_constraints?: any[];
+    [key: string]: any;
   };
 }
 

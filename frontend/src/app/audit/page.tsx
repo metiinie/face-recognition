@@ -5,7 +5,7 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/com
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { AuthGuard } from "@/components/AuthGuard";
-import { api } from "@/lib/api";
+import { api, BackupRecord, BackupVerificationResponse, BackupRestoreResponse } from "@/lib/api";
 import {
   ShieldAlert,
   ShieldCheck,
@@ -20,15 +20,52 @@ import {
   CheckCircle2,
   X,
   PlusCircle,
+  Database,
+  HardDrive,
+  RotateCcw,
+  Trash2,
+  Shield,
+  AlertCircle,
+  Download,
+  Lock,
 } from "lucide-react";
 
 export default function AuditReviewPage() {
+  const [activeTab, setActiveTab] = useState<"logs" | "reviews" | "backups">("logs");
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
   const [reviewCases, setReviewCases] = useState<any[]>([]);
   const [employees, setEmployees] = useState<any[]>([]);
   const [stations, setStations] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [filterAction, setFilterAction] = useState<string>("");
+
+  // Backups & Disaster Recovery state
+  const [backups, setBackups] = useState<BackupRecord[]>([]);
+  const [isLoadingBackups, setIsLoadingBackups] = useState<boolean>(false);
+  const [isCreatingBackup, setIsCreatingBackup] = useState<boolean>(false);
+  const [isPruningBackups, setIsPruningBackups] = useState<boolean>(false);
+  const [backupActionMsg, setBackupActionMsg] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const [verifyResults, setVerifyResults] = useState<Record<string, BackupVerificationResponse>>({});
+  const [isVerifying, setIsVerifying] = useState<Record<string, boolean>>({});
+  const [showCreateModal, setShowCreateModal] = useState<boolean>(false);
+  const [backupLabel, setBackupLabel] = useState<string>("manual_snapshot");
+
+  // Restore Modal State
+  const [restoreModal, setRestoreModal] = useState<{
+    isOpen: boolean;
+    filename: string | null;
+    confirmText: string;
+    isRestoring: boolean;
+    report: BackupRestoreResponse | null;
+    error: string | null;
+  }>({
+    isOpen: false,
+    filename: null,
+    confirmText: "",
+    isRestoring: false,
+    report: null,
+    error: null,
+  });
 
   // Manual Attendance Approval Modal
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
@@ -65,9 +102,98 @@ export default function AuditReviewPage() {
     }
   };
 
+  const fetchBackups = async () => {
+    setIsLoadingBackups(true);
+    try {
+      const res = await api.listBackups();
+      setBackups(res.backups || []);
+    } catch (err: any) {
+      console.error("Failed to load backups:", err);
+    } finally {
+      setIsLoadingBackups(false);
+    }
+  };
+
   useEffect(() => {
     fetchData();
+    fetchBackups();
   }, []);
+
+  const handleCreateBackup = async () => {
+    setIsCreatingBackup(true);
+    setBackupActionMsg(null);
+    try {
+      const res = await api.createBackup({ label: backupLabel.trim() || "manual_snapshot" });
+      setShowCreateModal(false);
+      setBackupActionMsg({
+        type: "success",
+        text: `Backup snapshot created: ${res.filename || res.archive_name} (${res.size_kb || Math.round(res.size_bytes / 1024)} KB, ${res.total_records || "all"} records).`,
+      });
+      await fetchBackups();
+    } catch (err: any) {
+      setBackupActionMsg({ type: "error", text: err.message || "Failed to create database backup snapshot." });
+    } finally {
+      setIsCreatingBackup(false);
+    }
+  };
+
+  const handleVerifyBackup = async (filename: string) => {
+    setIsVerifying((prev) => ({ ...prev, [filename]: true }));
+    try {
+      const report = await api.verifyBackup(filename);
+      setVerifyResults((prev) => ({ ...prev, [filename]: report }));
+      setBackupActionMsg({
+        type: report.valid ? "success" : "error",
+        text: report.valid
+          ? `Integrity verified for ${filename}: SHA-256 match, ${report.total_records || "all"} records intact.`
+          : `Integrity check failed: ${report.issues?.join(", ") || report.error}`,
+      });
+    } catch (err: any) {
+      setBackupActionMsg({ type: "error", text: err.message || `Integrity verification failed for ${filename}` });
+    } finally {
+      setIsVerifying((prev) => ({ ...prev, [filename]: false }));
+    }
+  };
+
+  const handlePruneBackups = async () => {
+    if (
+      !window.confirm(
+        "Apply 30-day retention pruning? Archives older than 30 days will be removed, preserving at least 5 minimum snapshots."
+      )
+    ) {
+      return;
+    }
+    setIsPruningBackups(true);
+    setBackupActionMsg(null);
+    try {
+      const res = await api.pruneBackups({ retention_days: 30, keep_minimum: 5 });
+      setBackupActionMsg({
+        type: "success",
+        text: `Pruning completed: ${res.pruned_count} archives removed. ${res.remaining_count} backups retained.`,
+      });
+      await fetchBackups();
+    } catch (err: any) {
+      setBackupActionMsg({ type: "error", text: err.message || "Failed to prune expired backups." });
+    } finally {
+      setIsPruningBackups(false);
+    }
+  };
+
+  const handleRestoreBackup = async () => {
+    if (!restoreModal.filename || restoreModal.confirmText !== "RESTORE") return;
+    setRestoreModal((prev) => ({ ...prev, isRestoring: true, error: null, report: null }));
+    try {
+      const res = await api.restoreBackup(restoreModal.filename);
+      setRestoreModal((prev) => ({ ...prev, isRestoring: false, report: res }));
+      setBackupActionMsg({
+        type: "success",
+        text: `Database successfully restored from ${restoreModal.filename}. Relational integrity verified.`,
+      });
+      await fetchData();
+    } catch (err: any) {
+      setRestoreModal((prev) => ({ ...prev, isRestoring: false, error: err.message || "Restoration failed." }));
+    }
+  };
 
   const handleOpenManualModal = (caseItem?: any) => {
     setManualError(null);
