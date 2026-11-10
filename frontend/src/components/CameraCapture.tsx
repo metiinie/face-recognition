@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useRef, useState, useEffect, useCallback } from "react";
-import { Camera, RefreshCw, AlertCircle, CheckCircle2, ShieldCheck, Zap } from "lucide-react";
+import { Camera, RefreshCw, AlertCircle, CheckCircle2, ShieldCheck, Zap, ShieldAlert, Lock } from "lucide-react";
 import { Button } from "./ui/Button";
 
 interface CameraCaptureProps {
@@ -26,23 +26,30 @@ export function CameraCapture({
 
   const [streamActive, setStreamActive] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [insecureContextInfo, setInsecureContextInfo] = useState<{
+    origin: string;
+    protocol: string;
+    host: string;
+  } | null>(null);
   const [autoScanActive, setAutoScanActive] = useState(autoScanIntervalMs > 0);
   const [lastCapturePreview, setLastCapturePreview] = useState<string | null>(null);
 
   const startCamera = useCallback(async () => {
     setErrorMsg(null);
+    setInsecureContextInfo(null);
     try {
-      if (
-        typeof window !== "undefined" &&
-        !window.isSecureContext &&
-        window.location.hostname !== "localhost" &&
-        window.location.hostname !== "127.0.0.1"
-      ) {
-        throw new Error(
-          "INSECURE_CONTEXT: Camera access requires HTTPS or localhost. If connecting over LAN IP (e.g. http://" +
-            window.location.host +
-            "), enable HTTPS or whitelist this origin in chrome://flags/#unsafely-treat-insecure-origin-as-secure."
-        );
+      if (typeof window !== "undefined") {
+        const isLocal =
+          window.location.hostname === "localhost" ||
+          window.location.hostname === "127.0.0.1";
+        if (!window.isSecureContext && !isLocal) {
+          setInsecureContextInfo({
+            origin: window.location.origin,
+            protocol: window.location.protocol,
+            host: window.location.host,
+          });
+          throw new Error("INSECURE_CONTEXT");
+        }
       }
 
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -68,8 +75,8 @@ export function CameraCapture({
       }
     } catch (err: any) {
       console.error("Camera access error:", err);
-      if (err.message && err.message.startsWith("INSECURE_CONTEXT:")) {
-        setErrorMsg(err.message.replace("INSECURE_CONTEXT: ", ""));
+      if (err.message === "INSECURE_CONTEXT") {
+        setErrorMsg("Insecure HTTP context detected. Browser requires HTTPS for camera access.");
       } else {
         setErrorMsg(
           err.name === "NotAllowedError"
@@ -203,8 +210,62 @@ export function CameraCapture({
           </span>
         </div>
 
-        {/* Camera Permission / Error Overlay */}
-        {errorMsg && (
+        {/* Insecure Context Diagnostic Overlay (College LAN HTTPS Deployment) */}
+        {insecureContextInfo ? (
+          <div className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-slate-950/95 p-6 text-center text-white backdrop-blur-md">
+            <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-rose-500/15 text-rose-500 mb-3 border border-rose-500/30">
+              <ShieldAlert className="h-6 w-6" />
+            </div>
+            <h4 className="text-sm sm:text-base font-bold text-white mb-1">
+              Camera Blocked: Insecure HTTP Context
+            </h4>
+            <p className="text-xs text-slate-300 max-w-sm mb-3.5 leading-relaxed">
+              Browser security policies strictly disable optical camera sensors over plain HTTP on LAN IP addresses. Secure HTTPS is required for all attendance stations.
+            </p>
+
+            <div className="w-full max-w-xs rounded-xl border border-slate-800 bg-slate-900/90 p-2.5 text-left font-mono text-[10px] space-y-1 mb-3.5 text-slate-300">
+              <div className="flex justify-between">
+                <span className="text-slate-500">Origin:</span>
+                <span className="text-rose-400 font-semibold truncate max-w-[170px]" title={insecureContextInfo.origin}>
+                  {insecureContextInfo.origin} (Insecure ❌)
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Secure Context:</span>
+                <span className="text-rose-400">false</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Target Protocol:</span>
+                <span className="text-emerald-400 font-semibold">https: (Port 443)</span>
+              </div>
+            </div>
+
+            <div className="flex flex-col sm:flex-row items-center gap-2">
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => {
+                  if (typeof window !== "undefined") {
+                    window.location.href = window.location.href.replace("http:", "https:");
+                  }
+                }}
+                className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold gap-1.5 h-8 text-xs"
+              >
+                <Lock className="h-3.5 w-3.5" />
+                <span>Switch to Secure HTTPS</span>
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={startCamera}
+                className="border-slate-700 text-slate-300 hover:bg-slate-800 h-8 text-xs"
+              >
+                <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+                <span>Retry</span>
+              </Button>
+            </div>
+          </div>
+        ) : errorMsg && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-950/90 p-6 text-center text-white backdrop-blur-sm">
             <AlertCircle className="mb-3 h-12 w-12 text-rose-500" />
             <p className="mb-4 text-sm text-slate-300">{errorMsg}</p>

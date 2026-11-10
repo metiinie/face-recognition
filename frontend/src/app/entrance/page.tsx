@@ -62,6 +62,11 @@ export default function ContinuousEntrancePage() {
   const [isProcessing, setIsProcessing] = useState<boolean>(false);
   const [isMirrored, setIsMirrored] = useState<boolean>(true);
   const [streamError, setStreamError] = useState<string | null>(null);
+  const [insecureContextInfo, setInsecureContextInfo] = useState<{
+    origin: string;
+    protocol: string;
+    host: string;
+  } | null>(null);
   const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
 
   // Telemetry & metrics
@@ -227,17 +232,19 @@ export default function ContinuousEntrancePage() {
   const startCamera = useCallback(async () => {
     try {
       setStreamError(null);
-      if (
-        typeof window !== "undefined" &&
-        !window.isSecureContext &&
-        window.location.hostname !== "localhost" &&
-        window.location.hostname !== "127.0.0.1"
-      ) {
-        throw new Error(
-          "Browser requires HTTPS or localhost for camera access. If connecting via LAN IP (e.g. http://" +
-            window.location.host +
-            "), enable HTTPS or whitelist this origin in chrome://flags/#unsafely-treat-insecure-origin-as-secure."
-        );
+      setInsecureContextInfo(null);
+      if (typeof window !== "undefined") {
+        const isLocal =
+          window.location.hostname === "localhost" ||
+          window.location.hostname === "127.0.0.1";
+        if (!window.isSecureContext && !isLocal) {
+          setInsecureContextInfo({
+            origin: window.location.origin,
+            protocol: window.location.protocol,
+            host: window.location.host,
+          });
+          throw new Error("INSECURE_CONTEXT");
+        }
       }
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         throw new Error("Webcam access is not supported by your browser environment.");
@@ -256,7 +263,15 @@ export default function ContinuousEntrancePage() {
         videoRef.current.play().catch(() => {});
       }
     } catch (err: any) {
-      setStreamError("Unable to access optical camera device: " + (err.message || err.name));
+      if (err.message === "INSECURE_CONTEXT") {
+        setStreamError("Insecure HTTP context detected. Browser requires HTTPS for optical camera access on LAN.");
+      } else {
+        setStreamError(
+          err.name === "NotAllowedError"
+            ? "Camera permission denied. Please allow optical camera access in your browser settings."
+            : "Unable to access optical camera device: " + (err.message || err.name)
+        );
+      }
       isStreamingRef.current = false;
       setIsStreaming(false);
     }
