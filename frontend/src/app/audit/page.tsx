@@ -271,13 +271,24 @@ export default function AuditReviewPage() {
       {/* Header */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-slate-200 pb-5">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900">Security Audit Trail & Exception Queue</h1>
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900">
+            Security Audit Trail & Disaster Recovery
+          </h1>
           <p className="mt-1 text-xs text-slate-500">
-            Immutable system event logs, biometric template modifications, and exception review cases.
+            Cryptographically verified audit logs, biometric exception review cases, and production database snapshots.
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setShowCreateModal(true)}
+            className="flex items-center gap-1.5 border-blue-200 text-blue-700 hover:bg-blue-50"
+          >
+            <Database className="h-3.5 w-3.5" />
+            <span>Take Backup Snapshot</span>
+          </Button>
           <Button
             variant="primary"
             size="sm"
@@ -287,175 +298,644 @@ export default function AuditReviewPage() {
             <PlusCircle className="h-3.5 w-3.5" />
             <span>Record Manual HR Attendance</span>
           </Button>
-          <Button variant="outline" size="sm" onClick={fetchData} isLoading={isLoading}>
-            <RefreshCw className="mr-1.5 h-3.5 w-3.5" /> Refresh Audit Stream
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              fetchData();
+              fetchBackups();
+            }}
+            isLoading={isLoading || isLoadingBackups}
+          >
+            <RefreshCw className="mr-1.5 h-3.5 w-3.5" /> Refresh
           </Button>
         </div>
       </div>
 
-      {/* Review Cases Panel */}
-      {reviewCases.length > 0 ? (
-        <Card className="border-amber-300 bg-amber-50/40 p-5 space-y-4">
-          <div className="flex items-center justify-between border-b border-amber-200/80 pb-3">
-            <div className="flex items-center gap-3">
-              <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-600 text-white">
-                <AlertTriangle className="h-5 w-5" />
-              </div>
-              <div>
-                <h4 className="text-sm font-bold text-amber-950">
-                  {reviewCases.length} Pending Biometric Review Case(s)
-                </h4>
-                <p className="text-[11px] text-amber-800">
-                  Unresolved unknown face scans, camera glare anomalies, or unassisted staff punches flagged for HR adjudication.
-                </p>
-              </div>
+      {/* Global Action Banner */}
+      {backupActionMsg && (
+        <div
+          className={`flex items-center justify-between rounded-xl p-3 text-xs border ${
+            backupActionMsg.type === "success"
+              ? "border-emerald-200 bg-emerald-50 text-emerald-800 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300"
+              : "border-rose-200 bg-rose-50 text-rose-800 dark:border-rose-900 dark:bg-rose-950/40 dark:text-rose-300"
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            {backupActionMsg.type === "success" ? (
+              <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+            ) : (
+              <AlertCircle className="h-4 w-4 text-rose-600 shrink-0" />
+            )}
+            <span className="font-medium">{backupActionMsg.text}</span>
+          </div>
+          <button
+            onClick={() => setBackupActionMsg(null)}
+            className="text-slate-400 hover:text-slate-600 p-1"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      )}
+
+      {/* Tab Navigation */}
+      <div className="flex border-b border-slate-200 gap-1">
+        <button
+          onClick={() => setActiveTab("logs")}
+          className={`py-2 px-4 text-xs font-semibold border-b-2 flex items-center gap-2 transition-colors ${
+            activeTab === "logs"
+              ? "border-blue-600 text-blue-600"
+              : "border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300"
+          }`}
+        >
+          <Shield className="h-3.5 w-3.5" />
+          <span>Audit Trail</span>
+          <Badge variant="outline" className="text-[10px] py-0 px-1 font-mono">
+            {auditLogs.length}
+          </Badge>
+        </button>
+
+        <button
+          onClick={() => setActiveTab("reviews")}
+          className={`py-2 px-4 text-xs font-semibold border-b-2 flex items-center gap-2 transition-colors ${
+            activeTab === "reviews"
+              ? "border-amber-600 text-amber-600"
+              : "border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300"
+          }`}
+        >
+          <AlertTriangle className="h-3.5 w-3.5" />
+          <span>Review Queue</span>
+          {reviewCases.length > 0 ? (
+            <Badge variant="warning" className="text-[10px] py-0 px-1 font-mono">
+              {reviewCases.length}
+            </Badge>
+          ) : (
+            <Badge variant="outline" className="text-[10px] py-0 px-1 font-mono">
+              0
+            </Badge>
+          )}
+        </button>
+
+        <button
+          onClick={() => setActiveTab("backups")}
+          className={`py-2 px-4 text-xs font-semibold border-b-2 flex items-center gap-2 transition-colors ${
+            activeTab === "backups"
+              ? "border-emerald-600 text-emerald-600"
+              : "border-transparent text-slate-500 hover:text-slate-700 hover:border-slate-300"
+          }`}
+        >
+          <Database className="h-3.5 w-3.5" />
+          <span>Disaster Recovery & Backups</span>
+          <Badge variant="brand" className="text-[10px] py-0 px-1 font-mono">
+            {backups.length}
+          </Badge>
+        </button>
+      </div>
+
+      {/* Tab 1: Audit Log Stream */}
+      {activeTab === "logs" && (
+        <Card className="p-5">
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-4 border-b border-slate-100">
+            <div>
+              <CardTitle className="text-base">Immutable Audit Records</CardTitle>
+              <CardDescription>Cryptographically tied administrator and biometric operations.</CardDescription>
             </div>
-            <Badge variant="warning" className="text-xs">Action Required</Badge>
+
+            <div className="flex items-center gap-2">
+              <Filter className="h-3.5 w-3.5 text-slate-400" />
+              <select
+                value={filterAction}
+                onChange={(e) => setFilterAction(e.target.value)}
+                className="rounded-lg border border-slate-300 bg-white py-1.5 px-3 text-xs focus:ring-1 focus:ring-blue-500 font-mono"
+              >
+                <option value="">All Actions</option>
+                <option value="FACE_TEMPLATE">Face Template Events</option>
+                <option value="ATTENDANCE">Attendance Events</option>
+                <option value="PURGED">Data Purge Events</option>
+                <option value="AUTH">Authentication Events</option>
+                <option value="DATABASE_BACKUP">Database Backup Events</option>
+              </select>
+            </div>
           </div>
 
-          <div className="overflow-x-auto rounded-xl border border-amber-200 bg-white">
+          <div className="mt-4 overflow-x-auto">
             <table className="w-full text-left text-xs">
-              <thead className="border-b border-amber-200 bg-amber-100/60 text-[10px] font-semibold text-amber-900 uppercase tracking-wider">
+              <thead className="border-b border-slate-200 bg-slate-50 text-[10px] font-semibold text-slate-600 uppercase tracking-wider">
                 <tr>
-                  <th className="py-2 px-3">Case ID</th>
-                  <th className="py-2 px-3">Logged (EAT)</th>
-                  <th className="py-2 px-3">Terminal Station</th>
-                  <th className="py-2 px-3">Case Type</th>
-                  <th className="py-2 px-3">Claimed Staff ID</th>
-                  <th className="py-2 px-3">Reason / Details</th>
-                  <th className="py-2 px-3 text-right">HR Action</th>
+                  <th className="py-2.5 px-3">Timestamp (EAT)</th>
+                  <th className="py-2.5 px-3">Action</th>
+                  <th className="py-2.5 px-3">Actor</th>
+                  <th className="py-2.5 px-3">Target ID</th>
+                  <th className="py-2.5 px-3">IP / Station</th>
+                  <th className="py-2.5 px-3">Details</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-amber-100 text-[11px]">
-                {reviewCases.map((rc) => (
-                  <tr key={rc.id} className="hover:bg-amber-50/60">
-                    <td className="py-2.5 px-3 font-mono font-bold text-amber-900">#{rc.id}</td>
+              <tbody className="divide-y divide-slate-100 font-mono text-[11px]">
+                {filteredLogs.map((log, idx) => (
+                  <tr key={log.id || idx} className="hover:bg-slate-50">
                     <td className="py-2.5 px-3 text-slate-500 whitespace-nowrap">
-                      {new Date(rc.created_at || Date.now()).toLocaleTimeString()}
-                    </td>
-                    <td className="py-2.5 px-3 font-mono text-slate-700">
-                      {rc.station_code || `Station #${rc.station_id || 1}`}
+                      {new Date(log.created_at || Date.now()).toLocaleString()}
                     </td>
                     <td className="py-2.5 px-3">
-                      <Badge variant="warning" className="text-[9px] py-0 px-1 font-mono">
-                        {rc.case_type || rc.review_type || "UNKNOWN_FACE"}
+                      <Badge
+                        variant={
+                          log.action?.includes("PURGE") || log.action?.includes("REVOKE")
+                            ? "warning"
+                            : log.action?.includes("FAIL") || log.action?.includes("REJECT")
+                            ? "danger"
+                            : "brand"
+                        }
+                        className="text-[9px] py-0 px-1.5 font-mono"
+                      >
+                        {log.action}
                       </Badge>
                     </td>
-                    <td className="py-2.5 px-3 font-mono font-semibold text-slate-800">
-                      {rc.claimed_employee_number || "—"}
-                    </td>
-                    <td className="py-2.5 px-3 text-slate-600 max-w-sm">
-                      {rc.reason || rc.notes || "Assistance requested at station kiosk."}
-                    </td>
-                    <td className="py-2.5 px-3 text-right space-x-1.5 whitespace-nowrap">
-                      <Button
-                        variant="primary"
-                        size="sm"
-                        className="text-[10px] py-1 px-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-medium"
-                        onClick={() => handleOpenManualModal(rc)}
-                      >
-                        <UserCheck className="mr-1 h-3 w-3 inline" />
-                        Approve Manual Entry
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="text-[10px] py-1 px-2 text-rose-600 hover:bg-rose-50 border border-rose-200"
-                        onClick={async () => {
-                          const conf = window.confirm(`Dismiss Review Case #${rc.id}?`);
-                          if (!conf) return;
-                          try {
-                            await api.dismissReviewCase(rc.id, "Spurious scan dismissed by HR");
-                            fetchData();
-                          } catch (err: any) {
-                            alert(err.message || "Failed to dismiss case");
-                          }
-                        }}
-                      >
-                        Dismiss
-                      </Button>
-                    </td>
+                    <td className="py-2.5 px-3 text-slate-800 font-semibold">{log.actor_username || "system"}</td>
+                    <td className="py-2.5 px-3 text-slate-600">{log.target_id || "-"}</td>
+                    <td className="py-2.5 px-3 text-slate-400">{log.ip_address || "127.0.0.1"}</td>
+                    <td className="py-2.5 px-3 text-slate-600 max-w-xs truncate">{log.details || "-"}</td>
                   </tr>
                 ))}
+                {filteredLogs.length === 0 && (
+                  <tr>
+                    <td colSpan={6} className="py-6 text-center text-slate-400">
+                      No audit events match the selected criteria.
+                    </td>
+                  </tr>
+                )}
               </tbody>
             </table>
           </div>
         </Card>
-      ) : (
-        <Card className="border-emerald-200 bg-emerald-50/40 p-4">
-          <div className="flex items-center gap-2 text-xs font-semibold text-emerald-800">
-            <ShieldCheck className="h-4 w-4 text-emerald-600" />
-            <span>Zero pending review cases. All biometric recognition events resolved cleanly.</span>
-          </div>
-        </Card>
       )}
 
-      {/* Audit Log Table */}
-      <Card className="p-5">
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-4 border-b border-slate-100">
-          <div>
-            <CardTitle className="text-base">Immutable Audit Records</CardTitle>
-            <CardDescription>Cryptographically tied administrator and biometric operations.</CardDescription>
+      {/* Tab 2: Review Cases Panel */}
+      {activeTab === "reviews" && (
+        <div className="space-y-4">
+          {reviewCases.length > 0 ? (
+            <Card className="border-amber-300 bg-amber-50/40 p-5 space-y-4">
+              <div className="flex items-center justify-between border-b border-amber-200/80 pb-3">
+                <div className="flex items-center gap-3">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-amber-600 text-white">
+                    <AlertTriangle className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h4 className="text-sm font-bold text-amber-950">
+                      {reviewCases.length} Pending Biometric Review Case(s)
+                    </h4>
+                    <p className="text-[11px] text-amber-800">
+                      Unresolved unknown face scans, camera glare anomalies, or unassisted staff punches flagged for HR adjudication.
+                    </p>
+                  </div>
+                </div>
+                <Badge variant="warning" className="text-xs">Action Required</Badge>
+              </div>
+
+              <div className="overflow-x-auto rounded-xl border border-amber-200 bg-white">
+                <table className="w-full text-left text-xs">
+                  <thead className="border-b border-amber-200 bg-amber-100/60 text-[10px] font-semibold text-amber-900 uppercase tracking-wider">
+                    <tr>
+                      <th className="py-2 px-3">Case ID</th>
+                      <th className="py-2 px-3">Logged (EAT)</th>
+                      <th className="py-2 px-3">Terminal Station</th>
+                      <th className="py-2 px-3">Case Type</th>
+                      <th className="py-2 px-3">Claimed Staff ID</th>
+                      <th className="py-2 px-3">Reason / Details</th>
+                      <th className="py-2 px-3 text-right">HR Action</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-amber-100 text-[11px]">
+                    {reviewCases.map((rc) => (
+                      <tr key={rc.id} className="hover:bg-amber-50/60">
+                        <td className="py-2.5 px-3 font-mono font-bold text-amber-900">#{rc.id}</td>
+                        <td className="py-2.5 px-3 text-slate-500 whitespace-nowrap">
+                          {new Date(rc.created_at || Date.now()).toLocaleTimeString()}
+                        </td>
+                        <td className="py-2.5 px-3 font-mono text-slate-700">
+                          {rc.station_code || `Station #${rc.station_id || 1}`}
+                        </td>
+                        <td className="py-2.5 px-3">
+                          <Badge variant="warning" className="text-[9px] py-0 px-1 font-mono">
+                            {rc.case_type || rc.review_type || "UNKNOWN_FACE"}
+                          </Badge>
+                        </td>
+                        <td className="py-2.5 px-3 font-mono font-semibold text-slate-800">
+                          {rc.claimed_employee_number || "—"}
+                        </td>
+                        <td className="py-2.5 px-3 text-slate-600 max-w-sm">
+                          {rc.reason || rc.notes || "Assistance requested at station kiosk."}
+                        </td>
+                        <td className="py-2.5 px-3 text-right space-x-1.5 whitespace-nowrap">
+                          <Button
+                            variant="primary"
+                            size="sm"
+                            className="text-[10px] py-1 px-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-medium"
+                            onClick={() => handleOpenManualModal(rc)}
+                          >
+                            <UserCheck className="mr-1 h-3 w-3 inline" />
+                            Approve Manual Entry
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-[10px] py-1 px-2 text-rose-600 hover:bg-rose-50 border border-rose-200"
+                            onClick={async () => {
+                              const conf = window.confirm(`Dismiss Review Case #${rc.id}?`);
+                              if (!conf) return;
+                              try {
+                                await api.dismissReviewCase(rc.id, "Spurious scan dismissed by HR");
+                                fetchData();
+                              } catch (err: any) {
+                                alert(err.message || "Failed to dismiss case");
+                              }
+                            }}
+                          >
+                            Dismiss
+                          </Button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          ) : (
+            <Card className="border-emerald-200 bg-emerald-50/40 p-4">
+              <div className="flex items-center gap-2 text-xs font-semibold text-emerald-800">
+                <ShieldCheck className="h-4 w-4 text-emerald-600" />
+                <span>Zero pending review cases. All biometric recognition events resolved cleanly.</span>
+              </div>
+            </Card>
+          )}
+        </div>
+      )}
+
+      {/* Tab 3: Database Backups & Disaster Recovery Console */}
+      {activeTab === "backups" && (
+        <div className="space-y-6">
+          {/* Summary Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <Card className="p-4 bg-slate-50 border-slate-200">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-100 text-blue-700">
+                  <Database className="h-5 w-5" />
+                </div>
+                <div>
+                  <p className="text-xs text-slate-500 font-medium">Available Backups</p>
+                  <p className="text-lg font-bold text-slate-900">{backups.length} Snapshots</p>
+                </div>
+              </div>
+            </Card>
+
+            <Card className="p-4 bg-slate-50 border-slate-200">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-indigo-100 text-indigo-700">
+                  <HardDrive className="h-5 w-5" />
+                </div>
+                <div>
+                  <p className="text-xs text-slate-500 font-medium">Retention Policy</p>
+                  <p className="text-xs font-bold text-slate-800">30 Days (Keep min 5)</p>
+                </div>
+              </div>
+            </Card>
+
+            <Card className="p-4 bg-slate-50 border-slate-200">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-emerald-100 text-emerald-700">
+                  <ShieldCheck className="h-5 w-5" />
+                </div>
+                <div>
+                  <p className="text-xs text-slate-500 font-medium">Integrity Verification</p>
+                  <p className="text-xs font-bold text-emerald-800">SHA-256 Checksums</p>
+                </div>
+              </div>
+            </Card>
           </div>
 
-          <div className="flex items-center gap-2">
-            <Filter className="h-3.5 w-3.5 text-slate-400" />
-            <select
-              value={filterAction}
-              onChange={(e) => setFilterAction(e.target.value)}
-              className="rounded-lg border border-slate-300 bg-white py-1.5 px-3 text-xs focus:ring-1 focus:ring-blue-500 font-mono"
-            >
-              <option value="">All Actions</option>
-              <option value="FACE_TEMPLATE">Face Template Events</option>
-              <option value="ATTENDANCE">Attendance Events</option>
-              <option value="PURGED">Data Purge Events</option>
-              <option value="AUTH">Authentication Events</option>
-            </select>
+          {/* Backups List & Actions */}
+          <Card className="p-5">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 pb-4 border-b border-slate-100">
+              <div>
+                <CardTitle className="text-base flex items-center gap-2">
+                  <Database className="h-4 w-4 text-blue-600" />
+                  Production Database Archives
+                </CardTitle>
+                <CardDescription>
+                  Self-contained compressed gzip JSON snapshots with pre-computed SHA-256 sidecars.
+                </CardDescription>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={() => setShowCreateModal(true)}
+                  className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-700 font-semibold"
+                >
+                  <PlusCircle className="h-3.5 w-3.5" />
+                  <span>Create Snapshot</span>
+                </Button>
+
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handlePruneBackups}
+                  isLoading={isPruningBackups}
+                  className="flex items-center gap-1.5 text-slate-600 hover:text-slate-900 border-slate-300"
+                >
+                  <Trash2 className="h-3.5 w-3.5 text-slate-400" />
+                  <span>Apply Retention Prune</span>
+                </Button>
+
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={fetchBackups}
+                  isLoading={isLoadingBackups}
+                >
+                  <RefreshCw className="h-3.5 w-3.5" />
+                </Button>
+              </div>
+            </div>
+
+            <div className="mt-4 overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="border-b border-slate-200 bg-slate-50 text-[10px] font-semibold text-slate-600 uppercase tracking-wider">
+                  <tr>
+                    <th className="py-2.5 px-3">Archive File</th>
+                    <th className="py-2.5 px-3">Created Date (EAT)</th>
+                    <th className="py-2.5 px-3">Size</th>
+                    <th className="py-2.5 px-3">SHA-256 Checksum</th>
+                    <th className="py-2.5 px-3">Integrity Status</th>
+                    <th className="py-2.5 px-3 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 font-mono text-[11px]">
+                  {backups.map((b) => {
+                    const fname = b.filename || b.archive_name || "unknown_backup";
+                    const sizeDisplay = b.size_kb
+                      ? `${b.size_kb} KB`
+                      : b.size_human || `${Math.round((b.size_bytes || 0) / 1024)} KB`;
+                    const vRes = verifyResults[fname];
+                    const verifying = isVerifying[fname];
+
+                    return (
+                      <tr key={fname} className="hover:bg-slate-50">
+                        <td className="py-2.5 px-3 font-semibold text-slate-800 flex items-center gap-2">
+                          <HardDrive className="h-3.5 w-3.5 text-blue-500 shrink-0" />
+                          <span>{fname}</span>
+                        </td>
+                        <td className="py-2.5 px-3 text-slate-500 whitespace-nowrap">
+                          {new Date(b.created_at || Date.now()).toLocaleString()}
+                        </td>
+                        <td className="py-2.5 px-3 text-slate-700 whitespace-nowrap">
+                          {sizeDisplay}
+                        </td>
+                        <td className="py-2.5 px-3 text-slate-400 font-mono text-[10px]">
+                          {b.sha256 ? `${b.sha256.slice(0, 16)}...` : "—"}
+                        </td>
+                        <td className="py-2.5 px-3">
+                          {verifying ? (
+                            <Badge variant="outline" className="text-[9px] py-0 px-1.5 flex items-center gap-1">
+                              <RefreshCw className="h-3 w-3 animate-spin text-blue-600" />
+                              <span>Verifying...</span>
+                            </Badge>
+                          ) : vRes ? (
+                            vRes.valid ? (
+                              <Badge variant="brand" className="text-[9px] py-0 px-1.5 flex items-center gap-1 bg-emerald-50 text-emerald-700 border-emerald-300">
+                                <CheckCircle2 className="h-3 w-3 text-emerald-600" />
+                                <span>SHA-256 Validated</span>
+                              </Badge>
+                            ) : (
+                              <Badge variant="danger" className="text-[9px] py-0 px-1.5 flex items-center gap-1">
+                                <AlertCircle className="h-3 w-3 text-rose-600" />
+                                <span>Integrity Failed</span>
+                              </Badge>
+                            )
+                          ) : b.has_checksum ? (
+                            <Badge variant="outline" className="text-[9px] py-0 px-1.5 font-mono text-slate-600">
+                              Checksum Available
+                            </Badge>
+                          ) : (
+                            <Badge variant="outline" className="text-[9px] py-0 px-1.5 text-slate-400">
+                              Unchecked
+                            </Badge>
+                          )}
+                        </td>
+                        <td className="py-2.5 px-3 text-right space-x-1.5 whitespace-nowrap">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="text-[10px] py-1 px-2.5 border-slate-300 hover:bg-slate-100"
+                            onClick={() => handleVerifyBackup(fname)}
+                            isLoading={verifying}
+                          >
+                            <ShieldCheck className="h-3 w-3 mr-1 text-emerald-600 inline" />
+                            Verify Integrity
+                          </Button>
+
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-[10px] py-1 px-2.5 text-rose-600 hover:bg-rose-50 border border-rose-200"
+                            onClick={() => {
+                              setRestoreModal({
+                                isOpen: true,
+                                filename: fname,
+                                confirmText: "",
+                                isRestoring: false,
+                                report: null,
+                                error: null,
+                              });
+                            }}
+                          >
+                            <RotateCcw className="h-3 w-3 mr-1 inline" />
+                            Restore Database
+                          </Button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  {backups.length === 0 && (
+                    <tr>
+                      <td colSpan={6} className="py-8 text-center text-slate-400">
+                        No database backup archives found. Click "Create Snapshot" to create your first consistent recovery archive.
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        </div>
+      )}
+
+      {/* Modal: Create Backup Snapshot */}
+      {showCreateModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b pb-3">
+              <div className="flex items-center gap-2">
+                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-100 text-blue-700">
+                  <Database className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">Create Database Backup</h3>
+                  <p className="text-xs text-slate-500">Atomic snapshot with cryptographic SHA-256 checksum.</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowCreateModal(false)}
+                className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div>
+                <label className="text-[11px] font-semibold text-slate-700 block mb-1">
+                  Snapshot Label / Tag (optional)
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. pre_upgrade_v2, biometrics_sync, manual"
+                  value={backupLabel}
+                  onChange={(e) => setBackupLabel(e.target.value)}
+                  className="w-full rounded-lg border border-slate-300 p-2 text-xs focus:ring-1 focus:ring-blue-500 font-mono"
+                />
+                <p className="text-[10px] text-slate-500 mt-1">
+                  Label will be appended to the archive filename for clear identification.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-3 border-t">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setShowCreateModal(false)}
+                disabled={isCreatingBackup}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                variant="primary"
+                size="sm"
+                onClick={handleCreateBackup}
+                isLoading={isCreatingBackup}
+                className="bg-blue-600 hover:bg-blue-700 text-white font-medium"
+              >
+                Create Consistent Snapshot
+              </Button>
+            </div>
           </div>
         </div>
+      )}
 
-        <div className="mt-4 overflow-x-auto">
-          <table className="w-full text-left text-xs">
-            <thead className="border-b border-slate-200 bg-slate-50 text-[10px] font-semibold text-slate-600 uppercase tracking-wider">
-              <tr>
-                <th className="py-2.5 px-3">Timestamp (EAT)</th>
-                <th className="py-2.5 px-3">Action</th>
-                <th className="py-2.5 px-3">Actor</th>
-                <th className="py-2.5 px-3">Target ID</th>
-                <th className="py-2.5 px-3">IP / Station</th>
-                <th className="py-2.5 px-3">Details</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 font-mono text-[11px]">
-              {filteredLogs.map((log, idx) => (
-                <tr key={log.id || idx} className="hover:bg-slate-50">
-                  <td className="py-2.5 px-3 text-slate-500 whitespace-nowrap">
-                    {new Date(log.created_at || Date.now()).toLocaleString()}
-                  </td>
-                  <td className="py-2.5 px-3">
-                    <Badge
-                      variant={
-                        log.action?.includes("PURGE") || log.action?.includes("REVOKE")
-                          ? "warning"
-                          : log.action?.includes("FAIL") || log.action?.includes("REJECT")
-                          ? "danger"
-                          : "brand"
-                      }
-                      className="text-[9px] py-0 px-1.5 font-mono"
-                    >
-                      {log.action}
-                    </Badge>
-                  </td>
-                  <td className="py-2.5 px-3 text-slate-800 font-semibold">{log.actor_username || "system"}</td>
-                  <td className="py-2.5 px-3 text-slate-600">{log.target_id || "-"}</td>
-                  <td className="py-2.5 px-3 text-slate-400">{log.ip_address || "127.0.0.1"}</td>
-                  <td className="py-2.5 px-3 text-slate-600 max-w-xs truncate">{log.details || "-"}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+      {/* Modal: Disaster Recovery Database Restore Confirmation */}
+      {restoreModal.isOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl space-y-4 border-2 border-rose-300">
+            <div className="flex items-center justify-between border-b border-rose-100 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-rose-100 text-rose-700">
+                  <AlertTriangle className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-rose-900">
+                    Disaster Recovery: Restore Database
+                  </h3>
+                  <p className="text-xs text-rose-700">
+                    Warning: Destructive operation rolls back live data.
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setRestoreModal((prev) => ({ ...prev, isOpen: false }))}
+                className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            {restoreModal.error && (
+              <div className="rounded-lg bg-rose-50 border border-rose-200 p-3 text-xs text-rose-800">
+                {restoreModal.error}
+              </div>
+            )}
+
+            {restoreModal.report && (
+              <div className="rounded-lg bg-emerald-50 border border-emerald-200 p-3 text-xs text-emerald-800 space-y-1">
+                <div className="font-bold flex items-center gap-1.5">
+                  <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                  <span>Database Restoration Complete!</span>
+                </div>
+                <p>
+                  Restored {restoreModal.report.restored_records || restoreModal.report.total_records_restored || 0} records. Relational integrity verified.
+                </p>
+              </div>
+            )}
+
+            {!restoreModal.report && (
+              <div className="space-y-3 text-xs text-slate-700">
+                <div className="rounded-lg bg-rose-50/60 border border-rose-200 p-3 text-rose-900 space-y-1.5">
+                  <p className="font-semibold">
+                    You are about to restore the database from:
+                  </p>
+                  <p className="font-mono text-[11px] bg-white p-1.5 rounded border border-rose-200 text-slate-900">
+                    {restoreModal.filename}
+                  </p>
+                  <p className="text-[11px] text-rose-800">
+                    This will replace current attendance sessions, employee records, shift assignments, and face templates with the contents of this archive. Live vector caches will be atomically refreshed.
+                  </p>
+                </div>
+
+                <div>
+                  <label className="text-[11px] font-semibold text-slate-700 block mb-1">
+                    Type <span className="font-mono text-rose-600 font-bold">RESTORE</span> to confirm:
+                  </label>
+                  <input
+                    type="text"
+                    value={restoreModal.confirmText}
+                    onChange={(e) => setRestoreModal((prev) => ({ ...prev, confirmText: e.target.value }))}
+                    placeholder="Type RESTORE in capital letters"
+                    className="w-full rounded-lg border border-slate-300 p-2 text-xs font-mono uppercase focus:ring-1 focus:ring-rose-500"
+                  />
+                </div>
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 pt-3 border-t">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setRestoreModal((prev) => ({ ...prev, isOpen: false }))}
+                disabled={restoreModal.isRestoring}
+              >
+                {restoreModal.report ? "Close" : "Cancel"}
+              </Button>
+
+              {!restoreModal.report && (
+                <Button
+                  type="button"
+                  variant="danger"
+                  size="sm"
+                  disabled={restoreModal.confirmText !== "RESTORE" || restoreModal.isRestoring}
+                  isLoading={restoreModal.isRestoring}
+                  onClick={handleRestoreBackup}
+                  className="bg-rose-600 hover:bg-rose-700 text-white font-medium"
+                >
+                  Confirm Destructive Restoration
+                </Button>
+              )}
+            </div>
+          </div>
         </div>
-      </Card>
+      )}
 
       {/* Modal: HR Manual Attendance Approval / Recording */}
       {isManualModalOpen && (
