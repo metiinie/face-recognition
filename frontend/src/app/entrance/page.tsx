@@ -98,6 +98,15 @@ export default function ContinuousEntrancePage() {
       if (status.gate_mode) {
         setGateMode(status.gate_mode as any);
       }
+      if (status.cooldown_sec !== undefined) {
+        setCooldownSec(status.cooldown_sec);
+      }
+      if (status.min_checkout_elapsed_mins !== undefined) {
+        setMinCheckoutMins(status.min_checkout_elapsed_mins);
+      }
+      if (status.min_persistence_frames !== undefined) {
+        setMinPersistenceFrames(status.min_persistence_frames);
+      }
     } catch (err: any) {
       console.warn("Could not load gate status:", err);
     }
@@ -163,6 +172,9 @@ export default function ContinuousEntrancePage() {
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
       if (!AudioCtx) return;
       const ctx = new AudioCtx();
+      if (ctx.state === "suspended") {
+        ctx.resume().catch(() => {});
+      }
       const osc = ctx.createOscillator();
       const gain = ctx.createGain();
       osc.connect(gain);
@@ -592,15 +604,40 @@ export default function ContinuousEntrancePage() {
         station_code: selectedStation,
         gate_mode: mode,
         cooldown_sec: cooldownSec,
+        min_checkout_elapsed_mins: minCheckoutMins,
+        min_persistence_frames: minPersistenceFrames,
       });
       setSimMessage({
         type: "success",
         text: mode === "AUTO_DETECT"
-          ? "Gate mode set to Auto-Detect with accidental checkout protection (15m debounce)."
+          ? `Gate mode set to Auto-Detect with accidental checkout protection (${minCheckoutMins}m debounce, ${minPersistenceFrames} frame persistence).`
           : `Gate mode switched to ${mode}. Directional punches will apply automatically.`,
       });
     } catch (err: any) {
       console.error("Failed to update gate mode:", err);
+    }
+  };
+
+  const handleSaveGateSettings = async () => {
+    try {
+      await api.configureGate({
+        station_code: selectedStation,
+        gate_mode: gateMode,
+        cooldown_sec: cooldownSec,
+        min_checkout_elapsed_mins: minCheckoutMins,
+        min_persistence_frames: minPersistenceFrames,
+      });
+      setIsSettingsOpen(false);
+      setSimMessage({
+        type: "success",
+        text: `Gate parameters updated: Cooldown ${cooldownSec}s, Checkout debounce ${minCheckoutMins}m, Persistence ${minPersistenceFrames} frames.`,
+      });
+      fetchGateData();
+    } catch (err: any) {
+      setSimMessage({
+        type: "warning",
+        text: `Failed to save gate tuning parameters: ${err.message}`,
+      });
     }
   };
 
