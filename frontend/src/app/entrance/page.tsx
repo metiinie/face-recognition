@@ -40,7 +40,6 @@ import {
   X,
   Sliders,
   Settings,
-  Radio,
 } from "lucide-react";
 
 export default function ContinuousEntrancePage() {
@@ -1342,6 +1341,107 @@ export default function ContinuousEntrancePage() {
                 className="bg-blue-600 hover:bg-blue-700 text-white"
               >
                 Save Encrypted Biometric Template
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Gate Tuning Settings Modal (M4) */}
+      {isSettingsOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b pb-3">
+              <div className="flex items-center gap-2">
+                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-100 text-blue-700">
+                  <Sliders className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-900">Continuous Gate Tuning</h3>
+                  <p className="text-xs text-slate-500">Timing debounce & tracking persistence parameters.</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsSettingsOpen(false)}
+                className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4 text-xs">
+              <div>
+                <label className="text-[11px] font-semibold text-slate-700 block mb-1">
+                  Gate Passage Cooldown (Seconds): <span className="font-mono text-blue-600 font-bold">{cooldownSec}s</span>
+                </label>
+                <input
+                  type="range"
+                  min={5}
+                  max={60}
+                  step={5}
+                  value={cooldownSec}
+                  onChange={(e) => setCooldownSec(Number(e.target.value))}
+                  className="w-full accent-blue-600 cursor-pointer"
+                />
+                <p className="text-[10px] text-slate-500 mt-0.5">
+                  Suppresses duplicate punches for the same employee within this window.
+                </p>
+              </div>
+
+              <div>
+                <label className="text-[11px] font-semibold text-slate-700 block mb-1">
+                  Accidental Checkout Debounce (Minutes): <span className="font-mono text-blue-600 font-bold">{minCheckoutMins}m</span>
+                </label>
+                <input
+                  type="range"
+                  min={1}
+                  max={60}
+                  step={1}
+                  value={minCheckoutMins}
+                  onChange={(e) => setMinCheckoutMins(Number(e.target.value))}
+                  className="w-full accent-blue-600 cursor-pointer"
+                />
+                <p className="text-[10px] text-slate-500 mt-0.5">
+                  In AUTO_DETECT mode, prevents immediate accidental checkout if check-in occurred less than this many minutes ago.
+                </p>
+              </div>
+
+              <div>
+                <label className="text-[11px] font-semibold text-slate-700 block mb-1">
+                  Minimum Tracking Persistence (Frames): <span className="font-mono text-blue-600 font-bold">{minPersistenceFrames} frames</span>
+                </label>
+                <input
+                  type="range"
+                  min={1}
+                  max={5}
+                  step={1}
+                  value={minPersistenceFrames}
+                  onChange={(e) => setMinPersistenceFrames(Number(e.target.value))}
+                  className="w-full accent-blue-600 cursor-pointer"
+                />
+                <p className="text-[10px] text-slate-500 mt-0.5">
+                  Face must remain visible and tracked for this many consecutive frames before attendance confirms.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex justify-end gap-2 pt-3 border-t">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setIsSettingsOpen(false)}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                variant="primary"
+                size="sm"
+                onClick={handleSaveGateSettings}
+                className="bg-blue-600 hover:bg-blue-700 text-white font-medium"
+              >
+                Save Gate Parameters
               </Button>
             </div>
           </div>
