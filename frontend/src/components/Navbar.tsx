@@ -15,13 +15,49 @@ import {
   Lock,
   FileText,
   CalendarClock,
+  Database,
 } from "lucide-react";
 import { Badge } from "./ui/Badge";
 import { getStoredUser, removeStoredToken, UserProfile } from "@/lib/api";
 
+function getEthiopianClockDisplay(now: Date): string {
+  try {
+    const formatter = new Intl.DateTimeFormat("en-US", {
+      timeZone: "Africa/Addis_Ababa",
+      hour: "numeric",
+      minute: "numeric",
+      hour12: false,
+    });
+    const parts = formatter.formatToParts(now);
+    const hourPart = parts.find((p) => p.type === "hour")?.value;
+    const minutePart = parts.find((p) => p.type === "minute")?.value;
+    const h = parseInt(hourPart || "0", 10);
+    const m = parseInt(minutePart || "0", 10);
+
+    let ethHour: number;
+    let cycleAmharic: string;
+
+    if (h >= 6 && h < 18) {
+      ethHour = h - 6;
+      if (ethHour === 0) ethHour = 12;
+      cycleAmharic = "ቀን"; // Day
+    } else {
+      ethHour = h >= 18 ? h - 18 : h + 6;
+      if (ethHour === 0) ethHour = 12;
+      cycleAmharic = "ሌሊት"; // Night
+    }
+
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${cycleAmharic} ${pad(ethHour)}:${pad(m)} ሰዓት`;
+  } catch {
+    return "";
+  }
+}
+
 export function Navbar() {
   const pathname = usePathname();
   const [currentTime, setCurrentTime] = useState<string>("");
+  const [ethiopianTime, setEthiopianTime] = useState<string>("");
   const [user, setUser] = useState<UserProfile | null>(null);
 
   useEffect(() => {
@@ -41,6 +77,7 @@ export function Navbar() {
         day: "numeric",
       }).format(now);
       setCurrentTime(formatted);
+      setEthiopianTime(getEthiopianClockDisplay(now));
     };
 
     updateClock();
@@ -57,6 +94,7 @@ export function Navbar() {
     { name: "Schedules & Stations", href: "/schedules", icon: CalendarClock },
     { name: "Biometrics Lab", href: "/biometrics", icon: LineChart },
     { name: "Audit & Review", href: "/audit", icon: ShieldAlert },
+    { name: "Backups & DR", href: "/backups", icon: Database },
   ];
 
   return (
@@ -113,9 +151,18 @@ export function Navbar() {
 
         {/* Right Status & EAT Time Bar */}
         <div className="flex items-center gap-3">
-          <div className="hidden sm:flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs text-slate-700 dark:border-slate-800 dark:bg-slate-800/80 dark:text-slate-300 font-mono">
-            <Clock className="h-3.5 w-3.5 text-blue-500" />
+          {/* Dual Clock: EAT and Ethiopian 12h */}
+          <div className="hidden sm:flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-2.5 py-1 text-xs text-slate-700 dark:border-slate-800 dark:bg-slate-800/80 dark:text-slate-300 font-mono">
+            <Clock className="h-3.5 w-3.5 text-blue-500 shrink-0" />
             <span>{currentTime || "EAT (UTC+3)"}</span>
+            {ethiopianTime && (
+              <>
+                <span className="text-slate-300 dark:text-slate-600">•</span>
+                <span className="text-amber-700 dark:text-amber-400 font-semibold" title="Ethiopian 12-Hour Clock (የኢትዮጵያ ሰዓት)">
+                  {ethiopianTime}
+                </span>
+              </>
+            )}
           </div>
 
           <div className="flex items-center gap-2">

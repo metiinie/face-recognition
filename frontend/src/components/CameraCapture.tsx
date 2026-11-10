@@ -32,6 +32,19 @@ export function CameraCapture({
   const startCamera = useCallback(async () => {
     setErrorMsg(null);
     try {
+      if (
+        typeof window !== "undefined" &&
+        !window.isSecureContext &&
+        window.location.hostname !== "localhost" &&
+        window.location.hostname !== "127.0.0.1"
+      ) {
+        throw new Error(
+          "INSECURE_CONTEXT: Camera access requires HTTPS or localhost. If connecting over LAN IP (e.g. http://" +
+            window.location.host +
+            "), enable HTTPS or whitelist this origin in chrome://flags/#unsafely-treat-insecure-origin-as-secure."
+        );
+      }
+
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         throw new Error("Browser MediaDevices API is not supported in this environment.");
       }
@@ -55,11 +68,15 @@ export function CameraCapture({
       }
     } catch (err: any) {
       console.error("Camera access error:", err);
-      setErrorMsg(
-        err.name === "NotAllowedError"
-          ? "Camera permission denied. Please allow camera access in your browser settings."
-          : `Failed to initialize camera: ${err.message || "Unknown error"}`
-      );
+      if (err.message && err.message.startsWith("INSECURE_CONTEXT:")) {
+        setErrorMsg(err.message.replace("INSECURE_CONTEXT: ", ""));
+      } else {
+        setErrorMsg(
+          err.name === "NotAllowedError"
+            ? "Camera permission denied. Please allow camera access in your browser settings."
+            : `Failed to initialize camera: ${err.message || "Unknown error"}`
+        );
+      }
       setStreamActive(false);
     }
   }, []);

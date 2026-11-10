@@ -228,6 +228,8 @@ def test_v2_auto_detect_force_action_override(app):
 def test_v2_gate_api_endpoints(client, app):
     """Verify V2 REST endpoints: process-frame, status, config, and simulation."""
     with app.app_context():
+        admin = User.query.filter_by(username="admin").first()
+        admin_token = issue_jwt_token(admin)
         hr = User.query.filter_by(username="hr_officer").first()
         token = issue_jwt_token(hr)
 
@@ -254,10 +256,10 @@ def test_v2_gate_api_endpoints(client, app):
     assert "today_total_passages" in status_data
     assert "recent_passages" in status_data
 
-    # 3. Configure Gate Mode
+    # 3. Configure Gate Mode (Admin)
     cfg_res = client.post(
         "/api/v2/entrance/gate-config",
-        headers={"Authorization": f"Bearer {token}"},
+        headers={"Authorization": f"Bearer {admin_token}"},
         json={
             "station_code": "ST-GATE-01",
             "gate_mode": "IN",
@@ -266,6 +268,40 @@ def test_v2_gate_api_endpoints(client, app):
     )
     assert cfg_res.status_code == 200
     assert cfg_res.get_json()["gate_config"]["gate_mode"] == "IN"
+
+    # 3A. Unauthenticated Operator can freely change Gate Direction (IN/OUT)
+    op_cfg = client.post(
+        "/api/v2/entrance/gate-config",
+        json={
+            "station_code": "ST-GATE-01",
+            "gate_mode": "OUT",
+        },
+    )
+    assert op_cfg.status_code == 200
+    assert op_cfg.get_json()["gate_config"]["gate_mode"] == "OUT"
+
+    # 3B. Unauthenticated Operator is blocked from modifying sensitive parameters
+    unauth_tuning = client.post(
+        "/api/v2/entrance/gate-config",
+        json={
+            "station_code": "ST-GATE-01",
+            "cooldown_sec": 5,
+        },
+    )
+    assert unauth_tuning.status_code == 403
+    assert unauth_tuning.get_json()["code"] == "ADMIN_REQUIRED"
+
+    # 3C. Operator with Admin Password step-up can modify sensitive parameters
+    stepup_tuning = client.post(
+        "/api/v2/entrance/gate-config",
+        json={
+            "station_code": "ST-GATE-01",
+            "cooldown_sec": 25,
+            "admin_password": "Admin@EIPC2026",
+        },
+    )
+    assert stepup_tuning.status_code == 200
+    assert stepup_tuning.get_json()["gate_config"]["cooldown_sec"] == 25
 
     # 4. Multi-person Crowd Simulation
     sim_res = client.post(

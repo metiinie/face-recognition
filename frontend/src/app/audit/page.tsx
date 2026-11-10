@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import Link from "next/link";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -28,6 +29,7 @@ import {
   AlertCircle,
   Download,
   Lock,
+  ExternalLink,
 } from "lucide-react";
 
 export default function AuditReviewPage() {
@@ -55,6 +57,8 @@ export default function AuditReviewPage() {
     isOpen: boolean;
     filename: string | null;
     confirmText: string;
+    adminPassword: string;
+    acknowledgement: boolean;
     isRestoring: boolean;
     report: BackupRestoreResponse | null;
     error: string | null;
@@ -62,6 +66,8 @@ export default function AuditReviewPage() {
     isOpen: false,
     filename: null,
     confirmText: "",
+    adminPassword: "",
+    acknowledgement: false,
     isRestoring: false,
     report: null,
     error: null,
@@ -180,10 +186,14 @@ export default function AuditReviewPage() {
   };
 
   const handleRestoreBackup = async () => {
-    if (!restoreModal.filename || restoreModal.confirmText !== "RESTORE") return;
+    if (!restoreModal.filename || restoreModal.confirmText !== "RESTORE" || !restoreModal.acknowledgement) return;
     setRestoreModal((prev) => ({ ...prev, isRestoring: true, error: null, report: null }));
     try {
-      const res = await api.restoreBackup(restoreModal.filename);
+      const res = await api.restoreBackup({
+        filename: restoreModal.filename,
+        confirmation: "RESTORE",
+        admin_password: restoreModal.adminPassword.trim() || undefined,
+      });
       setRestoreModal((prev) => ({ ...prev, isRestoring: false, report: res }));
       setBackupActionMsg({
         type: "success",
@@ -626,6 +636,13 @@ export default function AuditReviewPage() {
               </div>
 
               <div className="flex items-center gap-2">
+                <Link
+                  href="/backups"
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50 px-2.5 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-100 transition-colors shadow-sm"
+                >
+                  <ExternalLink className="h-3.5 w-3.5" />
+                  <span>Full DR Console</span>
+                </Link>
                 <Button
                   variant="primary"
                   size="sm"
@@ -743,6 +760,8 @@ export default function AuditReviewPage() {
                                 isOpen: true,
                                 filename: fname,
                                 confirmText: "",
+                                adminPassword: "",
+                                acknowledgement: false,
                                 isRestoring: false,
                                 report: null,
                                 error: null,
@@ -905,6 +924,32 @@ export default function AuditReviewPage() {
                     className="w-full rounded-lg border border-slate-300 p-2 text-xs font-mono uppercase focus:ring-1 focus:ring-rose-500"
                   />
                 </div>
+
+                <div>
+                  <label className="text-[11px] font-semibold text-slate-700 block mb-1">
+                    Administrator Password (Step-Up Re-Authentication)
+                  </label>
+                  <input
+                    type="password"
+                    value={restoreModal.adminPassword}
+                    onChange={(e) => setRestoreModal((prev) => ({ ...prev, adminPassword: e.target.value }))}
+                    placeholder="Enter current administrator password"
+                    className="w-full rounded-lg border border-slate-300 p-2 text-xs focus:ring-1 focus:ring-rose-500"
+                  />
+                </div>
+
+                <div className="flex items-start gap-2 pt-1">
+                  <input
+                    type="checkbox"
+                    id="audit-ack-restore"
+                    checked={restoreModal.acknowledgement}
+                    onChange={(e) => setRestoreModal((prev) => ({ ...prev, acknowledgement: e.target.checked }))}
+                    className="mt-0.5 rounded border-slate-300 text-rose-600 focus:ring-rose-500"
+                  />
+                  <label htmlFor="audit-ack-restore" className="text-[11px] text-slate-600 cursor-pointer select-none">
+                    I acknowledge that this action will permanently replace all current database tables and reload biometric memory caches.
+                  </label>
+                </div>
               </div>
             )}
 
@@ -924,7 +969,11 @@ export default function AuditReviewPage() {
                   type="button"
                   variant="danger"
                   size="sm"
-                  disabled={restoreModal.confirmText !== "RESTORE" || restoreModal.isRestoring}
+                  disabled={
+                    restoreModal.confirmText !== "RESTORE" ||
+                    !restoreModal.acknowledgement ||
+                    restoreModal.isRestoring
+                  }
                   isLoading={restoreModal.isRestoring}
                   onClick={handleRestoreBackup}
                   className="bg-rose-600 hover:bg-rose-700 text-white font-medium"

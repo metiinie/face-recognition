@@ -878,12 +878,26 @@ export const api = {
     return request(`/api/v2/entrance/status?station_code=${stationCode}`);
   },
 
+  async getGateConfig(stationCode = 'ST-GATE-01'): Promise<{
+    station_code: string;
+    gate_config: {
+      gate_mode: string;
+      cooldown_sec: number;
+      min_checkout_elapsed_mins: number;
+      min_persistence_frames: number;
+    };
+    is_admin: boolean;
+  }> {
+    return request(`/api/v2/entrance/gate-config?station_code=${stationCode}`);
+  },
+
   async configureGate(payload: {
     station_code: string;
-    gate_mode: string;
+    gate_mode?: string;
     cooldown_sec?: number;
     min_checkout_elapsed_mins?: number;
     min_persistence_frames?: number;
+    admin_password?: string;
   }): Promise<any> {
     return request('/api/v2/entrance/gate-config', {
       method: 'POST',
@@ -941,10 +955,26 @@ export const api = {
     });
   },
 
-  async restoreBackup(filename: string): Promise<BackupRestoreResponse> {
-    return request('/api/v2/admin/backups/restore', {
-      method: 'POST',
-      body: JSON.stringify({ filename }),
+  async restoreBackup(
+    payload:
+      | string
+      | {
+          filename: string;
+          confirmation?: string;
+          admin_password?: string;
+        }
+  ): Promise<BackupRestoreResponse> {
+    const body =
+      typeof payload === "string"
+        ? { filename: payload, confirmation: "RESTORE" }
+        : {
+            filename: payload.filename,
+            confirmation: payload.confirmation || "RESTORE",
+            admin_password: payload.admin_password,
+          };
+    return request("/api/v2/admin/backups/restore", {
+      method: "POST",
+      body: JSON.stringify(body),
     });
   },
 

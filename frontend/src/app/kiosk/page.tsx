@@ -22,12 +22,22 @@ import {
   ArrowRight,
   LogIn,
   LogOut,
+  Wifi,
+  WifiOff,
+  Hand,
+  RefreshCw,
 } from "lucide-react";
 
 export default function KioskPage() {
   const [stationId, setStationId] = useState("ST-ICT-01");
   const [stationsList, setStationsList] = useState<StationRecord[]>([]);
   const [employees, setEmployees] = useState<any[]>([]);
+
+  // Touchless & Offline Resilience state (E3, E4)
+  const [touchlessAutoPunch, setTouchlessAutoPunch] = useState<boolean>(true);
+  const [autoConfirmCountdown, setAutoConfirmCountdown] = useState<number | null>(null);
+  const [isOnline, setIsOnline] = useState<boolean>(true);
+  const [offlineQueueCount, setOfflineQueueCount] = useState<number>(0);
 
   useEffect(() => {
     api.getStationDirectory()
@@ -43,7 +53,30 @@ export default function KioskPage() {
       .catch((err) => {
         console.warn("Could not load station directory, using defaults:", err);
       });
+
+    // Network & offline queue listeners
+    if (typeof window !== "undefined") {
+      setIsOnline(navigator.onLine);
+      const handleOnline = () => setIsOnline(true);
+      const handleOffline = () => setIsOnline(false);
+      window.addEventListener("online", handleOnline);
+      window.addEventListener("offline", handleOffline);
+
+      try {
+        const stored = localStorage.getItem("eipc_offline_kiosk_queue");
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (Array.isArray(parsed)) setOfflineQueueCount(parsed.length);
+        }
+      } catch {}
+
+      return () => {
+        window.removeEventListener("online", handleOnline);
+        window.removeEventListener("offline", handleOffline);
+      };
+    }
   }, []);
+
   const [isProcessing, setIsProcessing] = useState(false);
   const [isConfirming, setIsConfirming] = useState(false);
 
@@ -74,6 +107,7 @@ export default function KioskPage() {
     setFeedbackError(null);
     setPunchError(null);
     setAttendanceOutcome(null);
+    setAutoConfirmCountdown(null);
 
     try {
       const res = await api.recognizeFace({
@@ -85,6 +119,9 @@ export default function KioskPage() {
 
       if (!res.matched) {
         setFeedbackError(res.rejection_message || "Face not recognized. Please adjust position or contact HR.");
+      } else if (res.recognition_token && touchlessAutoPunch) {
+        // Trigger hands-free auto-confirm countdown
+        setAutoConfirmCountdown(2);
       }
     } catch (err: any) {
       console.error("Recognition call failed:", err);
@@ -119,6 +156,7 @@ export default function KioskPage() {
     setFeedbackError(null);
     setPunchError(null);
     setAttendanceOutcome(null);
+    setAutoConfirmCountdown(null);
 
     try {
       const res = await api.recognizeFace({
@@ -130,6 +168,8 @@ export default function KioskPage() {
 
       if (!res.matched) {
         setFeedbackError(res.rejection_message || `${label}: Match rejected by face engine.`);
+      } else if (res.recognition_token && touchlessAutoPunch) {
+        setAutoConfirmCountdown(2);
       }
     } catch (err: any) {
       console.error("Simulation failed:", err);
@@ -141,12 +181,13 @@ export default function KioskPage() {
 
   const [selectedAction, setSelectedAction] = useState<"CHECK_IN" | "CHECK_OUT" | null>(null);
 
-  const handleConfirmAttendance = async (action: "CHECK_IN" | "CHECK_OUT") => {
+  const handleConfirmAttendance = async (action?: "CHECK_IN" | "CHECK_OUT") => {
     if (!recognition?.recognition_token) return;
 
-    setSelectedAction(action);
+    setSelectedAction(action || null);
     setIsConfirming(true);
     setPunchError(null);
+    setAutoConfirmCountdown(null);
     try {
       const outcome = await api.confirmAttendance({
         recognition_token: recognition.recognition_token,
@@ -156,6 +197,32 @@ export default function KioskPage() {
       setAttendanceOutcome(outcome);
     } catch (err: any) {
       console.error("Attendance confirmation error:", err);
+      // Offline fallback buffer (E4)
+      if (
+        !navigator.onLine ||
+        err.message?.includes("Failed to fetch") ||
+        err.message?.includes("NetworkError") ||
+        err.message?.includes("Failed to communicate")
+      ) {
+        try {
+          const queue = JSON.parse(localStorage.getItem("eipc_offline_kiosk_queue") || "[]");
+          queue.push({
+            recognition_token: recognition.recognition_token,
+            station_id: stationId,
+            event_type: action || "AUTO",
+            timestamp: new Date().toISOString(),
+          });
+          localStorage.setItem("eipc_offline_kiosk_queue", JSON.stringify(queue));
+          setOfflineQueueCount(queue.length);
+          setAttendanceOutcome({
+            success: true,
+            message: "LAN unavailable. Attendance securely buffered in offline kiosk queue and will sync when reconnected.",
+            event_type: action || "CHECK_IN",
+            timestamp: new Date().toISOString(),
+          });
+          return;
+        } catch {}
+      }
       setPunchError(err.message || "Failed to record attendance event.");
     } finally {
       setIsConfirming(false);
@@ -163,9 +230,26 @@ export default function KioskPage() {
     }
   };
 
+  // Touchless Auto-Confirm Countdown Effect (E3)
+  useEffect(() => {
+    if (autoConfirmCountdown === null) return;
+    if (autoConfirmCountdown > 0) {
+      const timer = setTimeout(() => {
+        setAutoConfirmCountdown((prev) => (prev !== null && prev > 0 ? prev - 1 : null));
+      }, 1000);
+      return () => clearTimeout(timer);
+    } else if (autoConfirmCountdown === 0) {
+      setAutoConfirmCountdown(null);
+      if (recognition?.recognition_token && !attendanceOutcome && !isConfirming) {
+        handleConfirmAttendance();
+      }
+    }
+  }, [autoConfirmCountdown, recognition, attendanceOutcome, isConfirming]);
+
   const handleReset = () => {
     setRecognition(null);
     setAttendanceOutcome(null);
+    setAutoConfirmCountdown(null);
     setFeedbackError(null);
     setPunchError(null);
     setShowHelpDrawer(false);
@@ -214,6 +298,40 @@ export default function KioskPage() {
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
+          {/* Network & Offline Status Indicator (E4) */}
+          {isOnline ? (
+            <span className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-500/20 px-2.5 py-1 text-xs font-semibold text-emerald-300 border border-emerald-400/30">
+              <Wifi className="h-3.5 w-3.5 text-emerald-400" />
+              <span>LAN Online</span>
+            </span>
+          ) : (
+            <span
+              className="inline-flex items-center gap-1.5 rounded-lg bg-amber-500/20 px-2.5 py-1 text-xs font-semibold text-amber-300 border border-amber-400/30"
+              title="Terminal is buffering offline punches locally until network recovers."
+            >
+              <WifiOff className="h-3.5 w-3.5 text-amber-400" />
+              <span>Offline Buffer {offlineQueueCount > 0 ? `(${offlineQueueCount})` : ""}</span>
+            </span>
+          )}
+
+          {/* Touchless Auto-Punch Toggle (E3) */}
+          <button
+            type="button"
+            onClick={() => {
+              setTouchlessAutoPunch(!touchlessAutoPunch);
+              setAutoConfirmCountdown(null);
+            }}
+            className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium border transition-colors ${
+              touchlessAutoPunch
+                ? "bg-indigo-500/30 text-indigo-200 border-indigo-400/40"
+                : "bg-white/10 text-slate-300 border-white/20 hover:bg-white/20"
+            }`}
+            title="Toggle hands-free automatic attendance confirmation"
+          >
+            <Hand className="h-3.5 w-3.5" />
+            <span>Touchless: {touchlessAutoPunch ? "ON" : "OFF"}</span>
+          </button>
+
           <Button
             size="sm"
             variant="outline"
@@ -407,6 +525,27 @@ export default function KioskPage() {
                 <div className="mt-3 rounded-lg bg-rose-100 border border-rose-300 p-2.5 text-xs text-rose-800 flex items-center gap-2">
                   <XCircle className="h-4 w-4 shrink-0 text-rose-600" />
                   <span>{punchError}</span>
+                </div>
+              )}
+
+              {/* Touchless Auto-Confirm Countdown Banner (E3) */}
+              {touchlessAutoPunch && autoConfirmCountdown !== null && (
+                <div className="mt-4 rounded-xl border border-indigo-300 bg-indigo-50/80 p-3 text-center space-y-1.5 animate-pulse">
+                  <div className="flex items-center justify-center gap-2 text-xs font-bold text-indigo-950">
+                    <Sparkles className="h-4 w-4 text-indigo-600" />
+                    <span>Touchless Auto-Confirm in {autoConfirmCountdown}s...</span>
+                  </div>
+                  <p className="text-[10px] text-indigo-700">
+                    Hands-free mode automatically detects check-in vs check-out based on your open session.
+                  </p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-6 text-[10px] px-2.5 py-0 border-indigo-200 text-indigo-700 hover:bg-indigo-100"
+                    onClick={() => setAutoConfirmCountdown(null)}
+                  >
+                    Cancel Auto-Punch (Choose Manually)
+                  </Button>
                 </div>
               )}
 

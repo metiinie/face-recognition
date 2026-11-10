@@ -12,6 +12,8 @@ import {
   GateStatusResponse,
   StationRecord,
   EmployeeRecord,
+  getStoredUser,
+  UserProfile,
 } from "@/lib/api";
 import { getEntranceSocket } from "@/lib/socket";
 import {
@@ -25,6 +27,7 @@ import {
   Clock,
   ArrowRight,
   ShieldAlert,
+  ShieldCheck,
   Zap,
   Sparkles,
   Building2,
@@ -40,6 +43,8 @@ import {
   X,
   Sliders,
   Settings,
+  Compass,
+  Lock,
 } from "lucide-react";
 
 export default function ContinuousEntrancePage() {
@@ -71,6 +76,25 @@ export default function ContinuousEntrancePage() {
 
   // Simulation & Action Feedback Banners
   const [simMessage, setSimMessage] = useState<{ type: "success" | "warning"; text: string } | null>(null);
+
+  // Administrative Authorization & Transport Telemetry
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
+  const [adminUnlocked, setAdminUnlocked] = useState<boolean>(false);
+  const [adminPasswordInput, setAdminPasswordInput] = useState<string>("");
+  const [tuningSaveError, setTuningSaveError] = useState<string | null>(null);
+  const [isSavingTuning, setIsSavingTuning] = useState<boolean>(false);
+  const [rttMs, setRttMs] = useState<number | null>(null);
+  const [isTestingPing, setIsTestingPing] = useState<boolean>(false);
+
+  useEffect(() => {
+    const user = getStoredUser();
+    setCurrentUser(user);
+    if (user?.role === "SYSTEM_ADMIN") {
+      setAdminUnlocked(true);
+    }
+  }, []);
+
+  const isAdmin = currentUser?.role === "SYSTEM_ADMIN" || adminUnlocked;
 
   // Quick Face Enrollment Modal State
   const [showEnrollModal, setShowEnrollModal] = useState<boolean>(false);
@@ -203,6 +227,18 @@ export default function ContinuousEntrancePage() {
   const startCamera = useCallback(async () => {
     try {
       setStreamError(null);
+      if (
+        typeof window !== "undefined" &&
+        !window.isSecureContext &&
+        window.location.hostname !== "localhost" &&
+        window.location.hostname !== "127.0.0.1"
+      ) {
+        throw new Error(
+          "Browser requires HTTPS or localhost for camera access. If connecting via LAN IP (e.g. http://" +
+            window.location.host +
+            "), enable HTTPS or whitelist this origin in chrome://flags/#unsafely-treat-insecure-origin-as-secure."
+        );
+      }
       if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
         throw new Error("Webcam access is not supported by your browser environment.");
       }
@@ -595,48 +631,90 @@ export default function ContinuousEntrancePage() {
     };
   }, [isStreaming, isWsConnected, processLiveFrame]);
 
-  // 4. Change Gate Configuration
+  // 4. Transport Health & Ping Test
+  const handleReconnectTransport = useCallback(async () => {
+    setIsTestingPing(true);
+    const start = performance.now();
+    try {
+      const socket = getEntranceSocket();
+      if (!socket.connected) {
+        socket.connect();
+      }
+      await api.getGateConfig(selectedStation);
+      const elapsed = Math.round(performance.now() - start);
+      setRttMs(elapsed);
+      if (socket.connected) {
+        setTransportMode("WEBSOCKET");
+        setIsWsConnected(true);
+      } else {
+        setTransportMode("HTTP_FALLBACK");
+      }
+    } catch {
+      setRttMs(Math.round(performance.now() - start));
+    } finally {
+      setIsTestingPing(false);
+    }
+  }, [selectedStation]);
+
+  // 5. Change Gate Direction (Unrestricted Operator Control)
   const handleModeChange = async (mode: "AUTO_DETECT" | "IN" | "OUT") => {
     setGateMode(mode);
     try {
+      // Operators have unrestricted authority over gate direction
       await api.configureGate({
         station_code: selectedStation,
         gate_mode: mode,
-        cooldown_sec: cooldownSec,
-        min_checkout_elapsed_mins: minCheckoutMins,
-        min_persistence_frames: minPersistenceFrames,
       });
       setSimMessage({
         type: "success",
         text: mode === "AUTO_DETECT"
-          ? `Gate mode set to Auto-Detect with accidental checkout protection (${minCheckoutMins}m debounce, ${minPersistenceFrames} frame persistence).`
-          : `Gate mode switched to ${mode}. Directional punches will apply automatically.`,
+          ? `Gate direction set to Auto-Detect bidirectional with accidental checkout protection (${minCheckoutMins}m debounce, ${minPersistenceFrames} frame persistence).`
+          : `Gate direction switched to ${mode}. Directional punches apply automatically.`,
       });
     } catch (err: any) {
-      console.error("Failed to update gate mode:", err);
+      console.error("Failed to update gate direction:", err);
+      setSimMessage({
+        type: "warning",
+        text: `Failed to update gate direction: ${err.message}`,
+      });
     }
   };
 
+  // 6. Save Gate Tuning Parameters (Restricted to Administrators)
   const handleSaveGateSettings = async () => {
+    setIsSavingTuning(true);
+    setTuningSaveError(null);
     try {
-      await api.configureGate({
+      const payload: any = {
         station_code: selectedStation,
         gate_mode: gateMode,
         cooldown_sec: cooldownSec,
         min_checkout_elapsed_mins: minCheckoutMins,
         min_persistence_frames: minPersistenceFrames,
-      });
+      };
+
+      if (!isAdmin && adminPasswordInput.trim()) {
+        payload.admin_password = adminPasswordInput.trim();
+      }
+
+      const res = await api.configureGate(payload);
+      if (res.is_admin || adminPasswordInput.trim()) {
+        setAdminUnlocked(true);
+      }
       setIsSettingsOpen(false);
       setSimMessage({
         type: "success",
-        text: `Gate parameters updated: Cooldown ${cooldownSec}s, Checkout debounce ${minCheckoutMins}m, Persistence ${minPersistenceFrames} frames.`,
+        text: `Gate tuning updated: Cooldown ${cooldownSec}s, Checkout debounce ${minCheckoutMins}m, Persistence ${minPersistenceFrames} frames.`,
       });
       fetchGateData();
     } catch (err: any) {
+      setTuningSaveError(err.message || "Failed to save gate tuning parameters.");
       setSimMessage({
         type: "warning",
         text: `Failed to save gate tuning parameters: ${err.message}`,
       });
+    } finally {
+      setIsSavingTuning(false);
     }
   };
 
@@ -838,6 +916,125 @@ export default function ContinuousEntrancePage() {
 
           <Button variant="outline" size="sm" onClick={fetchGateData}>
             <RefreshCw className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      </div>
+
+      {/* Operator Live Gate Configuration & Connection Transport Status Bar */}
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50/90 p-3 text-xs shadow-xs dark:border-slate-800 dark:bg-slate-900/60">
+        {/* Gate Direction (Operator Control) */}
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+            <Compass className="h-4 w-4 text-blue-600 shrink-0" />
+            <span>Direction:</span>
+          </span>
+          <div className="inline-flex rounded-lg border border-slate-300 bg-white p-0.5 shadow-xs dark:border-slate-700 dark:bg-slate-800">
+            <button
+              type="button"
+              onClick={() => handleModeChange("IN")}
+              className={`px-2.5 py-1 rounded-md text-xs font-bold transition-all ${
+                gateMode === "IN"
+                  ? "bg-emerald-600 text-white shadow-xs"
+                  : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"
+              }`}
+              title="Set direction to IN (Entry / መግቢያ)"
+            >
+              IN (መግቢያ)
+            </button>
+            <button
+              type="button"
+              onClick={() => handleModeChange("OUT")}
+              className={`px-2.5 py-1 rounded-md text-xs font-bold transition-all ${
+                gateMode === "OUT"
+                  ? "bg-blue-600 text-white shadow-xs"
+                  : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"
+              }`}
+              title="Set direction to OUT (Exit / መውጫ)"
+            >
+              OUT (መውጫ)
+            </button>
+            <button
+              type="button"
+              onClick={() => handleModeChange("AUTO_DETECT")}
+              className={`px-2.5 py-1 rounded-md text-xs font-bold transition-all ${
+                gateMode === "AUTO_DETECT"
+                  ? "bg-indigo-600 text-white shadow-xs"
+                  : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"
+              }`}
+              title="Set direction to Bidirectional Auto-Detect"
+            >
+              AUTO (ሁለትዮሽ)
+            </button>
+          </div>
+        </div>
+
+        {/* Sensitive Tuning Parameters Visibility (Read-Only to Operators, Admin Locked) */}
+        <div className="flex flex-wrap items-center gap-2 text-[11px] font-mono">
+          <div
+            className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 shadow-xs cursor-pointer hover:border-slate-300"
+            onClick={() => setIsSettingsOpen(true)}
+            title="Accidental checkout debounce window (Click to view/tune)"
+          >
+            <Clock className="h-3 w-3 text-amber-500 shrink-0" />
+            <span>Min Checkout: <strong className="text-slate-900 dark:text-white">{minCheckoutMins}m</strong></span>
+          </div>
+
+          <div
+            className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 shadow-xs cursor-pointer hover:border-slate-300"
+            onClick={() => setIsSettingsOpen(true)}
+            title="Tracking persistence consensus threshold (Click to view/tune)"
+          >
+            <Layers className="h-3 w-3 text-blue-500 shrink-0" />
+            <span>Persistence: <strong className="text-slate-900 dark:text-white">{minPersistenceFrames}f</strong></span>
+          </div>
+
+          <div
+            className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 shadow-xs cursor-pointer hover:border-slate-300"
+            onClick={() => setIsSettingsOpen(true)}
+            title="Passage cooldown period (Click to view/tune)"
+          >
+            <ShieldAlert className="h-3 w-3 text-purple-500 shrink-0" />
+            <span>Cooldown: <strong className="text-slate-900 dark:text-white">{cooldownSec}s</strong></span>
+          </div>
+        </div>
+
+        {/* Transport Status & Ping Telemetry */}
+        <div className="flex items-center gap-2">
+          {transportMode === "WEBSOCKET" && isWsConnected ? (
+            <span className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-500/15 border border-emerald-500/30 px-2.5 py-1 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
+              <Radio className="h-3.5 w-3.5 text-emerald-600 animate-pulse shrink-0" />
+              <span>WebSocket Live</span>
+              {rttMs !== null && <span className="text-[10px] font-mono font-normal opacity-80">({rttMs}ms)</span>}
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1.5 rounded-lg bg-amber-500/15 border border-amber-500/30 px-2.5 py-1 text-xs font-semibold text-amber-800 dark:text-amber-300">
+              <Radio className="h-3.5 w-3.5 text-amber-600 shrink-0" />
+              <span>HTTP Polling Fallback</span>
+              {rttMs !== null && <span className="text-[10px] font-mono font-normal opacity-80">({rttMs}ms)</span>}
+            </span>
+          )}
+
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleReconnectTransport}
+            isLoading={isTestingPing}
+            className="h-7 px-2 text-[11px]"
+            title="Test transport latency and reconnect"
+          >
+            <RefreshCw className="h-3 w-3" />
+          </Button>
+
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setIsSettingsOpen(true)}
+            className="h-7 px-2.5 text-[11px] gap-1 border-blue-200 text-blue-700 hover:bg-blue-50"
+            title="Open Gate Tuning Parameters"
+          >
+            <Sliders className="h-3 w-3" />
+            <span>Tuning</span>
+            {!isAdmin && <Lock className="h-2.5 w-2.5 text-amber-500 ml-0.5" />}
           </Button>
         </div>
       </div>
@@ -1350,7 +1547,7 @@ export default function ContinuousEntrancePage() {
       {/* Gate Tuning Settings Modal (M4) */}
       {isSettingsOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl space-y-4">
+          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl space-y-4">
             <div className="flex items-center justify-between border-b pb-3">
               <div className="flex items-center gap-2">
                 <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-100 text-blue-700">
@@ -1361,27 +1558,70 @@ export default function ContinuousEntrancePage() {
                   <p className="text-xs text-slate-500">Timing debounce & tracking persistence parameters.</p>
                 </div>
               </div>
-              <button
-                onClick={() => setIsSettingsOpen(false)}
-                className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
-              >
-                <X className="h-5 w-5" />
-              </button>
+              <div className="flex items-center gap-2">
+                {isAdmin ? (
+                  <Badge variant="success" className="text-[10px]">
+                    Admin Authorized
+                  </Badge>
+                ) : (
+                  <Badge variant="warning" className="text-[10px] gap-1">
+                    <Lock className="h-2.5 w-2.5" />
+                    <span>Admin Protected</span>
+                  </Badge>
+                )}
+                <button
+                  onClick={() => setIsSettingsOpen(false)}
+                  className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
             </div>
+
+            {/* Admin Policy Notice */}
+            {!isAdmin ? (
+              <div className="rounded-xl bg-amber-50 border border-amber-200 p-3 text-xs text-amber-900 space-y-1">
+                <div className="font-bold flex items-center gap-1.5">
+                  <Lock className="h-3.5 w-3.5 text-amber-600 shrink-0" />
+                  <span>Sensitive Parameters Restricted</span>
+                </div>
+                <p className="text-[11px] text-amber-800 leading-relaxed">
+                  Gate direction (IN/OUT) can be operated freely on the live console. Modifying sensitive timing parameters (cooldown, accidental checkout debounce, and tracking persistence) requires System Administrator authorization.
+                </p>
+              </div>
+            ) : (
+              <div className="rounded-xl bg-blue-50/70 border border-blue-200 p-2.5 text-xs text-blue-900 flex items-center gap-2">
+                <ShieldCheck className="h-4 w-4 text-blue-600 shrink-0" />
+                <span className="text-[11px]">Administrator privileges active: Timing parameters are editable.</span>
+              </div>
+            )}
+
+            {tuningSaveError && (
+              <div className="rounded-xl bg-rose-50 border border-rose-200 p-2.5 text-xs text-rose-800 flex items-center gap-1.5">
+                <AlertCircle className="h-4 w-4 text-rose-600 shrink-0" />
+                <span>{tuningSaveError}</span>
+              </div>
+            )}
 
             <div className="space-y-4 text-xs">
               <div>
-                <label className="text-[11px] font-semibold text-slate-700 block mb-1">
-                  Gate Passage Cooldown (Seconds): <span className="font-mono text-blue-600 font-bold">{cooldownSec}s</span>
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-[11px] font-semibold text-slate-700">
+                    Gate Passage Cooldown (Seconds):
+                  </label>
+                  <span className="font-mono text-blue-600 font-bold bg-blue-50 px-1.5 py-0.5 rounded text-[11px]">
+                    {cooldownSec}s {!isAdmin && "🔒"}
+                  </span>
+                </div>
                 <input
                   type="range"
                   min={5}
                   max={60}
                   step={5}
+                  disabled={!isAdmin}
                   value={cooldownSec}
                   onChange={(e) => setCooldownSec(Number(e.target.value))}
-                  className="w-full accent-blue-600 cursor-pointer"
+                  className="w-full accent-blue-600 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                 />
                 <p className="text-[10px] text-slate-500 mt-0.5">
                   Suppresses duplicate punches for the same employee within this window.
@@ -1389,17 +1629,23 @@ export default function ContinuousEntrancePage() {
               </div>
 
               <div>
-                <label className="text-[11px] font-semibold text-slate-700 block mb-1">
-                  Accidental Checkout Debounce (Minutes): <span className="font-mono text-blue-600 font-bold">{minCheckoutMins}m</span>
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-[11px] font-semibold text-slate-700">
+                    Accidental Checkout Debounce (Minutes):
+                  </label>
+                  <span className="font-mono text-blue-600 font-bold bg-blue-50 px-1.5 py-0.5 rounded text-[11px]">
+                    {minCheckoutMins}m {!isAdmin && "🔒"}
+                  </span>
+                </div>
                 <input
                   type="range"
                   min={1}
                   max={60}
                   step={1}
+                  disabled={!isAdmin}
                   value={minCheckoutMins}
                   onChange={(e) => setMinCheckoutMins(Number(e.target.value))}
-                  className="w-full accent-blue-600 cursor-pointer"
+                  className="w-full accent-blue-600 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                 />
                 <p className="text-[10px] text-slate-500 mt-0.5">
                   In AUTO_DETECT mode, prevents immediate accidental checkout if check-in occurred less than this many minutes ago.
@@ -1407,22 +1653,47 @@ export default function ContinuousEntrancePage() {
               </div>
 
               <div>
-                <label className="text-[11px] font-semibold text-slate-700 block mb-1">
-                  Minimum Tracking Persistence (Frames): <span className="font-mono text-blue-600 font-bold">{minPersistenceFrames} frames</span>
-                </label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-[11px] font-semibold text-slate-700">
+                    Minimum Tracking Persistence (Frames):
+                  </label>
+                  <span className="font-mono text-blue-600 font-bold bg-blue-50 px-1.5 py-0.5 rounded text-[11px]">
+                    {minPersistenceFrames} frames {!isAdmin && "🔒"}
+                  </span>
+                </div>
                 <input
                   type="range"
                   min={1}
                   max={5}
                   step={1}
+                  disabled={!isAdmin}
                   value={minPersistenceFrames}
                   onChange={(e) => setMinPersistenceFrames(Number(e.target.value))}
-                  className="w-full accent-blue-600 cursor-pointer"
+                  className="w-full accent-blue-600 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                 />
                 <p className="text-[10px] text-slate-500 mt-0.5">
                   Face must remain visible and tracked for this many consecutive frames before attendance confirms.
                 </p>
               </div>
+
+              {/* Step-Up Authentication Form for Operators */}
+              {!isAdmin && (
+                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2">
+                  <label className="text-[11px] font-semibold text-slate-800 block">
+                    Administrator Step-Up Password to Unlock & Save:
+                  </label>
+                  <input
+                    type="password"
+                    value={adminPasswordInput}
+                    onChange={(e) => setAdminPasswordInput(e.target.value)}
+                    placeholder="Enter administrator password"
+                    className="w-full rounded-lg border border-slate-300 bg-white p-2 text-xs focus:ring-1 focus:ring-blue-500 focus:outline-none"
+                  />
+                  <p className="text-[10px] text-slate-500">
+                    Allows operators stationed at the gate to apply authorized administrative tuning with step-up verification.
+                  </p>
+                </div>
+              )}
             </div>
 
             <div className="flex justify-end gap-2 pt-3 border-t">
@@ -1431,6 +1702,7 @@ export default function ContinuousEntrancePage() {
                 variant="outline"
                 size="sm"
                 onClick={() => setIsSettingsOpen(false)}
+                disabled={isSavingTuning}
               >
                 Cancel
               </Button>
@@ -1439,9 +1711,15 @@ export default function ContinuousEntrancePage() {
                 variant="primary"
                 size="sm"
                 onClick={handleSaveGateSettings}
+                disabled={isSavingTuning || (!isAdmin && !adminPasswordInput.trim())}
+                isLoading={isSavingTuning}
                 className="bg-blue-600 hover:bg-blue-700 text-white font-medium"
               >
-                Save Gate Parameters
+                {isAdmin
+                  ? "Save Gate Parameters"
+                  : adminPasswordInput.trim()
+                  ? "Authorize & Save Tuning"
+                  : "Admin Password Required"}
               </Button>
             </div>
           </div>

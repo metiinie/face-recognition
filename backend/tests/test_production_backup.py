@@ -211,3 +211,17 @@ def test_api_backup_management_endpoints(client, app, tmp_path):
     assert prune_resp.status_code == 200
     assert prune_resp.get_json()["status"] == "SUCCESS"
 
+    # 7. Restoration requires explicit 'RESTORE' confirmation
+    restore_no_confirm = client.post("/api/v2/admin/backups/restore", headers=auth_hdr, json={"filename": filename})
+    assert restore_no_confirm.status_code == 400
+    assert "confirmation string 'RESTORE' required" in restore_no_confirm.get_json()["error"]
+
+    # 8. Restoration rejects incorrect password
+    restore_wrong_pwd = client.post(
+        "/api/v2/admin/backups/restore",
+        headers=auth_hdr,
+        json={"filename": filename, "confirmation": "RESTORE", "admin_password": "wrong_password_123"},
+    )
+    assert restore_wrong_pwd.status_code == 403
+    assert restore_wrong_pwd.get_json()["code"] == "INVALID_PASSWORD"
+

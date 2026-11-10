@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import Link from "next/link";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
@@ -16,6 +17,10 @@ import {
   RefreshCw,
   Building,
   Zap,
+  Database,
+  ShieldAlert,
+  Sliders,
+  ExternalLink,
 } from "lucide-react";
 import {
   BarChart,
@@ -186,6 +191,42 @@ export default function DashboardPage() {
             {unresolvedReviews > 0 ? "Pending HR adjudication" : "Zero active review flags"}
           </p>
         </Card>
+      </div>
+
+      {/* Administrative Quick-Launch Bar */}
+      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-3.5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
+        <div className="flex items-center gap-2">
+          <Database className="h-4 w-4 text-blue-600" />
+          <span className="text-xs font-bold text-slate-900 dark:text-white">
+            Administrative Modules:
+          </span>
+          <span className="text-xs text-slate-500 hidden sm:inline">
+            Direct access to institutional disaster recovery, audit trail, and biometric controls.
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          <Link
+            href="/backups"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 bg-blue-50/70 px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-100 transition-colors"
+          >
+            <Database className="h-3.5 w-3.5 text-blue-600" />
+            <span>Backups & Disaster Recovery</span>
+          </Link>
+          <Link
+            href="/audit"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+          >
+            <ShieldAlert className="h-3.5 w-3.5 text-slate-500" />
+            <span>Audit Trail</span>
+          </Link>
+          <Link
+            href="/biometrics"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+          >
+            <Sliders className="h-3.5 w-3.5 text-slate-500" />
+            <span>Biometrics Lab</span>
+          </Link>
+        </div>
       </div>
 
       {/* 2 Recharts Analytics Visualizations */}

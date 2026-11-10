@@ -1702,30 +1702,110 @@ def api_v2_entrance_status():
     return jsonify(status), 200
 
 
-@api_bp.route("/v2/entrance/gate-config", methods=["POST"])
+@api_bp.route("/v2/entrance/gate-config", methods=["GET", "POST"])
 def api_v2_entrance_config():
     """
-    Configure gate mode (IN, OUT, AUTO_DETECT) and cooldown period for continuous gate.
+    Get or configure gate direction (IN, OUT, AUTO_DETECT) and timing parameters for continuous gate.
+    - Direction (gate_mode): Operators and gate attendants can change direction (IN / OUT / AUTO_DETECT).
+    - Sensitive Parameters (cooldown_sec, min_checkout_elapsed_mins, min_persistence_frames):
+      Restricted to administrators. Modifying sensitive tuning requires ADMIN role or step-up admin credentials.
     """
+    manager = ContinuousEntranceManager.get_instance()
+
+    if request.method == "GET":
+        st_code = request.args.get("station_code", "ST-GATE-01")
+        cfg = manager.get_gate_config(st_code)
+        actor = get_current_user()
+        is_admin = bool(actor and actor.role and actor.role.name == "ADMIN")
+        return jsonify({
+            "station_code": st_code,
+            "gate_config": cfg,
+            "is_admin": is_admin,
+        }), 200
+
     data = request.get_json(silent=True) or {}
     st_code = data.get("station_code", "ST-GATE-01")
-    gate_mode = data.get("gate_mode", "AUTO_DETECT")
-    cooldown = data.get("cooldown_sec", 20)
-    min_elapsed = data.get("min_checkout_elapsed_mins", 15)
-    min_pers = data.get("min_persistence_frames", 3)
+    current_cfg = manager.get_gate_config(st_code)
 
-    manager = ContinuousEntranceManager.get_instance()
+    # 1. Determine if sensitive parameters are being modified
+    sensitive_keys = ["cooldown_sec", "min_checkout_elapsed_mins", "min_persistence_frames"]
+    has_sensitive_changes = False
+    for k in sensitive_keys:
+        if k in data and data[k] is not None:
+            # Check if value differs from current runtime configuration
+            if str(data[k]) != str(current_cfg.get(k)):
+                has_sensitive_changes = True
+                break
+
+    # 2. Enforce Administrator restriction for sensitive parameters
+    actor = get_current_user()
+    is_admin = bool(actor and actor.role and actor.role.name == "ADMIN")
+
+    if has_sensitive_changes and not is_admin:
+        admin_password = data.get("admin_password") or data.get("password")
+        if admin_password:
+            from backend.auth.service import verify_password
+            admin_user = (
+                User.query.join(User.role)
+                .filter(Role.name == "ADMIN", User.status == "ACTIVE")
+                .first()
+            )
+            if admin_user and verify_password(admin_user.password_hash, admin_password):
+                is_admin = True
+                actor = admin_user
+
+        if not is_admin:
+            record_audit_log(
+                action="GATE_TUNING_DENIED",
+                target_type="STATION",
+                target_id=st_code,
+                reason="Unauthorized attempt to modify sensitive gate tuning parameters (cooldown, checkout debounce, tracking persistence)",
+                actor_username=actor.username if actor else "OPERATOR",
+                commit=True,
+            )
+            return jsonify({
+                "error": "Modifying sensitive gate tuning parameters (minimum checkout duration, tracking persistence, cooldown) requires Administrator privileges.",
+                "code": "ADMIN_REQUIRED",
+            }), 403
+
+    # 3. Apply changes (operators can change gate_mode; admins can change all)
+    gate_mode = data.get("gate_mode", current_cfg.get("gate_mode", "AUTO_DETECT"))
+    cooldown = data.get("cooldown_sec", current_cfg.get("cooldown_sec", 20)) if is_admin else current_cfg.get("cooldown_sec", 20)
+    min_elapsed = data.get("min_checkout_elapsed_mins", current_cfg.get("min_checkout_elapsed_mins", 15)) if is_admin else current_cfg.get("min_checkout_elapsed_mins", 15)
+    min_pers = data.get("min_persistence_frames", current_cfg.get("min_persistence_frames", 3)) if is_admin else current_cfg.get("min_persistence_frames", 3)
+
     cfg = manager.configure_gate(
         st_code,
         gate_mode=gate_mode,
-        cooldown_sec=cooldown,
-        min_checkout_elapsed_mins=min_elapsed,
-        min_persistence_frames=min_pers,
+        cooldown_sec=int(cooldown),
+        min_checkout_elapsed_mins=int(min_elapsed),
+        min_persistence_frames=int(min_pers),
     )
+
+    actor_username = actor.username if actor else "GATE_OPERATOR"
+    record_audit_log(
+        action="GATE_CONFIG_UPDATED",
+        target_type="STATION",
+        target_id=st_code,
+        reason=f"Gate configuration updated for {st_code}: mode={gate_mode}, cooldown={cooldown}s, min_elapsed={min_elapsed}m, persistence={min_pers} frames",
+        details={
+            "station_code": st_code,
+            "gate_mode": gate_mode,
+            "cooldown_sec": cooldown,
+            "min_checkout_elapsed_mins": min_elapsed,
+            "min_persistence_frames": min_pers,
+            "actor": actor_username,
+            "has_sensitive_changes": has_sensitive_changes,
+        },
+        actor_username=actor_username,
+        commit=True,
+    )
+
     return jsonify({
         "station_code": st_code,
         "configured": True,
         "gate_config": cfg,
+        "is_admin": is_admin,
     }), 200
 
 
@@ -1858,23 +1938,76 @@ def api_v2_verify_backup():
 @api_bp.route("/v2/admin/backups/restore", methods=["POST"])
 @admin_required
 def api_v2_restore_backup():
-    """Restore database from a verified backup archive with relational integrity checks."""
+    """
+    Restore database from a verified backup archive with relational integrity checks.
+    Enforces strong authorization, explicit confirmation ('RESTORE'), step-up password verification,
+    and comprehensive immutable audit trail logging.
+    """
     data = request.get_json(silent=True) or {}
     filename = data.get("filename")
     if not filename:
         return jsonify({"error": "Filename is required"}), 400
 
+    confirmation = str(data.get("confirmation") or data.get("confirm_text") or "").strip().upper()
+    if confirmation != "RESTORE":
+        return jsonify({
+            "error": "Destructive restoration aborted: confirmation string 'RESTORE' required.",
+            "code": "CONFIRMATION_REQUIRED"
+        }), 400
+
+    actor = get_current_user()
+    actor_username = actor.username if actor else "ADMIN"
+
+    # Step-up authorization: verify administrator password if provided
+    admin_password = data.get("admin_password") or data.get("password")
+    if admin_password:
+        from backend.auth.service import verify_password
+        if actor and getattr(actor, "password_hash", None):
+            if not verify_password(actor.password_hash, admin_password):
+                record_audit_log(
+                    action="DATABASE_RESTORE_AUTH_FAILED",
+                    target_type="DATABASE",
+                    target_id=filename,
+                    reason=f"Admin password verification failed for restoration by {actor_username}",
+                    actor_username=actor_username,
+                    commit=True,
+                )
+                return jsonify({
+                    "error": "Invalid administrator password verification.",
+                    "code": "INVALID_PASSWORD"
+                }), 403
+
     from backend.database.backup_service import ProductionBackupManager
     target_dir = ProductionBackupManager.get_backup_dir()
     archive_path = os.path.join(target_dir, os.path.basename(filename))
 
-    actor = get_current_user()
-    actor_username = actor.username if actor else "ADMIN"
+    record_audit_log(
+        action="DATABASE_RESTORE_INITIATED",
+        target_type="DATABASE",
+        target_id=filename,
+        reason=f"Administrator {actor_username} initiated full database restoration from {filename}.",
+        details={
+            "filename": filename,
+            "actor": actor_username,
+            "client_ip": request.remote_addr,
+            "user_agent": request.headers.get("User-Agent", "UNKNOWN"),
+        },
+        actor_username=actor_username,
+        commit=True,
+    )
 
     try:
         res = ProductionBackupManager.restore_backup(archive_path, actor=actor_username)
         return jsonify(res), 200
     except Exception as e:
+        record_audit_log(
+            action="DATABASE_RESTORE_FAILED",
+            target_type="DATABASE",
+            target_id=filename,
+            reason=f"Restoration failed: {str(e)}",
+            actor_username=actor_username,
+            commit=True,
+        )
         return jsonify({"error": str(e), "status": "ERROR"}), 500
 
 
