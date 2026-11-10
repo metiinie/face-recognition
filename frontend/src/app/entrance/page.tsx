@@ -1080,8 +1080,51 @@ export default function ContinuousEntrancePage() {
         </div>
       )}
 
+      {/* Insecure Context Diagnostic Banner */}
+      {insecureContextInfo && (
+        <div className="p-4 rounded-xl border border-rose-500/40 bg-rose-950/40 text-rose-100 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 backdrop-blur-md shadow-xl">
+          <div className="flex items-start gap-3">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-rose-500/20 text-rose-400 border border-rose-500/30">
+              <ShieldAlert className="h-5 w-5" />
+            </div>
+            <div>
+              <h4 className="text-sm font-semibold text-white">Camera Blocked: Insecure HTTP Context</h4>
+              <p className="text-xs text-rose-200/80 mt-0.5">
+                Modern browsers disable optical camera capture over plain HTTP on LAN IP addresses. College LAN gate terminals must connect via secure HTTPS.
+              </p>
+              <div className="flex items-center gap-4 mt-2 font-mono text-[11px] text-slate-300">
+                <span>Origin: <span className="text-rose-300 font-semibold">{insecureContextInfo.origin}</span></span>
+                <span>•</span>
+                <span>Secure Port 443 Configured</span>
+              </div>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <Button
+              size="sm"
+              onClick={() => {
+                if (typeof window !== "undefined") {
+                  window.location.href = window.location.href.replace("http:", "https:");
+                }
+              }}
+              className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs h-8 gap-1.5"
+            >
+              <Lock className="h-3.5 w-3.5" /> Switch to HTTPS
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={startCamera}
+              className="border-slate-700 text-slate-300 hover:bg-slate-800 text-xs h-8"
+            >
+              <RefreshCw className="h-3.5 w-3.5 mr-1" /> Retry
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* Camera Stream Error */}
-      {streamError && (
+      {streamError && !insecureContextInfo && (
         <div className="p-3 rounded-lg border border-rose-200 bg-rose-50 text-rose-900 text-xs flex items-center gap-2">
           <ShieldAlert className="h-4 w-4 text-rose-600 shrink-0" />
           <span>{streamError}</span>
@@ -1111,8 +1154,62 @@ export default function ContinuousEntrancePage() {
                 className="absolute inset-0 w-full h-full pointer-events-none z-10"
               />
 
-              {/* Offline Placeholder */}
-              {!isStreaming && (
+              {/* Insecure Context Viewport Overlay */}
+              {insecureContextInfo ? (
+                <div className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-slate-950/95 p-6 text-center text-white backdrop-blur-md">
+                  <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-rose-500/15 text-rose-500 mb-3 border border-rose-500/30">
+                    <ShieldAlert className="h-7 w-7" />
+                  </div>
+                  <h4 className="text-base font-bold text-white mb-1">
+                    Camera Sensor Blocked: Insecure Context
+                  </h4>
+                  <p className="text-xs text-slate-300 max-w-md mb-4 leading-relaxed">
+                    Browser security policies prohibit optical camera sensors on non-localhost HTTP addresses. To enable continuous face detection on this entrance gate terminal, connect via institutional HTTPS.
+                  </p>
+
+                  <div className="w-full max-w-sm rounded-xl border border-slate-800 bg-slate-900/90 p-3 text-left font-mono text-[11px] space-y-1.5 mb-4 text-slate-300">
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">Current Origin:</span>
+                      <span className="text-rose-400 font-semibold truncate max-w-[200px]" title={insecureContextInfo.origin}>
+                        {insecureContextInfo.origin} (Insecure ❌)
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">Secure Context:</span>
+                      <span className="text-rose-400">false</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-slate-500">Recommended Endpoint:</span>
+                      <span className="text-emerald-400 font-semibold">https://{insecureContextInfo.host.split(":")[0]} (Port 443)</span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-3">
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      onClick={() => {
+                        if (typeof window !== "undefined") {
+                          window.location.href = window.location.href.replace("http:", "https:");
+                        }
+                      }}
+                      className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold gap-1.5 h-9 text-xs shadow-lg shadow-emerald-900/40"
+                    >
+                      <Lock className="h-4 w-4" />
+                      <span>Switch to Secure HTTPS</span>
+                    </Button>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={startCamera}
+                      className="border-slate-700 text-slate-300 hover:bg-slate-800 h-9 text-xs"
+                    >
+                      <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
+                      <span>Retry Detection</span>
+                    </Button>
+                  </div>
+                </div>
+              ) : !isStreaming ? (
                 <div className="text-center p-6 space-y-3 z-0">
                   <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-slate-800 text-blue-400 border border-slate-700/80 shadow-lg">
                     <Radio className="h-8 w-8 animate-pulse" />
@@ -1129,7 +1226,7 @@ export default function ContinuousEntrancePage() {
                     <Play className="mr-1.5 h-3.5 w-3.5" /> Start Live Optical Stream
                   </Button>
                 </div>
-              )}
+              ) : null}
 
               {/* Overlaid Live Telemetry Pills */}
               {isStreaming && (
