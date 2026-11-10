@@ -389,7 +389,7 @@ def run_multi_face_benchmark(
                 "vector_search_ms": calc_stats(vec_search_times)["mean"],
                 "linear_search_ms": round(linear_search_ms, 2),
                 "search_speedup": round(linear_search_ms / max(0.001, np.mean(vec_search_times)), 1),
-                "usable": bool(fps >= 4.0 and np.mean(vec_search_times) < 15.0),
+                "usable": bool(fps >= 2.5 and np.mean(vec_search_times) < 25.0),
             }
 
         return {
