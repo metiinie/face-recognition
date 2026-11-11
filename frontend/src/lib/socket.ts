@@ -4,10 +4,15 @@ let socketInstance: Socket | null = null;
 
 export function getEntranceSocket(): Socket {
   if (!socketInstance) {
-    const url =
-      typeof window !== "undefined" && window.location.port === "3000"
-        ? `http://${window.location.hostname}:5000`
-        : undefined;
+    let url: string | undefined = undefined;
+    if (typeof window !== "undefined") {
+      // In standalone dev server on port 3000, target backend with matching protocol
+      if (window.location.port === "3000") {
+        const protocol = window.location.protocol === "https:" ? "https:" : "http:";
+        url = `${protocol}//${window.location.hostname}:5000`;
+      }
+      // In production (port 80/443 Nginx or standalone build), url remains undefined to use current origin
+    }
     socketInstance = io(url, {
       path: "/socket.io",
       transports: ["websocket", "polling"],
