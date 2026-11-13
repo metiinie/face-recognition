@@ -29,7 +29,6 @@ import {
   ShieldAlert,
   ShieldCheck,
   Zap,
-  Sparkles,
   Building2,
   AlertCircle,
   Volume2,
@@ -462,16 +461,20 @@ export default function ContinuousEntrancePage() {
         tagText = "DETECTING...";
       }
 
-      // Draw box with rounded aesthetic
-      ctx.lineWidth = 3;
+      // Crisp unobstructed corner-bracket box (Image 3 style)
+      ctx.lineWidth = 1.25;
       ctx.strokeStyle = strokeColor;
-      ctx.fillStyle = fillColor;
+      ctx.globalAlpha = 0.38;
       ctx.strokeRect(drawX, y, w, h);
+      ctx.globalAlpha = 1;
+
+      ctx.fillStyle = fillColor;
       ctx.fillRect(drawX, y, w, h);
 
-      // Corner accent markers
-      const cornerLen = 14;
-      ctx.lineWidth = 4;
+      // Sharp L-shaped corner markers
+      const cornerLen = Math.min(18, Math.max(10, Math.round(w * 0.16)));
+      ctx.lineWidth = 2.5;
+      ctx.strokeStyle = strokeColor;
       // Top-left
       ctx.beginPath();
       ctx.moveTo(drawX, y + cornerLen);
@@ -512,8 +515,8 @@ export default function ContinuousEntrancePage() {
           name = `${face.employee.full_name} (REJECTED)`;
           sub = `RECOGNITION REJECTED • ${face.employee.employee_number}`;
         } else if (actionStatus === "COOLDOWN_ACTIVE") {
-          name = `${face.employee.full_name} (PLEASE WAIT)`;
-          sub = `COOLDOWN ACTIVE • ${face.employee.employee_number}`;
+          name = `${face.employee.full_name} (COOLDOWN)`;
+          sub = `PLEASE WAIT • ${face.employee.employee_number}`;
         } else if (actionStatus === "ACQUIRING_TRACK") {
           name = `${face.employee.full_name} (TRACKING)`;
           sub = `Acquiring ${face.frames_seen || 1}/${gateStatus?.min_persistence_frames || 3} • ${face.employee.employee_number}`;
@@ -523,22 +526,26 @@ export default function ContinuousEntrancePage() {
         }
       }
 
+      const tagWidth = Math.max(150, w);
+      const tagY = Math.max(0, y - 30);
+      ctx.fillStyle = "rgba(11, 15, 23, 0.88)";
+      ctx.fillRect(drawX, tagY, tagWidth, 28);
       ctx.fillStyle = strokeColor;
-      ctx.fillRect(drawX, Math.max(0, y - 26), Math.max(130, w * 0.9), 26);
+      ctx.fillRect(drawX, tagY, 3, 28);
 
-      ctx.fillStyle = "#ffffff";
-      ctx.font = "bold 11px sans-serif";
-      ctx.fillText(name, drawX + 6, Math.max(14, y - 12));
+      ctx.fillStyle = "#f8fafc";
+      ctx.font = "600 11px Inter, sans-serif";
+      ctx.fillText(name, drawX + 8, tagY + 13);
 
-      ctx.font = "9px monospace";
-      ctx.fillText(sub, drawX + 6, Math.max(24, y - 2));
+      ctx.fillStyle = "#94a3b8";
+      ctx.font = "500 9px monospace";
+      ctx.fillText(sub, drawX + 8, tagY + 24);
 
-      // Action punch indicator at bottom of box — ONLY rendered when action was actually confirmed
       if (actionStatus === "CONFIRMED" && face.attendance_action) {
-        ctx.fillStyle = face.attendance_action === "CHECK_IN" ? "#047857" : "#1d4ed8";
-        ctx.fillRect(drawX, y + h, Math.max(100, w * 0.8), 20);
+        ctx.fillStyle = face.attendance_action === "CHECK_IN" ? "rgba(5, 150, 105, 0.92)" : "rgba(79, 70, 229, 0.92)";
+        ctx.fillRect(drawX, y + h + 2, Math.max(120, w * 0.85), 18);
         ctx.fillStyle = "#ffffff";
-        ctx.font = "bold 10px monospace";
+        ctx.font = "600 9.5px monospace";
         ctx.fillText(
           `${face.attendance_action} ${face.is_late ? "(LATE)" : "(ON TIME)"}`,
           drawX + 6,
@@ -876,96 +883,102 @@ export default function ContinuousEntrancePage() {
     }
   };
 
+  const rejectedCount = detectedFaces.filter(
+    (f) => f.action_status === "REJECTED" || f.action_status === "SPOOF_BLOCKED"
+  ).length;
+
   return (
-    <div className="space-y-5">
-      {/* Offscreen frame capture canvas */}
+    <div className="space-y-4 text-slate-100">
       <canvas ref={canvasRef} className="hidden" />
 
-      {/* Unified Clean Gate Header & Controls */}
-      <div className="rounded-2xl border border-slate-200/80 bg-white p-4 sm:px-5 shadow-[0_1px_3px_rgba(15,23,42,0.04)] space-y-3.5">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-          <div className="space-y-0.5">
-            <div className="flex flex-wrap items-center gap-2">
-              <h1 className="text-lg sm:text-xl font-bold tracking-tight text-slate-900">
-                Continuous Gate
-              </h1>
-              {transportMode === "WEBSOCKET" && isWsConnected ? (
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-700 border border-emerald-200/80">
-                  <Radio className="h-3 w-3 text-emerald-600 animate-pulse" />
-                  <span>Live{rttMs !== null ? ` • ${rttMs}ms` : ""}</span>
-                </span>
-              ) : (
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-0.5 text-[11px] font-medium text-amber-700 border border-amber-200/80">
-                  <Radio className="h-3 w-3 text-amber-600" />
-                  <span>Polling{rttMs !== null ? ` • ${rttMs}ms` : ""}</span>
-                </span>
-              )}
+      {/* Dark Obsidian Operator Control Strip */}
+      <div className="rounded-xl border border-[#1E293B] bg-[#121826] px-4 py-3 space-y-2.5">
+        <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-3">
+            <div>
+              <div className="flex items-center gap-2">
+                <h1 className="text-base font-semibold tracking-tight text-white">
+                  Gate Monitor
+                </h1>
+                {transportMode === "WEBSOCKET" && isWsConnected ? (
+                  <span className="inline-flex items-center gap-1.5 rounded-md border border-emerald-500/30 bg-emerald-500/15 px-2 py-0.5 text-[11px] font-medium text-emerald-400 tabular-nums">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                    <span>WS Live{rttMs !== null ? ` · ${rttMs}ms` : ""}</span>
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1.5 rounded-md border border-amber-500/30 bg-amber-500/15 px-2 py-0.5 text-[11px] font-medium text-amber-300 tabular-nums">
+                    <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
+                    <span>HTTP Poll{rttMs !== null ? ` · ${rttMs}ms` : ""}</span>
+                  </span>
+                )}
+              </div>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                Multi-person optical entrance tracking and autonomous check-in/out stream.
+              </p>
             </div>
-            <p className="text-xs text-slate-500">
-              Hands-free multi-person face tracking with automatic check-in and check-out.
-            </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
             {/* Station Selector */}
-            <div className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 h-8 text-xs">
-              <Building2 className="h-3.5 w-3.5 text-blue-600 shrink-0" />
+            <div className="flex items-center gap-1.5 rounded-lg border border-[#1E293B] bg-[#0B0F17] px-2.5 h-8 text-xs">
+              <Building2 className="h-3.5 w-3.5 text-indigo-400 shrink-0" />
               <select
                 value={selectedStation}
                 onChange={(e) => setSelectedStation(e.target.value)}
                 aria-label="Gate Station"
-                className="font-medium text-slate-800 bg-transparent focus:outline-none"
+                className="font-medium text-slate-200 bg-transparent focus:outline-none"
               >
                 {stations.length > 0 ? (
                   stations.map((s) => (
-                    <option key={s.id} value={s.station_code}>
+                    <option key={s.id} value={s.station_code} className="bg-[#121826] text-slate-100">
                       {s.station_code} — {s.name}
                     </option>
                   ))
                 ) : (
-                  <option value="ST-GATE-01">ST-GATE-01 — Main Campus Gate</option>
+                  <option value="ST-GATE-01" className="bg-[#121826] text-slate-100">
+                    ST-GATE-01 — Main Campus Gate
+                  </option>
                 )}
               </select>
             </div>
 
             {/* Direction Mode Segmented Control */}
-            <div className="inline-flex h-8 items-center rounded-lg border border-slate-200 bg-slate-100 p-0.5 text-xs">
+            <div className="inline-flex h-8 items-center rounded-lg border border-[#1E293B] bg-[#0B0F17] p-0.5 text-xs">
               <button
                 type="button"
                 onClick={() => handleModeChange("IN")}
-                className={`rounded-md px-2.5 py-1 font-medium transition-all ${
+                className={`rounded-md px-2.5 py-1 font-medium transition-colors ${
                   gateMode === "IN"
-                    ? "bg-white text-emerald-700 shadow-sm font-semibold"
-                    : "text-slate-600 hover:text-slate-900"
+                    ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                    : "text-slate-400 hover:text-slate-200"
                 }`}
               >
                 Entry
               </button>
               <button
                 type="button"
-                onClick={() => handleModeChange("OUT")}
-                className={`rounded-md px-2.5 py-1 font-medium transition-all ${
-                  gateMode === "OUT"
-                    ? "bg-white text-blue-700 shadow-sm font-semibold"
-                    : "text-slate-600 hover:text-slate-900"
-                }`}
-              >
-                Exit
-              </button>
-              <button
-                type="button"
                 onClick={() => handleModeChange("AUTO_DETECT")}
-                className={`rounded-md px-2.5 py-1 font-medium transition-all ${
+                className={`rounded-md px-2.5 py-1 font-medium transition-colors ${
                   gateMode === "AUTO_DETECT"
-                    ? "bg-white text-indigo-700 shadow-sm font-semibold"
-                    : "text-slate-600 hover:text-slate-900"
+                    ? "bg-[#4F46E5] text-white"
+                    : "text-slate-400 hover:text-slate-200"
                 }`}
               >
                 Auto
               </button>
+              <button
+                type="button"
+                onClick={() => handleModeChange("OUT")}
+                className={`rounded-md px-2.5 py-1 font-medium transition-colors ${
+                  gateMode === "OUT"
+                    ? "bg-indigo-500/20 text-indigo-300 border border-indigo-500/30"
+                    : "text-slate-400 hover:text-slate-200"
+                }`}
+              >
+                Exit
+              </button>
             </div>
 
-            {/* Audio Autoplay Warning Pill */}
             {soundEnabled && isAudioSuspended && (
               <button
                 type="button"
@@ -973,17 +986,15 @@ export default function ContinuousEntrancePage() {
                   const ctx = getAudioContext();
                   ctx?.resume().then(() => setIsAudioSuspended(false)).catch(() => {});
                 }}
-                className="flex h-8 items-center gap-1.5 rounded-lg bg-amber-50 px-2.5 text-xs font-medium text-amber-700 border border-amber-200 hover:bg-amber-100 transition-colors"
+                className="flex h-8 items-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/15 px-2.5 text-xs font-medium text-amber-300 hover:bg-amber-500/25 transition-colors"
               >
-                <VolumeX className="h-3.5 w-3.5 text-amber-500 animate-pulse" />
-                <span>Enable Sound</span>
+                <VolumeX className="h-3.5 w-3.5" />
+                <span>Unlock Audio</span>
               </button>
             )}
 
-            {/* Sound Toggle */}
-            <Button
-              variant="outline"
-              size="sm"
+            <button
+              type="button"
               onClick={() => {
                 const next = !soundEnabled;
                 setSoundEnabled(next);
@@ -993,165 +1004,114 @@ export default function ContinuousEntrancePage() {
                 }
               }}
               title={soundEnabled ? "Mute Gate Chime" : "Enable Gate Chime"}
+              className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[#1E293B] bg-[#0B0F17] text-slate-300 hover:bg-slate-800 transition-colors"
             >
               {soundEnabled ? (
-                <Volume2 className="h-3.5 w-3.5 text-emerald-600" />
+                <Volume2 className="h-3.5 w-3.5 text-emerald-400" />
               ) : (
-                <VolumeX className="h-3.5 w-3.5 text-slate-400" />
+                <VolumeX className="h-3.5 w-3.5 text-slate-500" />
               )}
-            </Button>
+            </button>
 
-            {/* Gate Tuning Button */}
-            <Button
-              variant="outline"
-              size="sm"
+            <button
+              type="button"
               onClick={() => setIsSettingsOpen(true)}
-              className="gap-1.5"
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#1E293B] bg-[#0B0F17] px-2.5 text-xs font-medium text-slate-300 hover:bg-slate-800 hover:text-white transition-colors"
               title="Configure Gate Timing & Persistence"
             >
-              <Sliders className="h-3.5 w-3.5 text-slate-500" />
+              <Sliders className="h-3.5 w-3.5 text-slate-400" />
               <span className="hidden sm:inline">Tuning</span>
-              {!isAdmin && <Lock className="h-3 w-3 text-amber-500" />}
-            </Button>
+              {!isAdmin && <Lock className="h-3 w-3 text-amber-400" />}
+            </button>
 
-            {/* Refresh / Reconnect */}
-            <Button
-              variant="outline"
-              size="sm"
+            <button
+              type="button"
               onClick={() => {
                 fetchGateData();
                 handleReconnectTransport();
               }}
-              isLoading={isTestingPing}
-              title="Refresh data & check connection"
+              disabled={isTestingPing}
+              className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[#1E293B] bg-[#0B0F17] text-slate-300 hover:bg-slate-800 transition-colors disabled:opacity-50"
+              title="Refresh data & reconnect stream"
             >
-              <RefreshCw className="h-3.5 w-3.5" />
-            </Button>
+              <RefreshCw className={`h-3.5 w-3.5 ${isTestingPing ? "animate-spin" : ""}`} />
+            </button>
           </div>
         </div>
 
-        {/* Quiet Single-Line Timing Summary */}
-        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-2.5 text-[11px] text-slate-500">
-          <div className="flex flex-wrap items-center gap-3 font-mono">
+        {/* Quiet Timing Strip */}
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[#1E293B] pt-2 text-[11px] text-slate-400">
+          <div className="flex flex-wrap items-center gap-4 font-mono tabular-nums">
             <button
               type="button"
               onClick={() => setIsSettingsOpen(true)}
-              className="inline-flex items-center gap-1 hover:text-slate-800 transition-colors"
+              className="inline-flex items-center gap-1.5 hover:text-slate-200 transition-colors"
             >
-              <Clock className="h-3 w-3 text-amber-500" />
-              <span>Min Checkout: <strong className="text-slate-700">{minCheckoutMins}m</strong></span>
+              <Clock className="h-3 w-3 text-amber-400" />
+              <span>Checkout Debounce: <strong className="text-slate-200">{minCheckoutMins}m</strong></span>
             </button>
             <button
               type="button"
               onClick={() => setIsSettingsOpen(true)}
-              className="inline-flex items-center gap-1 hover:text-slate-800 transition-colors"
+              className="inline-flex items-center gap-1.5 hover:text-slate-200 transition-colors"
             >
-              <Layers className="h-3 w-3 text-blue-500" />
-              <span>Persistence: <strong className="text-slate-700">{minPersistenceFrames}f</strong></span>
+              <Layers className="h-3 w-3 text-indigo-400" />
+              <span>Persistence: <strong className="text-slate-200">{minPersistenceFrames}f</strong></span>
             </button>
             <button
               type="button"
               onClick={() => setIsSettingsOpen(true)}
-              className="inline-flex items-center gap-1 hover:text-slate-800 transition-colors"
+              className="inline-flex items-center gap-1.5 hover:text-slate-200 transition-colors"
             >
-              <ShieldAlert className="h-3 w-3 text-purple-500" />
-              <span>Cooldown: <strong className="text-slate-700">{cooldownSec}s</strong></span>
+              <ShieldAlert className="h-3 w-3 text-slate-400" />
+              <span>Cooldown: <strong className="text-slate-200">{cooldownSec}s</strong></span>
             </button>
           </div>
           <button
             type="button"
             onClick={() => setShowSimTools(!showSimTools)}
-            className="text-slate-500 hover:text-slate-800 font-medium transition-colors"
+            className="text-slate-400 hover:text-white font-medium transition-colors"
           >
-            {showSimTools ? "Hide Test Controls" : "Test Controls"}
+            {showSimTools ? "Hide simulation" : "Simulation tools"}
           </button>
         </div>
       </div>
 
-      {/* Simulation / Feedback Alert */}
       {simMessage && (
         <div
-          className={`p-3 rounded-lg border text-xs flex items-center justify-between ${
+          className={`px-3.5 py-2.5 rounded-lg border text-xs flex items-center justify-between ${
             simMessage.type === "success"
-              ? "bg-emerald-50 text-emerald-900 border-emerald-200"
-              : "bg-amber-50 text-amber-900 border-amber-200"
+              ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/30"
+              : "bg-amber-500/10 text-amber-300 border-amber-500/30"
           }`}
         >
           <div className="flex items-center gap-2">
             {simMessage.type === "success" ? (
-              <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
+              <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
             ) : (
-              <AlertCircle className="h-4 w-4 text-amber-600 shrink-0" />
+              <AlertCircle className="h-4 w-4 text-amber-400 shrink-0" />
             )}
-            <span className="font-medium">{simMessage.text}</span>
+            <span>{simMessage.text}</span>
           </div>
-          <button
-            onClick={() => setSimMessage(null)}
-            className="text-xs underline font-semibold hover:opacity-80"
-          >
+          <button onClick={() => setSimMessage(null)} className="text-xs underline hover:opacity-80">
             Dismiss
           </button>
         </div>
       )}
 
-      {/* Insecure Context Diagnostic Banner */}
-      {insecureContextInfo && (
-        <div className="p-4 rounded-xl border border-rose-500/40 bg-rose-950/40 text-rose-100 flex flex-col md:flex-row items-start md:items-center justify-between gap-4 backdrop-blur-md shadow-xl">
-          <div className="flex items-start gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-rose-500/20 text-rose-400 border border-rose-500/30">
-              <ShieldAlert className="h-5 w-5" />
-            </div>
-            <div>
-              <h4 className="text-sm font-semibold text-white">Camera Blocked: Insecure HTTP Context</h4>
-              <p className="text-xs text-rose-200/80 mt-0.5">
-                Modern browsers disable optical camera capture over plain HTTP on LAN IP addresses. College LAN gate terminals must connect via secure HTTPS.
-              </p>
-              <div className="flex items-center gap-4 mt-2 font-mono text-[11px] text-slate-300">
-                <span>Origin: <span className="text-rose-300 font-semibold">{insecureContextInfo.origin}</span></span>
-                <span>•</span>
-                <span>Secure Port 443 Configured</span>
-              </div>
-            </div>
-          </div>
-          <div className="flex items-center gap-2 shrink-0">
-            <Button
-              size="sm"
-              onClick={() => {
-                if (typeof window !== "undefined") {
-                  window.location.href = window.location.href.replace("http:", "https:");
-                }
-              }}
-              className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold text-xs h-8 gap-1.5"
-            >
-              <Lock className="h-3.5 w-3.5" /> Switch to HTTPS
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={startCamera}
-              className="border-slate-700 text-slate-300 hover:bg-slate-800 text-xs h-8"
-            >
-              <RefreshCw className="h-3.5 w-3.5 mr-1" /> Retry
-            </Button>
-          </div>
-        </div>
-      )}
-
-      {/* Camera Stream Error */}
       {streamError && !insecureContextInfo && (
-        <div className="p-3 rounded-lg border border-rose-200 bg-rose-50 text-rose-900 text-xs flex items-center gap-2">
-          <ShieldAlert className="h-4 w-4 text-rose-600 shrink-0" />
+        <div className="p-3 rounded-lg border border-rose-500/30 bg-rose-500/10 text-rose-300 text-xs flex items-center gap-2">
+          <ShieldAlert className="h-4 w-4 text-rose-400 shrink-0" />
           <span>{streamError}</span>
         </div>
       )}
 
-      {/* Main Grid: Left Viewport (Canvas), Right Gate Passage Stream */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* Left Column: Continuous Multi-Face Camera (7 Cols) */}
-        <div className="lg:col-span-7 space-y-4">
-          <Card className="bg-slate-950 border-slate-900 shadow-2xl overflow-hidden relative">
-            {/* Viewport Frame */}
-            <div className="relative aspect-[4/3] w-full bg-slate-900 flex items-center justify-center overflow-hidden">
+      {/* Main Dark Monitor Grid: 8 Col Surveillance Feed + 4 Col Live Sidebar */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+        {/* Left: Optical Stream + 4-Stat Telemetry Bar */}
+        <div className="lg:col-span-8 space-y-3">
+          <div className="rounded-xl border border-[#1E293B] bg-[#06090F] overflow-hidden relative">
+            <div className="relative aspect-[16/10] sm:aspect-[4/3] w-full bg-[#06090F] flex items-center justify-center overflow-hidden">
               <video
                 ref={videoRef}
                 playsInline
@@ -1162,368 +1122,324 @@ export default function ContinuousEntrancePage() {
                 } ${isStreaming ? "block" : "opacity-0 pointer-events-none absolute inset-0"}`}
               />
 
-              {/* Real-time Overlays Canvas */}
               <canvas
                 ref={overlayCanvasRef}
                 className="absolute inset-0 w-full h-full pointer-events-none z-10"
               />
 
-              {/* Insecure Context Viewport Overlay */}
               {insecureContextInfo ? (
-                <div className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-slate-950/95 p-6 text-center text-white backdrop-blur-md">
-                  <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-rose-500/15 text-rose-500 mb-3 border border-rose-500/30">
-                    <ShieldAlert className="h-7 w-7" />
+                <div className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-[#0B0F17]/95 p-6 text-center text-white backdrop-blur-sm">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-rose-500/15 text-rose-400 mb-3 border border-rose-500/30">
+                    <ShieldAlert className="h-6 w-6" />
                   </div>
-                  <h4 className="text-base font-bold text-white mb-1">
-                    Camera Sensor Blocked: Insecure Context
+                  <h4 className="text-sm font-semibold text-white mb-1">
+                    Camera Sensor Blocked: Insecure HTTP Context
                   </h4>
-                  <p className="text-xs text-slate-300 max-w-md mb-4 leading-relaxed">
-                    Browser security policies prohibit optical camera sensors on non-localhost HTTP addresses. To enable continuous face detection on this entrance gate terminal, connect via institutional HTTPS.
+                  <p className="text-xs text-slate-400 max-w-md mb-4 leading-relaxed">
+                    Browser security policies restrict optical sensors over plain HTTP on LAN IPs. Connect via institutional HTTPS for gate monitoring.
                   </p>
-
-                  <div className="w-full max-w-sm rounded-xl border border-slate-800 bg-slate-900/90 p-3 text-left font-mono text-[11px] space-y-1.5 mb-4 text-slate-300">
+                  <div className="w-full max-w-sm rounded-lg border border-[#1E293B] bg-[#121826] p-3 text-left font-mono text-[11px] space-y-1 mb-4 text-slate-300">
                     <div className="flex justify-between">
-                      <span className="text-slate-500">Current Origin:</span>
-                      <span className="text-rose-400 font-semibold truncate max-w-[200px]" title={insecureContextInfo.origin}>
-                        {insecureContextInfo.origin} (Insecure ❌)
+                      <span className="text-slate-500">Origin:</span>
+                      <span className="text-rose-400 truncate max-w-[200px]" title={insecureContextInfo.origin}>
+                        {insecureContextInfo.origin}
                       </span>
                     </div>
                     <div className="flex justify-between">
-                      <span className="text-slate-500">Secure Context:</span>
-                      <span className="text-rose-400">false</span>
-                    </div>
-                    <div className="flex justify-between">
-                      <span className="text-slate-500">Recommended Endpoint:</span>
-                      <span className="text-emerald-400 font-semibold">https://{insecureContextInfo.host.split(":")[0]} (Port 443)</span>
+                      <span className="text-slate-500">Recommended:</span>
+                      <span className="text-emerald-400">https://{insecureContextInfo.host.split(":")[0]} (443)</span>
                     </div>
                   </div>
-
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-2.5">
                     <Button
-                      variant="primary"
+                      variant="success"
                       size="sm"
                       onClick={() => {
                         if (typeof window !== "undefined") {
                           window.location.href = window.location.href.replace("http:", "https:");
                         }
                       }}
-                      className="bg-emerald-600 hover:bg-emerald-700 text-white font-semibold gap-1.5 h-9 text-xs shadow-lg shadow-emerald-900/40"
                     >
-                      <Lock className="h-4 w-4" />
-                      <span>Switch to Secure HTTPS</span>
+                      <Lock className="h-3.5 w-3.5" />
+                      <span>Switch to HTTPS</span>
                     </Button>
                     <Button
                       variant="outline"
                       size="sm"
                       onClick={startCamera}
-                      className="border-slate-700 text-slate-300 hover:bg-slate-800 h-9 text-xs"
+                      className="border-[#1E293B] bg-transparent text-slate-300 hover:bg-slate-800 hover:text-white"
                     >
-                      <RefreshCw className="mr-1.5 h-3.5 w-3.5" />
-                      <span>Retry Detection</span>
+                      <RefreshCw className="h-3.5 w-3.5" />
+                      <span>Retry</span>
                     </Button>
                   </div>
                 </div>
               ) : !isStreaming ? (
                 <div className="text-center p-6 space-y-3 z-0">
-                  <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-2xl bg-slate-800 text-blue-400 border border-slate-700/80 shadow-lg">
-                    <Radio className="h-8 w-8 animate-pulse" />
+                  <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-[#121826] text-indigo-400 border border-[#1E293B]">
+                    <Radio className="h-6 w-6" />
                   </div>
                   <div>
                     <h3 className="text-sm font-semibold text-slate-200">
-                      Continuous Entrance Gate Viewport
+                      Gate Monitor Standby
                     </h3>
                     <p className="text-xs text-slate-500 max-w-sm mt-1">
-                      Ready for optical multi-face tracking or simulated multi-person crowd pass-through.
+                      Start the live optical stream or use simulation controls to test multi-face tracking.
                     </p>
                   </div>
-                  <Button onClick={startCamera} size="sm" className="bg-blue-600 hover:bg-blue-700">
-                    <Play className="mr-1.5 h-3.5 w-3.5" /> Start Live Optical Stream
+                  <Button onClick={startCamera} size="sm" variant="primary">
+                    <Play className="h-3.5 w-3.5" />
+                    <span>Start Optical Stream</span>
                   </Button>
                 </div>
               ) : null}
 
-              {/* Overlaid Live Telemetry Pills */}
               {isStreaming && (
                 <>
-                  {/* Top-Left: Camera status & Latency & Transport */}
-                  <div className="absolute top-3 left-3 z-20 flex items-center gap-2">
-                    <span className="flex items-center gap-1.5 rounded-md bg-black/60 px-2 py-1 text-[11px] font-mono text-emerald-400 backdrop-blur-md border border-emerald-500/30">
-                      <span className="h-2 w-2 rounded-full bg-emerald-500 animate-ping" />
-                      AI TRACKING • {fps} FPS
+                  {/* Top-Left Stream Readout */}
+                  <div className="absolute top-3 left-3 z-20 flex flex-wrap items-center gap-1.5">
+                    <span className="flex items-center gap-1.5 rounded-md bg-black/65 px-2 py-1 text-[11px] font-mono text-emerald-400 backdrop-blur-sm border border-white/10 tabular-nums">
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                      <span>LIVE · {fps} FPS</span>
                     </span>
-                    <span className="rounded-md bg-black/60 px-2 py-1 text-[11px] font-mono text-slate-300 backdrop-blur-md border border-white/10">
-                      <Zap className="inline h-3 w-3 text-amber-400 mr-1" />
+                    <span className="rounded-md bg-black/65 px-2 py-1 text-[11px] font-mono text-slate-300 backdrop-blur-sm border border-white/10 tabular-nums">
                       {latencyMs}ms
-                    </span>
-                    <span
-                      className={`flex items-center gap-1 rounded-md px-2 py-1 text-[11px] font-mono backdrop-blur-md border ${
-                        isWsConnected
-                          ? "bg-black/60 text-emerald-300 border-emerald-500/40"
-                          : "bg-black/60 text-amber-300 border-amber-500/40"
-                      }`}
-                    >
-                      {isWsConnected ? (
-                        <>
-                          <Zap className="h-3 w-3 text-emerald-400 fill-emerald-400" />
-                          WS STREAM
-                        </>
-                      ) : (
-                        <>
-                          <Radio className="h-3 w-3 text-amber-400" />
-                          HTTP FALLBACK
-                        </>
-                      )}
                     </span>
                   </div>
 
-                  {/* Top-Right: Faces Detected Count */}
+                  {/* Top-Right Active Faces Pill */}
                   <div className="absolute top-3 right-3 z-20">
-                    <Badge variant={detectedFaces.length > 0 ? "success" : "brand"} className="backdrop-blur-md text-xs py-1">
-                      <Users className="h-3.5 w-3.5 mr-1" />
-                      {detectedFaces.length} Face{detectedFaces.length === 1 ? "" : "s"} Tracked
-                    </Badge>
+                    <span
+                      className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11px] font-medium backdrop-blur-sm border tabular-nums ${
+                        detectedFaces.length > 0
+                          ? "bg-emerald-500/20 border-emerald-500/40 text-emerald-300"
+                          : "bg-black/65 border-white/10 text-slate-300"
+                      }`}
+                    >
+                      <Users className="h-3.5 w-3.5" />
+                      <span>
+                        {detectedFaces.length} Tracked
+                      </span>
+                    </span>
+                  </div>
+
+                  {/* Bottom HUD Control Strip */}
+                  <div className="absolute bottom-3 inset-x-3 z-20 flex flex-wrap items-center justify-between gap-2 bg-[#0B0F17]/85 px-3 py-2 rounded-lg backdrop-blur-md border border-white/10">
+                    <div className="flex items-center gap-2 text-[11px] text-slate-300 font-mono">
+                      <span className="text-indigo-400 font-medium">{selectedStation}</span>
+                      <span className="text-slate-600">|</span>
+                      <span className="text-emerald-400">{gateMode}</span>
+                    </div>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={() => setIsMirrored(!isMirrored)}
+                        className="inline-flex h-7 items-center gap-1 rounded-md border border-white/15 bg-white/5 px-2 text-[11px] font-medium text-slate-200 hover:bg-white/15 transition-colors"
+                      >
+                        <FlipHorizontal className="h-3 w-3 text-slate-300" />
+                        <span>{isMirrored ? "Mirrored" : "Direct"}</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleOpenQuickEnroll}
+                        className="inline-flex h-7 items-center gap-1 rounded-md border border-white/15 bg-white/5 px-2 text-[11px] font-medium text-slate-200 hover:bg-white/15 transition-colors"
+                      >
+                        <UserPlus className="h-3 w-3 text-indigo-400" />
+                        <span>Enroll</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={stopCamera}
+                        className="inline-flex h-7 items-center gap-1 rounded-md bg-rose-600 hover:bg-rose-700 px-2.5 text-[11px] font-medium text-white transition-colors"
+                      >
+                        <Pause className="h-3 w-3" />
+                        <span>Stop</span>
+                      </button>
+                    </div>
                   </div>
                 </>
               )}
-
-              {/* Bottom Control Bar */}
-              {isStreaming && (
-                <div className="absolute bottom-3 inset-x-3 z-20 flex items-center justify-between bg-black/70 p-2 rounded-xl backdrop-blur-md border border-white/10">
-                  <div className="flex items-center gap-2 text-xs text-slate-300 font-mono">
-                    <span className="text-blue-400 font-semibold">{selectedStation}</span>
-                    <span>•</span>
-                    <span className="text-emerald-400">Mode: {gateMode}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={() => setIsMirrored(!isMirrored)}
-                      className="text-xs h-7 bg-white/10 hover:bg-white/20 text-white border-white/20"
-                      title={isMirrored ? "Switch to direct gate camera view" : "Switch to mirrored natural selfie view"}
-                    >
-                      <FlipHorizontal className="h-3 w-3 mr-1 text-cyan-400" />
-                      {isMirrored ? "Mirrored" : "Direct"}
-                    </Button>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      onClick={handleOpenQuickEnroll}
-                      className="text-xs h-7 bg-white/10 hover:bg-white/20 text-white border-white/20"
-                    >
-                      <UserPlus className="h-3 w-3 mr-1 text-emerald-400" /> Enroll My Face
-                    </Button>
-                    <Button size="sm" variant="danger" onClick={stopCamera} className="text-xs h-7">
-                      <Pause className="h-3 w-3 mr-1" /> Stop Stream
-                    </Button>
-                  </div>
-                </div>
-              )}
             </div>
-          </Card>
+          </div>
 
-          {/* Collapsible Crowd & Passage Simulation Sandbox */}
+          {/* Bottom 4-Stat Telemetry Bar (Image 2 Gate) */}
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="rounded-xl border border-[#1E293B] bg-[#121826] p-3.5">
+              <p className="text-[10.5px] font-medium uppercase tracking-wider text-slate-400">
+                Total Scans
+              </p>
+              <p className="mt-1 text-xl font-semibold text-white tabular-nums">
+                {gateStatus?.today_total_passages ?? 0}
+              </p>
+            </div>
+            <div className="rounded-xl border border-[#1E293B] bg-[#121826] p-3.5">
+              <p className="text-[10.5px] font-medium uppercase tracking-wider text-emerald-400">
+                Entries
+              </p>
+              <p className="mt-1 text-xl font-semibold text-emerald-400 tabular-nums">
+                {gateStatus?.today_checkins ?? 0}
+              </p>
+            </div>
+            <div className="rounded-xl border border-[#1E293B] bg-[#121826] p-3.5">
+              <p className="text-[10.5px] font-medium uppercase tracking-wider text-indigo-400">
+                Exits
+              </p>
+              <p className="mt-1 text-xl font-semibold text-indigo-400 tabular-nums">
+                {gateStatus?.today_checkouts ?? 0}
+              </p>
+            </div>
+            <div className="rounded-xl border border-[#1E293B] bg-[#121826] p-3.5">
+              <p className="text-[10.5px] font-medium uppercase tracking-wider text-rose-400">
+                Rejected Frame
+              </p>
+              <p className="mt-1 text-xl font-semibold text-rose-400 tabular-nums">
+                {rejectedCount}
+              </p>
+            </div>
+          </div>
+
+          {/* Collapsible Dark Simulation Sandbox */}
           {showSimTools && (
-            <Card className="bg-slate-50 border-slate-200 shadow-sm">
-              <CardHeader className="py-3 px-4 bg-white border-b border-slate-100 flex flex-row items-center justify-between rounded-t-2xl">
+            <div className="rounded-xl border border-[#1E293B] bg-[#121826] overflow-hidden">
+              <div className="px-4 py-2.5 border-b border-[#1E293B] flex items-center justify-between">
                 <div>
-                  <CardTitle className="text-xs font-bold flex items-center gap-1.5 text-slate-800">
-                    <Sparkles className="h-3.5 w-3.5 text-blue-600" />
-                    Multi-Person Simulation Sandbox
-                  </CardTitle>
-                  <CardDescription className="text-[11px]">
-                    Test continuous multi-face detection, cooldown, and autonomous punching without a camera.
-                  </CardDescription>
+                  <h3 className="text-xs font-semibold text-white">Crowd Simulation Sandbox</h3>
+                  <p className="text-[11px] text-slate-400">
+                    Test multi-face detection, persistence, and debounce without optical hardware.
+                  </p>
                 </div>
-                <Badge variant="outline" className="text-[10px]">Testing</Badge>
-              </CardHeader>
-              <CardContent className="p-3">
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => runSimulation(["EIPC-EMP-001", "EIPC-EMP-002"], "2 Staff Entering Together")}
-                    isLoading={isProcessing}
-                    className="text-[11px] h-8 justify-center bg-white"
-                  >
-                    <Users className="h-3 w-3 mr-1 text-emerald-600" />
-                    Abebe + Hanna
-                  </Button>
-
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => runSimulation(["EIPC-EMP-003"], "Solo Staff Fast Passage")}
-                    isLoading={isProcessing}
-                    className="text-[11px] h-8 justify-center bg-white"
-                  >
-                    <UserCheck className="h-3 w-3 mr-1 text-blue-600" />
-                    Chaltu Girma
-                  </Button>
-
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => runSimulation(["EIPC-EMP-004", "UNKNOWN_VISITOR"], "Staff + Unknown Visitor")}
-                    isLoading={isProcessing}
-                    className="text-[11px] h-8 justify-center bg-white"
-                  >
-                    <UserX className="h-3 w-3 mr-1 text-rose-600" />
-                    Staff + Visitor
-                  </Button>
-
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => runSimulation(["EIPC-EMP-001", "EIPC-EMP-002", "EIPC-EMP-003"], "3 Staff Crowd")}
-                    isLoading={isProcessing}
-                    className="text-[11px] h-8 justify-center bg-white"
-                  >
-                    <Layers className="h-3 w-3 mr-1 text-indigo-600" />
-                    3-Person Crowd
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
+                <span className="rounded border border-[#1E293B] bg-[#0B0F17] px-2 py-0.5 text-[10px] font-mono text-slate-400">
+                  MOCK
+                </span>
+              </div>
+              <div className="p-3 grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <button
+                  type="button"
+                  disabled={isProcessing}
+                  onClick={() => runSimulation(["EIPC-EMP-001", "EIPC-EMP-002"], "2 Staff Entering Together")}
+                  className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-[#1E293B] bg-[#0B0F17] px-2.5 text-[11px] font-medium text-slate-200 hover:bg-slate-800 disabled:opacity-50"
+                >
+                  <Users className="h-3 w-3 text-emerald-400" />
+                  <span>Abebe + Hanna</span>
+                </button>
+                <button
+                  type="button"
+                  disabled={isProcessing}
+                  onClick={() => runSimulation(["EIPC-EMP-003"], "Solo Staff Fast Passage")}
+                  className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-[#1E293B] bg-[#0B0F17] px-2.5 text-[11px] font-medium text-slate-200 hover:bg-slate-800 disabled:opacity-50"
+                >
+                  <UserCheck className="h-3 w-3 text-indigo-400" />
+                  <span>Chaltu Girma</span>
+                </button>
+                <button
+                  type="button"
+                  disabled={isProcessing}
+                  onClick={() => runSimulation(["EIPC-EMP-004", "UNKNOWN_VISITOR"], "Staff + Unknown Visitor")}
+                  className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-[#1E293B] bg-[#0B0F17] px-2.5 text-[11px] font-medium text-slate-200 hover:bg-slate-800 disabled:opacity-50"
+                >
+                  <UserX className="h-3 w-3 text-rose-400" />
+                  <span>Staff + Visitor</span>
+                </button>
+                <button
+                  type="button"
+                  disabled={isProcessing}
+                  onClick={() => runSimulation(["EIPC-EMP-001", "EIPC-EMP-002", "EIPC-EMP-003"], "3 Staff Crowd")}
+                  className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-[#1E293B] bg-[#0B0F17] px-2.5 text-[11px] font-medium text-slate-200 hover:bg-slate-800 disabled:opacity-50"
+                >
+                  <Layers className="h-3 w-3 text-amber-400" />
+                  <span>3-Person Crowd</span>
+                </button>
+              </div>
+            </div>
           )}
         </div>
 
-        {/* Right Column: Gate Telemetry & Real-Time Passage Ticker (5 Cols) */}
-        <div className="lg:col-span-5 space-y-4">
-          {/* Gate KPI Statistics */}
-          <div className="grid grid-cols-3 gap-2.5">
-            <Card className="bg-slate-50 border-slate-200">
-              <CardContent className="p-3 text-center">
-                <p className="text-[10px] font-semibold text-slate-500 uppercase tracking-wider">Today Passages</p>
-                <p className="text-xl font-bold text-slate-800 mt-0.5">
-                  {gateStatus?.today_total_passages ?? 0}
-                </p>
-              </CardContent>
-            </Card>
-
-            <Card className="bg-emerald-50/60 border-emerald-100">
-              <CardContent className="p-3 text-center">
-                <p className="text-[10px] font-semibold text-emerald-700 uppercase tracking-wider">Entries (In)</p>
-                <p className="text-xl font-bold text-emerald-800 mt-0.5">
-                  {gateStatus?.today_checkins ?? 0}
-                </p>
-              </CardContent>
-            </Card>
-
-            <Card className="bg-blue-50/60 border-blue-100">
-              <CardContent className="p-3 text-center">
-                <p className="text-[10px] font-semibold text-blue-700 uppercase tracking-wider">Exits (Out)</p>
-                <p className="text-xl font-bold text-blue-800 mt-0.5">
-                  {gateStatus?.today_checkouts ?? 0}
-                </p>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Currently Detected Faces Card */}
-          <Card className="shadow-sm">
-            <CardHeader className="py-2.5 px-4 bg-slate-50 border-b border-slate-100 flex flex-row items-center justify-between">
-              <CardTitle className="text-xs font-bold flex items-center gap-1.5 text-slate-800">
-                <Activity className="h-3.5 w-3.5 text-emerald-600" />
-                Active Frame Detections
-              </CardTitle>
-              <Badge variant={detectedFaces.length > 0 ? "success" : "brand"} className="text-[10px] font-mono">
+        {/* Right: Active Detections + Last 25 Passages */}
+        <div className="lg:col-span-4 space-y-4">
+          {/* Active Frame Detections */}
+          <div className="rounded-xl border border-[#1E293B] bg-[#121826] overflow-hidden">
+            <div className="px-4 py-3 border-b border-[#1E293B] flex items-center justify-between">
+              <h2 className="text-xs font-semibold text-white flex items-center gap-1.5">
+                <Activity className="h-3.5 w-3.5 text-emerald-400" />
+                <span>Active Frame Detections</span>
+              </h2>
+              <span className="rounded-md border border-[#1E293B] bg-[#0B0F17] px-2 py-0.5 text-[10px] font-mono text-slate-300 tabular-nums">
                 {detectedFaces.length} Active
-              </Badge>
-            </CardHeader>
-            <CardContent className="p-3">
+              </span>
+            </div>
+            <div className="p-3">
               {detectedFaces.length === 0 ? (
-                <div className="text-center py-6 text-slate-400 text-xs">
+                <div className="text-center py-6 text-slate-500 text-xs">
                   {isStreaming
-                    ? "Scanning for faces... position face in camera view."
-                    : "Camera stream offline. Start stream to begin continuous detection."}
+                    ? "Monitoring camera view for incoming faces..."
+                    : "Stream offline. Start stream to inspect active detections."}
                 </div>
               ) : (
                 <div className="space-y-2">
                   {detectedFaces.map((face) => (
                     <div
                       key={face.track_id}
-                      className="p-2.5 rounded-lg border border-slate-200 bg-white flex items-center justify-between text-xs"
+                      className="p-2.5 rounded-lg border border-[#1E293B] bg-[#0B0F17] flex items-center justify-between gap-2 text-xs"
                     >
-                      <div className="space-y-0.5">
+                      <div className="min-w-0">
                         <div className="flex items-center gap-1.5">
-                          <span className="font-semibold text-slate-900">
+                          <span className="font-medium text-slate-100 truncate">
                             {face.employee ? face.employee.full_name : "Unrecognized Visitor"}
                           </span>
-                          <span className="text-[10px] font-mono text-slate-500">
-                            {face.employee ? `(${face.employee.employee_number})` : ""}
-                          </span>
                         </div>
-                        <div className="text-[11px] text-slate-500 flex items-center gap-2">
-                          <span>Match Score: {Math.round(face.recognition_score * 100)}%</span>
-                          <span>•</span>
-                          <span>Liveness: {face.liveness_passed ? "PASSED" : "FAILED"}</span>
+                        <div className="text-[11px] text-slate-400 font-mono tabular-nums mt-0.5">
+                          {Math.round(face.recognition_score * 100)}% ·{" "}
+                          <span className={face.liveness_passed ? "text-emerald-400" : "text-rose-400"}>
+                            {face.liveness_passed ? "LIVE" : "SPOOF"}
+                          </span>
                         </div>
                       </div>
 
-                      <div className="text-right flex items-center gap-1.5">
+                      <div className="shrink-0 flex items-center gap-1.5">
                         {face.action_status === "CONFIRMED" ? (
-                          <Badge variant="success" className="text-[10px]">
+                          <span className="rounded bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 text-[10px] font-medium text-emerald-300">
                             {face.attendance_action}
-                          </Badge>
-                        ) : face.action_status === "REJECTED" ? (
-                          <Badge variant="danger" className="text-[10px]">
-                            REJECTED
-                          </Badge>
-                        ) : face.action_status === "INACTIVE_BLOCKED" ? (
-                          <Badge variant="danger" className="text-[10px]">
-                            INACTIVE
-                          </Badge>
-                        ) : face.action_status === "COOLDOWN_ACTIVE" || face.action_status === "ALREADY_PUNCHED_IN_PASSAGE" ? (
-                          <Badge variant="warning" className="text-[10px]">
-                            PLEASE WAIT
-                          </Badge>
+                          </span>
+                        ) : face.action_status === "REJECTED" ||
+                          face.action_status === "INACTIVE_BLOCKED" ||
+                          face.action_status === "SPOOF_BLOCKED" ||
+                          face.action_status === "CONSENT_BLOCKED" ||
+                          face.status === "CONSENT_NOT_VERIFIED" ? (
+                          <span className="rounded bg-rose-500/15 border border-rose-500/30 px-2 py-0.5 text-[10px] font-medium text-rose-300">
+                            {face.action_status?.replace(/_/g, " ") || "BLOCKED"}
+                          </span>
+                        ) : face.action_status === "COOLDOWN_ACTIVE" ||
+                          face.action_status === "ALREADY_PUNCHED_IN_PASSAGE" ||
+                          face.action_status === "UNCERTAIN_TRACK" ||
+                          face.action_status === "NO_OPEN_SESSION" ? (
+                          <span className="rounded bg-amber-500/15 border border-amber-500/30 px-2 py-0.5 text-[10px] font-medium text-amber-300">
+                            {face.action_status === "NO_OPEN_SESSION" ? "NO SESSION" : "WAIT"}
+                          </span>
                         ) : face.action_status === "ACQUIRING_TRACK" ? (
-                          <Badge variant="brand" className="text-[10px]">
-                            TRACKING ({face.frames_seen || 1}/{gateStatus?.min_persistence_frames || 3})
-                          </Badge>
-                        ) : face.action_status === "UNCERTAIN_TRACK" ? (
-                          <Badge variant="warning" className="text-[10px]">
-                            UNCERTAIN
-                          </Badge>
-                        ) : face.action_status === "ALREADY_CHECKED_IN" ? (
-                          <Badge variant="brand" className="text-[10px]">
-                            CHECKED IN
-                          </Badge>
-                        ) : face.action_status === "NO_OPEN_SESSION" ? (
-                          <Badge variant="warning" className="text-[10px]">
-                            NO OPEN SESSION
-                          </Badge>
-                        ) : face.action_status === "SPOOF_BLOCKED" ? (
-                          <Badge variant="danger" className="text-[10px]">
-                            SPOOF BLOCKED
-                          </Badge>
-                        ) : face.action_status === "CONSENT_BLOCKED" || face.status === "CONSENT_NOT_VERIFIED" ? (
-                          <Badge variant="danger" className="text-[10px]">
-                            CONSENT BLOCKED
-                          </Badge>
-                        ) : face.matched && face.action_status !== "NONE" ? (
-                          <Badge variant="success" className="text-[10px]">
+                          <span className="rounded bg-indigo-500/15 border border-indigo-500/30 px-2 py-0.5 text-[10px] font-medium text-indigo-300 tabular-nums">
+                            {face.frames_seen || 1}/{gateStatus?.min_persistence_frames || 3}f
+                          </span>
+                        ) : face.action_status === "ALREADY_CHECKED_IN" ||
+                          (face.matched && face.action_status !== "NONE") ? (
+                          <span className="rounded bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 text-[10px] font-medium text-emerald-300">
                             VERIFIED
-                          </Badge>
+                          </span>
                         ) : face.action_status === "NONE" ? (
-                          <Badge variant="brand" className="text-[10px] bg-slate-100 text-slate-700 border-slate-300">
+                          <span className="rounded bg-slate-800 border border-slate-700 px-2 py-0.5 text-[10px] font-medium text-slate-300">
                             DETECTING
-                          </Badge>
+                          </span>
                         ) : (
                           <div className="flex items-center gap-1">
-                            <Badge variant="danger" className="text-[10px]">
+                            <span className="rounded bg-rose-500/15 border border-rose-500/30 px-2 py-0.5 text-[10px] font-medium text-rose-300">
                               UNKNOWN
-                            </Badge>
-                            <Button
-                              size="sm"
-                              variant="outline"
+                            </span>
+                            <button
+                              type="button"
                               onClick={handleOpenQuickEnroll}
-                              className="text-[10px] h-6 px-1.5 py-0 border-rose-300 text-rose-700 hover:bg-rose-50"
-                              title="Enroll this face to an employee profile"
+                              className="rounded border border-indigo-500/40 bg-indigo-500/15 px-2 py-0.5 text-[10px] font-medium text-indigo-300 hover:bg-indigo-500/25"
                             >
-                              Enroll Face
-                            </Button>
+                              Enroll
+                            </button>
                           </div>
                         )}
                       </div>
@@ -1531,110 +1447,111 @@ export default function ContinuousEntrancePage() {
                   ))}
                 </div>
               )}
-            </CardContent>
-          </Card>
+            </div>
+          </div>
 
-          {/* Live Gate Passage Stream Ticker */}
-          <Card className="shadow-sm">
-            <CardHeader className="py-2.5 px-4 bg-slate-50 border-b border-slate-100 flex flex-row items-center justify-between">
-              <CardTitle className="text-xs font-bold flex items-center gap-1.5 text-slate-800">
-                <Clock className="h-3.5 w-3.5 text-blue-600" />
-                Live Gate Passage Stream (Last 25)
-              </CardTitle>
-              <Badge variant="brand" className="text-[10px]">Audit Stream</Badge>
-            </CardHeader>
-            <CardContent className="p-0">
-              <div className="divide-y divide-slate-100 max-h-[380px] overflow-y-auto">
-                {recentPassages.length === 0 ? (
-                  <div className="text-center py-8 text-slate-400 text-xs">
-                    No gate passage records recorded today yet.
-                  </div>
-                ) : (
-                  recentPassages.map((p, idx) => (
-                    <div key={idx} className="p-2.5 px-3 hover:bg-slate-50/70 flex items-center justify-between text-xs">
-                      <div className="flex items-center gap-2.5">
-                        <div className="h-8 w-8 rounded-full bg-slate-100 text-slate-700 font-bold flex items-center justify-center text-[10px] shrink-0 border border-slate-200">
-                          {p.employee_name
-                            .split(" ")
-                            .map((n) => n[0])
-                            .slice(0, 2)
-                            .join("")}
-                        </div>
-                        <div>
-                          <p className="font-semibold text-slate-900">{p.employee_name}</p>
-                          <p className="text-[10px] font-mono text-slate-500">
-                            {p.employee_number} • {p.department || "Staff"}
-                          </p>
-                        </div>
+          {/* Last 25 Passages Ticker */}
+          <div className="rounded-xl border border-[#1E293B] bg-[#121826] overflow-hidden">
+            <div className="px-4 py-3 border-b border-[#1E293B] flex items-center justify-between">
+              <h2 className="text-xs font-semibold text-white flex items-center gap-1.5">
+                <Clock className="h-3.5 w-3.5 text-indigo-400" />
+                <span>Recent Passages (Last 25)</span>
+              </h2>
+              <span className="text-[10px] font-mono text-slate-400">LIVE FEED</span>
+            </div>
+            <div className="dark-scroll divide-y divide-[#1E293B] max-h-[400px] overflow-y-auto">
+              {recentPassages.length === 0 ? (
+                <div className="text-center py-8 text-slate-500 text-xs">
+                  No gate passages recorded yet today.
+                </div>
+              ) : (
+                recentPassages.map((p, idx) => (
+                  <div
+                    key={idx}
+                    className="px-3.5 py-2.5 hover:bg-white/[0.02] flex items-center justify-between gap-2 text-xs transition-colors"
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className="h-7 w-7 rounded-full bg-[#0B0F17] text-slate-200 font-semibold flex items-center justify-center text-[10px] shrink-0 border border-[#1E293B]">
+                        {p.employee_name
+                          .split(" ")
+                          .map((n) => n[0])
+                          .slice(0, 2)
+                          .join("")}
                       </div>
-
-                      <div className="text-right space-y-0.5">
-                        <div className="flex items-center gap-1 justify-end">
-                          <Badge
-                            variant={p.event_type === "CHECK_IN" ? "success" : "brand"}
-                            className="text-[10px]"
-                          >
-                            {p.event_type}
-                          </Badge>
-                          {p.is_late && (
-                            <Badge variant="danger" className="text-[9px]">
-                              LATE
-                            </Badge>
-                          )}
-                        </div>
-                        <p className="text-[10px] font-mono text-slate-400">{p.timestamp_eat}</p>
+                      <div className="min-w-0">
+                        <p className="font-medium text-slate-100 truncate">{p.employee_name}</p>
+                        <p className="text-[10.5px] font-mono text-slate-400 truncate">
+                          {p.employee_number} · {p.department || "Staff"}
+                        </p>
                       </div>
                     </div>
-                  ))
-                )}
-              </div>
-            </CardContent>
-          </Card>
+
+                    <div className="text-right shrink-0 space-y-0.5">
+                      <div className="flex items-center gap-1 justify-end">
+                        <span
+                          className={`rounded px-1.5 py-0.5 text-[9.5px] font-medium ${
+                            p.event_type === "CHECK_IN"
+                              ? "bg-emerald-500/15 text-emerald-300 border border-emerald-500/25"
+                              : "bg-indigo-500/15 text-indigo-300 border border-indigo-500/25"
+                          }`}
+                        >
+                          {p.event_type === "CHECK_IN" ? "IN" : "OUT"}
+                        </span>
+                        {p.is_late && (
+                          <span className="rounded bg-amber-500/15 text-amber-300 border border-amber-500/25 px-1.5 py-0.5 text-[9.5px] font-medium">
+                            LATE
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[10px] font-mono text-slate-500 tabular-nums">
+                        {p.timestamp_eat}
+                      </p>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* Quick Biometric Face Enrollment Modal */}
+      {/* Dark Quick Face Enrollment Modal */}
       {showEnrollModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <div className="flex items-center gap-2">
-                <UserPlus className="h-5 w-5 text-blue-600" />
-                <h3 className="font-bold text-slate-900 text-base">Quick Biometric Face Enrollment</h3>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-[2px]">
+          <div className="w-full max-w-md rounded-xl border border-[#1E293B] bg-[#121826] p-5 shadow-2xl space-y-4 text-slate-100">
+            <div className="flex items-center justify-between border-b border-[#1E293B] pb-3">
+              <div>
+                <h3 className="font-semibold text-white text-sm">Quick Gate Face Enrollment</h3>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  Link captured snapshot to enable continuous gate recognition.
+                </p>
               </div>
               <button
                 onClick={() => setShowEnrollModal(false)}
-                className="text-slate-400 hover:text-slate-600"
+                className="rounded-md p-1 text-slate-400 hover:bg-slate-800 hover:text-white"
               >
-                <X className="h-5 w-5" />
+                <X className="h-4 w-4" />
               </button>
             </div>
 
-            <p className="text-xs text-slate-500">
-              Link the live webcam photo to an employee profile. The continuous gate will immediately recognize you upon passage.
-            </p>
-
             {enrollSnapshotB64 && (
-              <div className="relative aspect-[4/3] w-full rounded-xl overflow-hidden border border-slate-200 bg-slate-900">
+              <div className="relative aspect-[4/3] w-full rounded-lg overflow-hidden border border-[#1E293B] bg-[#06090F]">
                 <img
                   src={enrollSnapshotB64}
                   alt="Captured face snapshot"
                   className={`w-full h-full object-cover ${isMirrored ? "-scale-x-100" : ""}`}
                 />
-                <span className="absolute bottom-2 left-2 rounded-md bg-black/60 px-2 py-0.5 text-[10px] text-emerald-400 font-mono">
-                  Captured Webcam Snapshot
-                </span>
               </div>
             )}
 
             <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-slate-700">Select Employee Profile:</label>
+              <label className="text-xs font-medium text-slate-300">Employee Profile</label>
               <select
                 value={enrollTargetEmpId}
                 onChange={(e) => setEnrollTargetEmpId(e.target.value ? Number(e.target.value) : "")}
-                className="w-full rounded-lg border border-slate-300 p-2 text-xs font-medium text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="h-9 w-full rounded-lg border border-[#1E293B] bg-[#0B0F17] px-2.5 text-xs text-slate-100 focus:border-indigo-500 focus:outline-none"
               >
-                <option value="">— Select your Employee Name &amp; ID —</option>
+                <option value="">— Select Employee Name &amp; ID —</option>
                 {employees.map((emp) => (
                   <option key={emp.id} value={emp.id}>
                     {emp.first_name} {emp.last_name} ({emp.employee_number}) — {emp.department_name}
@@ -1644,89 +1561,81 @@ export default function ContinuousEntrancePage() {
             </div>
 
             {enrollError && (
-              <div className="p-2.5 rounded-lg border border-rose-200 bg-rose-50 text-rose-800 text-xs">
+              <div className="p-2.5 rounded-lg border border-rose-500/30 bg-rose-500/10 text-rose-300 text-xs">
                 {enrollError}
               </div>
             )}
 
-            <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-100">
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-[#1E293B]">
               <Button
                 variant="outline"
                 size="sm"
                 onClick={() => setShowEnrollModal(false)}
                 disabled={isSubmittingEnroll}
+                className="border-[#1E293B] bg-transparent text-slate-300 hover:bg-slate-800 hover:text-white"
               >
                 Cancel
               </Button>
               <Button
+                variant="primary"
                 size="sm"
                 onClick={handleConfirmEnrollment}
                 isLoading={isSubmittingEnroll}
                 disabled={!enrollTargetEmpId || isSubmittingEnroll}
-                className="bg-blue-600 hover:bg-blue-700 text-white"
               >
-                Save Encrypted Biometric Template
+                Save Biometric Template
               </Button>
             </div>
           </div>
         </div>
       )}
 
-      {/* Gate Tuning Settings Modal (M4) */}
+      {/* Dark Gate Tuning Modal */}
       {isSettingsOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between border-b pb-3">
-              <div className="flex items-center gap-2">
-                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-100 text-blue-700">
-                  <Sliders className="h-5 w-5" />
-                </div>
-                <div>
-                  <h3 className="text-base font-bold text-slate-900">Continuous Gate Tuning</h3>
-                  <p className="text-xs text-slate-500">Timing debounce & tracking persistence parameters.</p>
-                </div>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-[2px]">
+          <div className="w-full max-w-lg rounded-xl border border-[#1E293B] bg-[#121826] p-5 shadow-2xl space-y-4 text-slate-100">
+            <div className="flex items-center justify-between border-b border-[#1E293B] pb-3">
+              <div>
+                <h3 className="text-sm font-semibold text-white">Continuous Gate Tuning</h3>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  Timing debounce and persistence frame parameters.
+                </p>
               </div>
               <div className="flex items-center gap-2">
                 {isAdmin ? (
-                  <Badge variant="success" className="text-[10px]">
-                    Admin Authorized
-                  </Badge>
+                  <span className="rounded bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 text-[10px] font-medium text-emerald-300">
+                    Admin Active
+                  </span>
                 ) : (
-                  <Badge variant="warning" className="text-[10px] gap-1">
+                  <span className="inline-flex items-center gap-1 rounded bg-amber-500/15 border border-amber-500/30 px-2 py-0.5 text-[10px] font-medium text-amber-300">
                     <Lock className="h-2.5 w-2.5" />
-                    <span>Admin Protected</span>
-                  </Badge>
+                    Admin Locked
+                  </span>
                 )}
                 <button
                   onClick={() => setIsSettingsOpen(false)}
-                  className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                  className="rounded-md p-1 text-slate-400 hover:bg-slate-800 hover:text-white"
                 >
-                  <X className="h-5 w-5" />
+                  <X className="h-4 w-4" />
                 </button>
               </div>
             </div>
 
-            {/* Admin Policy Notice */}
-            {!isAdmin ? (
-              <div className="rounded-xl bg-amber-50 border border-amber-200 p-3 text-xs text-amber-900 space-y-1">
-                <div className="font-bold flex items-center gap-1.5">
-                  <Lock className="h-3.5 w-3.5 text-amber-600 shrink-0" />
-                  <span>Sensitive Parameters Restricted</span>
+            {!isAdmin && (
+              <div className="rounded-lg bg-amber-500/10 border border-amber-500/25 p-3 text-xs text-amber-200 space-y-1">
+                <div className="font-medium flex items-center gap-1.5">
+                  <Lock className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+                  <span>Administrator Step-Up Required</span>
                 </div>
-                <p className="text-[11px] text-amber-800 leading-relaxed">
-                  Gate direction (IN/OUT) can be operated freely on the live console. Modifying sensitive timing parameters (cooldown, accidental checkout debounce, and tracking persistence) requires System Administrator authorization.
+                <p className="text-[11px] text-amber-200/80 leading-relaxed">
+                  Direction controls can be toggled freely, while cooldown and tracking persistence changes require System Administrator authorization.
                 </p>
-              </div>
-            ) : (
-              <div className="rounded-xl bg-blue-50/70 border border-blue-200 p-2.5 text-xs text-blue-900 flex items-center gap-2">
-                <ShieldCheck className="h-4 w-4 text-blue-600 shrink-0" />
-                <span className="text-[11px]">Administrator privileges active: Timing parameters are editable.</span>
               </div>
             )}
 
             {tuningSaveError && (
-              <div className="rounded-xl bg-rose-50 border border-rose-200 p-2.5 text-xs text-rose-800 flex items-center gap-1.5">
-                <AlertCircle className="h-4 w-4 text-rose-600 shrink-0" />
+              <div className="rounded-lg bg-rose-500/10 border border-rose-500/30 p-2.5 text-xs text-rose-300 flex items-center gap-1.5">
+                <AlertCircle className="h-4 w-4 text-rose-400 shrink-0" />
                 <span>{tuningSaveError}</span>
               </div>
             )}
@@ -1734,11 +1643,11 @@ export default function ContinuousEntrancePage() {
             <div className="space-y-4 text-xs">
               <div>
                 <div className="flex items-center justify-between mb-1">
-                  <label className="text-[11px] font-semibold text-slate-700">
-                    Gate Passage Cooldown (Seconds):
+                  <label className="text-[11px] font-medium text-slate-300">
+                    Passage Cooldown (Seconds)
                   </label>
-                  <span className="font-mono text-blue-600 font-bold bg-blue-50 px-1.5 py-0.5 rounded text-[11px]">
-                    {cooldownSec}s {!isAdmin && "🔒"}
+                  <span className="font-mono text-indigo-300 font-medium tabular-nums">
+                    {cooldownSec}s
                   </span>
                 </div>
                 <input
@@ -1749,20 +1658,17 @@ export default function ContinuousEntrancePage() {
                   disabled={!isAdmin}
                   value={cooldownSec}
                   onChange={(e) => setCooldownSec(Number(e.target.value))}
-                  className="w-full accent-blue-600 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="w-full accent-[#4F46E5] cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                 />
-                <p className="text-[10px] text-slate-500 mt-0.5">
-                  Suppresses duplicate punches for the same employee within this window.
-                </p>
               </div>
 
               <div>
                 <div className="flex items-center justify-between mb-1">
-                  <label className="text-[11px] font-semibold text-slate-700">
-                    Accidental Checkout Debounce (Minutes):
+                  <label className="text-[11px] font-medium text-slate-300">
+                    Accidental Checkout Debounce (Minutes)
                   </label>
-                  <span className="font-mono text-blue-600 font-bold bg-blue-50 px-1.5 py-0.5 rounded text-[11px]">
-                    {minCheckoutMins}m {!isAdmin && "🔒"}
+                  <span className="font-mono text-indigo-300 font-medium tabular-nums">
+                    {minCheckoutMins}m
                   </span>
                 </div>
                 <input
@@ -1773,20 +1679,17 @@ export default function ContinuousEntrancePage() {
                   disabled={!isAdmin}
                   value={minCheckoutMins}
                   onChange={(e) => setMinCheckoutMins(Number(e.target.value))}
-                  className="w-full accent-blue-600 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="w-full accent-[#4F46E5] cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                 />
-                <p className="text-[10px] text-slate-500 mt-0.5">
-                  In AUTO_DETECT mode, prevents immediate accidental checkout if check-in occurred less than this many minutes ago.
-                </p>
               </div>
 
               <div>
                 <div className="flex items-center justify-between mb-1">
-                  <label className="text-[11px] font-semibold text-slate-700">
-                    Minimum Tracking Persistence (Frames):
+                  <label className="text-[11px] font-medium text-slate-300">
+                    Minimum Tracking Persistence (Frames)
                   </label>
-                  <span className="font-mono text-blue-600 font-bold bg-blue-50 px-1.5 py-0.5 rounded text-[11px]">
-                    {minPersistenceFrames} frames {!isAdmin && "🔒"}
+                  <span className="font-mono text-indigo-300 font-medium tabular-nums">
+                    {minPersistenceFrames} frames
                   </span>
                 </div>
                 <input
@@ -1797,40 +1700,34 @@ export default function ContinuousEntrancePage() {
                   disabled={!isAdmin}
                   value={minPersistenceFrames}
                   onChange={(e) => setMinPersistenceFrames(Number(e.target.value))}
-                  className="w-full accent-blue-600 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="w-full accent-[#4F46E5] cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
                 />
-                <p className="text-[10px] text-slate-500 mt-0.5">
-                  Face must remain visible and tracked for this many consecutive frames before attendance confirms.
-                </p>
               </div>
 
-              {/* Step-Up Authentication Form for Operators */}
               {!isAdmin && (
-                <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 space-y-2">
-                  <label className="text-[11px] font-semibold text-slate-800 block">
-                    Administrator Step-Up Password to Unlock & Save:
+                <div className="rounded-lg border border-[#1E293B] bg-[#0B0F17] p-3 space-y-1.5">
+                  <label className="text-[11px] font-medium text-slate-300 block">
+                    Admin Step-Up Password
                   </label>
                   <input
                     type="password"
                     value={adminPasswordInput}
                     onChange={(e) => setAdminPasswordInput(e.target.value)}
                     placeholder="Enter administrator password"
-                    className="w-full rounded-lg border border-slate-300 bg-white p-2 text-xs focus:ring-1 focus:ring-blue-500 focus:outline-none"
+                    className="h-8 w-full rounded-lg border border-[#1E293B] bg-[#121826] px-2.5 text-xs text-slate-100 focus:border-indigo-500 focus:outline-none"
                   />
-                  <p className="text-[10px] text-slate-500">
-                    Allows operators stationed at the gate to apply authorized administrative tuning with step-up verification.
-                  </p>
                 </div>
               )}
             </div>
 
-            <div className="flex justify-end gap-2 pt-3 border-t">
+            <div className="flex justify-end gap-2 pt-3 border-t border-[#1E293B]">
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
                 onClick={() => setIsSettingsOpen(false)}
                 disabled={isSavingTuning}
+                className="border-[#1E293B] bg-transparent text-slate-300 hover:bg-slate-800 hover:text-white"
               >
                 Cancel
               </Button>
@@ -1841,13 +1738,12 @@ export default function ContinuousEntrancePage() {
                 onClick={handleSaveGateSettings}
                 disabled={isSavingTuning || (!isAdmin && !adminPasswordInput.trim())}
                 isLoading={isSavingTuning}
-                className="bg-blue-600 hover:bg-blue-700 text-white font-medium"
               >
                 {isAdmin
-                  ? "Save Gate Parameters"
+                  ? "Save Tuning"
                   : adminPasswordInput.trim()
-                  ? "Authorize & Save Tuning"
-                  : "Admin Password Required"}
+                  ? "Authorize & Save"
+                  : "Password Required"}
               </Button>
             </div>
           </div>
