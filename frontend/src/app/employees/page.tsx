@@ -8,7 +8,6 @@ import { CameraCapture } from "@/components/CameraCapture";
 import { AuthGuard } from "@/components/AuthGuard";
 import { api, EmployeeRecord } from "@/lib/api";
 import {
-  Users,
   Search,
   Camera,
   Trash2,
@@ -18,13 +17,8 @@ import {
   AlertCircle,
   UserCheck,
   UserPlus,
-  Plus,
-  Building2,
-  Briefcase,
-  Phone,
   Pencil,
   UserX,
-  Power,
 } from "lucide-react";
 
 export default function EmployeesPage() {
@@ -32,6 +26,9 @@ export default function EmployeesPage() {
   const [departments, setDepartments] = useState<Array<{ id: number; name: string; code: string }>>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
+  const [deptFilter, setDeptFilter] = useState<string>("");
+  const [bioFilter, setBioFilter] = useState<"ALL" | "ENROLLED" | "PENDING">("ALL");
+  const [statusFilter, setStatusFilter] = useState<"ALL" | "ACTIVE" | "INACTIVE">("ALL");
 
   // New staff registration modal state
   const [isRegisterModalOpen, setIsRegisterModalOpen] = useState(false);
@@ -257,32 +254,32 @@ export default function EmployeesPage() {
     }
   };
 
+  const filteredEmployees = employees.filter((emp) => {
+    if (deptFilter && String(emp.department_id) !== deptFilter) return false;
+    if (bioFilter === "ENROLLED" && !emp.has_active_template) return false;
+    if (bioFilter === "PENDING" && emp.has_active_template) return false;
+    if (statusFilter !== "ALL" && emp.status !== statusFilter) return false;
+    return true;
+  });
+
+  const enrolledCount = employees.filter((e) => e.has_active_template).length;
+  const pendingBioCount = employees.length - enrolledCount;
+  const hasDirectoryFilters = Boolean(searchQuery || deptFilter || bioFilter !== "ALL" || statusFilter !== "ALL");
+
   return (
     <AuthGuard>
-      <div className="space-y-6">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-slate-200 pb-5">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900">Employee Biometric Directory</h1>
-          <p className="mt-1 text-xs text-slate-500">
-            Register new staff profiles, manage live webcam biometric enrollment, verify consent, and handle data erasure.
-          </p>
-        </div>
-
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 w-full sm:w-auto">
-          {/* Search Input */}
-          <div className="relative w-full sm:w-64">
-            <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
-            <input
-              type="text"
-              placeholder="Search by name or ID..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full rounded-xl border border-slate-300 bg-white py-2 pl-9 pr-4 text-xs shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-            />
+      <div className="space-y-5">
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div>
+            <h1 className="text-xl font-semibold tracking-tight text-slate-900">
+              Employee Directory
+            </h1>
+            <p className="mt-0.5 text-xs text-slate-500">
+              Manage staff profiles, consent verification, live biometric enrollment, and right-to-erasure.
+            </p>
           </div>
 
-          {/* Register New Staff Button */}
           <Button
             variant="primary"
             size="sm"
@@ -290,707 +287,788 @@ export default function EmployeesPage() {
               setIsRegisterModalOpen(true);
               setRegisterError(null);
             }}
-            className="flex items-center justify-center gap-1.5 shadow-sm font-semibold"
           >
-            <UserPlus className="h-4 w-4" />
-            <span>Register New Staff</span>
+            <UserPlus className="h-3.5 w-3.5" />
+            <span>Add Employee</span>
           </Button>
         </div>
-      </div>
 
-      {/* Employee Table */}
-      <Card className="overflow-hidden shadow-sm">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
-            <thead className="border-b border-slate-200 bg-slate-50 text-[11px] font-semibold text-slate-600 uppercase tracking-wider">
-              <tr>
-                <th className="py-3 px-4">Employee</th>
-                <th className="py-3 px-4">ID Number</th>
-                <th className="py-3 px-4">Department & Category</th>
-                <th className="py-3 px-4">Biometric Status</th>
-                <th className="py-3 px-4">Consent (POL-01)</th>
-                <th className="py-3 px-4 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {employees.length === 0 && !isLoading && (
+        {/* Summary Strip */}
+        <div className="grid grid-cols-3 gap-3">
+          <Card className="p-3.5">
+            <span className="text-[11px] font-medium text-slate-500">Directory Total</span>
+            <div className="mt-1 text-xl font-semibold tracking-tight text-slate-900 tabular-nums">
+              {employees.length}
+            </div>
+          </Card>
+          <Card className="p-3.5">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-medium text-slate-500">Biometrics Enrolled</span>
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+            </div>
+            <div className="mt-1 text-xl font-semibold tracking-tight text-slate-900 tabular-nums">
+              {enrolledCount}
+            </div>
+          </Card>
+          <Card className="p-3.5">
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-medium text-slate-500">Pending Face Scan</span>
+              <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
+            </div>
+            <div className="mt-1 text-xl font-semibold tracking-tight text-slate-900 tabular-nums">
+              {pendingBioCount}
+            </div>
+          </Card>
+        </div>
+
+        {/* Image 1 Style Compact Filter Strip */}
+        <Card className="p-3.5">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-2 flex-1 min-w-[240px]">
+              <div className="relative w-full sm:w-64">
+                <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Search name or ID..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="h-8 w-full rounded-lg border border-[#E5E7EB] bg-white pl-8 pr-3 text-xs text-slate-900 placeholder:text-slate-400 focus:border-[#4F46E5] focus:outline-none focus:ring-2 focus:ring-indigo-500/15"
+                />
+              </div>
+
+              <select
+                value={deptFilter}
+                onChange={(e) => setDeptFilter(e.target.value)}
+                aria-label="Filter by Department"
+                className="h-8 rounded-lg border border-[#E5E7EB] bg-[#FAFBFD] px-2.5 text-xs text-slate-700 focus:border-[#4F46E5] focus:bg-white focus:outline-none"
+              >
+                <option value="">All Departments</option>
+                {departments.map((d) => (
+                  <option key={d.id} value={String(d.id)}>
+                    {d.name}
+                  </option>
+                ))}
+              </select>
+
+              <div className="inline-flex h-8 items-center rounded-lg border border-[#EAECEF] bg-[#F6F7F9] p-0.5 text-xs">
+                {(["ALL", "ENROLLED", "PENDING"] as const).map((val) => (
+                  <button
+                    key={val}
+                    type="button"
+                    onClick={() => setBioFilter(val)}
+                    className={`rounded-md px-2.5 py-1 font-medium transition-colors ${
+                      bioFilter === val
+                        ? "bg-white text-slate-900 shadow-[0_1px_2px_rgba(15,23,42,0.05)]"
+                        : "text-slate-500 hover:text-slate-900"
+                    }`}
+                  >
+                    {val === "ALL" ? "All Faces" : val === "ENROLLED" ? "Enrolled" : "Pending"}
+                  </button>
+                ))}
+              </div>
+
+              <div className="inline-flex h-8 items-center rounded-lg border border-[#EAECEF] bg-[#F6F7F9] p-0.5 text-xs">
+                {(["ALL", "ACTIVE", "INACTIVE"] as const).map((val) => (
+                  <button
+                    key={val}
+                    type="button"
+                    onClick={() => setStatusFilter(val)}
+                    className={`rounded-md px-2.5 py-1 font-medium transition-colors ${
+                      statusFilter === val
+                        ? "bg-white text-slate-900 shadow-[0_1px_2px_rgba(15,23,42,0.05)]"
+                        : "text-slate-500 hover:text-slate-900"
+                    }`}
+                  >
+                    {val === "ALL" ? "All Status" : val === "ACTIVE" ? "Active" : "Inactive"}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {hasDirectoryFilters && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchQuery("");
+                  setDeptFilter("");
+                  setBioFilter("ALL");
+                  setStatusFilter("ALL");
+                }}
+                className="text-xs font-medium text-slate-500 hover:text-slate-900"
+              >
+                Clear filters
+              </button>
+            )}
+          </div>
+        </Card>
+
+        {/* Employee Table */}
+        <Card className="overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-xs">
+              <thead className="border-b border-[#EAECEF] bg-[#FAFBFD] text-[10.5px] font-medium text-slate-400 uppercase tracking-wider">
                 <tr>
-                  <td colSpan={6} className="py-8 text-center text-slate-500">
-                    <UserCheck className="mx-auto h-8 w-8 text-slate-300 mb-2" />
-                    No employees found. Click <strong>"Register New Staff"</strong> above to onboard an employee.
-                  </td>
+                  <th className="py-2.5 px-5">Employee</th>
+                  <th className="py-2.5 px-4">ID Number</th>
+                  <th className="py-2.5 px-4">Department</th>
+                  <th className="py-2.5 px-4">Biometrics</th>
+                  <th className="py-2.5 px-4">Consent (POL-01)</th>
+                  <th className="py-2.5 px-5 text-right">Actions</th>
                 </tr>
-              )}
-              {employees.map((emp) => (
-                <tr key={emp.id} className="hover:bg-slate-50/80 transition-colors">
-                  <td className="py-3 px-4">
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-100 text-blue-700 font-bold text-xs uppercase">
-                        {(emp.first_name?.[0] || "E")}
-                        {(emp.last_name?.[0] || "")}
+              </thead>
+              <tbody className="divide-y divide-[#EAECEF]">
+                {filteredEmployees.length === 0 && !isLoading && (
+                  <tr>
+                    <td colSpan={6} className="py-10 text-center text-slate-400">
+                      No matching employee profiles found.
+                    </td>
+                  </tr>
+                )}
+                {filteredEmployees.map((emp) => (
+                  <tr key={emp.id} className="hover:bg-[#FAFBFD] transition-colors">
+                    <td className="py-3 px-5">
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#EEF2FF] text-[#4338CA] font-semibold text-[11px] uppercase">
+                          {emp.first_name?.[0] || "E"}
+                          {emp.last_name?.[0] || ""}
+                        </div>
+                        <div>
+                          <span className="font-medium text-slate-900 block">
+                            {emp.first_name} {emp.last_name}
+                          </span>
+                          <span
+                            className={`inline-flex items-center gap-1 text-[10.5px] font-medium ${
+                              emp.status === "ACTIVE" ? "text-emerald-600" : "text-slate-400"
+                            }`}
+                          >
+                            <span
+                              className={`h-1.5 w-1.5 rounded-full ${
+                                emp.status === "ACTIVE" ? "bg-emerald-500" : "bg-slate-400"
+                              }`}
+                            />
+                            {emp.status === "ACTIVE" ? "Active" : "Inactive"}
+                          </span>
+                        </div>
                       </div>
-                      <div>
-                        <span className="font-semibold text-slate-900 block">
-                          {emp.first_name} {emp.last_name}
+                    </td>
+                    <td className="py-3 px-4 font-mono text-[11px] font-medium text-slate-700 tabular-nums">
+                      {emp.employee_number}
+                    </td>
+                    <td className="py-3 px-4">
+                      <span className="text-slate-800 block">{emp.department_name || "General"}</span>
+                      <span className="text-[11px] text-slate-400">{emp.job_category}</span>
+                    </td>
+                    <td className="py-3 px-4">
+                      {emp.has_active_template ? (
+                        <Badge variant="success" className="gap-1">
+                          <CheckCircle className="h-3 w-3" /> Enrolled
+                        </Badge>
+                      ) : (
+                        <Badge variant="warning">Pending</Badge>
+                      )}
+                    </td>
+                    <td className="py-3 px-4">
+                      {emp.consent_verified ? (
+                        <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-700">
+                          <ShieldCheck className="h-3.5 w-3.5" /> Verified
                         </span>
-                        {emp.status === "ACTIVE" ? (
-                          <span className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-600">
-                            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500"></span> Active
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 text-[10px] font-medium text-slate-400">
-                            <span className="h-1.5 w-1.5 rounded-full bg-slate-400"></span> Inactive
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  </td>
-                  <td className="py-3 px-4 font-mono font-medium text-slate-700">
-                    {emp.employee_number}
-                  </td>
-                  <td className="py-3 px-4">
-                    <span className="font-medium text-slate-800 block">{emp.department_name || "General"}</span>
-                    <span className="text-[10px] text-slate-500">{emp.job_category}</span>
-                  </td>
-                  <td className="py-3 px-4">
-                    {emp.has_active_template ? (
-                      <Badge variant="success" className="gap-1">
-                        <CheckCircle className="h-3 w-3" /> Enrolled
-                      </Badge>
-                    ) : (
-                      <Badge variant="outline" className="text-amber-700 border-amber-200 bg-amber-50">
-                        Not Enrolled
-                      </Badge>
-                    )}
-                  </td>
-                  <td className="py-3 px-4">
-                    {emp.consent_verified ? (
-                      <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600">
-                        <ShieldCheck className="h-3.5 w-3.5" /> Verified
-                      </span>
-                    ) : (
-                      <span className="text-[11px] text-amber-600 font-medium">Unverified</span>
-                    )}
-                  </td>
-                  <td className="py-3 px-4 text-right">
-                    <div className="flex items-center justify-end gap-1.5">
-                      {/* Edit Profile Button */}
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => {
-                          setEditingEmployee(emp);
-                          setEditForm({
-                            first_name: emp.first_name || "",
-                            last_name: emp.last_name || "",
-                            department_id: emp.department_id || (departments[0]?.id || 1),
-                            job_category: emp.job_category || "REGULAR_STAFF",
-                            phone: (emp as any).phone || "",
-                            consent_verified: Boolean(emp.consent_verified),
-                          });
-                          setEditError(null);
-                        }}
-                        title="Edit Employee Profile"
-                        className="h-8 px-2 text-slate-600 hover:text-slate-900 border-slate-200"
-                      >
-                        <Pencil className="h-3.5 w-3.5" />
-                      </Button>
+                      ) : (
+                        <span className="text-[11px] text-amber-600 font-medium">Unverified</span>
+                      )}
+                    </td>
+                    <td className="py-3 px-5 text-right">
+                      <div className="flex items-center justify-end gap-1.5">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => {
+                            setEditingEmployee(emp);
+                            setEditForm({
+                              first_name: emp.first_name || "",
+                              last_name: emp.last_name || "",
+                              department_id: emp.department_id || departments[0]?.id || 1,
+                              job_category: emp.job_category || "REGULAR_STAFF",
+                              phone: (emp as unknown as { phone?: string }).phone || "",
+                              consent_verified: Boolean(emp.consent_verified),
+                            });
+                            setEditError(null);
+                          }}
+                          title="Edit Profile"
+                          className="px-2 text-slate-600"
+                        >
+                          <Pencil className="h-3.5 w-3.5" />
+                        </Button>
 
-                      {/* Status Toggle (Activate/Deactivate) */}
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => {
-                          setStatusTargetEmployee(emp);
-                          setStatusReason(
-                            emp.status === "ACTIVE"
-                              ? "Employee leave / administrative deactivation"
-                              : "Employee reactivation"
-                          );
-                          setStatusError(null);
-                        }}
-                        title={emp.status === "ACTIVE" ? "Deactivate Employee (AT-07)" : "Activate Employee"}
-                        className={`h-8 px-2 ${
-                          emp.status === "ACTIVE"
-                            ? "text-slate-400 hover:text-amber-600 hover:bg-amber-50"
-                            : "text-emerald-600 hover:text-emerald-700 hover:bg-emerald-50"
-                        }`}
-                      >
-                        {emp.status === "ACTIVE" ? (
-                          <UserX className="h-3.5 w-3.5" />
-                        ) : (
-                          <UserCheck className="h-3.5 w-3.5" />
-                        )}
-                      </Button>
-
-                      <Button
-                        variant={emp.has_active_template ? "outline" : "primary"}
-                        size="sm"
-                        onClick={() => {
-                          setActiveEnrollEmployee(emp);
-                          setEnrollImageB64(null);
-                          setEnrollError(null);
-                          setEnrollSuccess(null);
-                        }}
-                      >
-                        <Camera className="mr-1 h-3.5 w-3.5" />
-                        {emp.has_active_template ? "Re-Enroll" : "Enroll Face"}
-                      </Button>
-
-                      {emp.has_active_template && (
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => setActivePurgeEmployee(emp)}
-                          className="text-rose-500 hover:text-rose-700 hover:bg-rose-50"
-                          title="Purge biometric template (Right to Erasure)"
+                          onClick={() => {
+                            setStatusTargetEmployee(emp);
+                            setStatusReason(
+                              emp.status === "ACTIVE"
+                                ? "Employee leave / administrative deactivation"
+                                : "Employee reactivation"
+                            );
+                            setStatusError(null);
+                          }}
+                          title={emp.status === "ACTIVE" ? "Deactivate (AT-07)" : "Activate"}
+                          className={`px-2 ${
+                            emp.status === "ACTIVE"
+                              ? "text-slate-400 hover:text-amber-600 hover:bg-amber-50"
+                              : "text-emerald-600 hover:bg-emerald-50"
+                          }`}
                         >
-                          <Trash2 className="h-3.5 w-3.5" />
+                          {emp.status === "ACTIVE" ? (
+                            <UserX className="h-3.5 w-3.5" />
+                          ) : (
+                            <UserCheck className="h-3.5 w-3.5" />
+                          )}
                         </Button>
-                      )}
-                    </div>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      </Card>
 
-      {/* Modal 1: Register New Staff Member */}
-      {isRegisterModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between border-b pb-3">
-              <div className="flex items-center gap-2">
-                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-100 text-blue-700">
-                  <UserPlus className="h-5 w-5" />
-                </div>
+                        <Button
+                          variant={emp.has_active_template ? "outline" : "primary"}
+                          size="sm"
+                          onClick={() => {
+                            setActiveEnrollEmployee(emp);
+                            setEnrollImageB64(null);
+                            setEnrollError(null);
+                            setEnrollSuccess(null);
+                          }}
+                        >
+                          <Camera className="h-3.5 w-3.5" />
+                          <span>{emp.has_active_template ? "Re-Enroll" : "Enroll"}</span>
+                        </Button>
+
+                        {emp.has_active_template && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setActivePurgeEmployee(emp)}
+                            className="px-2 text-rose-500 hover:text-rose-700 hover:bg-rose-50"
+                            title="Purge biometric template (POL-02)"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Card>
+
+        {/* Modal 1: Register New Staff */}
+        {isRegisterModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-[2px]">
+            <div className="w-full max-w-lg rounded-xl border border-[#E5E7EB] bg-white p-5 shadow-xl space-y-4">
+              <div className="flex items-center justify-between border-b border-[#EAECEF] pb-3">
                 <div>
-                  <h3 className="text-base font-bold text-slate-900">Register New Staff Member</h3>
-                  <p className="text-xs text-slate-500">
-                    Create employee profile and department assignment before face scan.
+                  <h3 className="text-sm font-semibold text-slate-900">Register New Employee</h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    Create staff profile and department assignment before face capture.
                   </p>
                 </div>
-              </div>
-              <button
-                onClick={() => setIsRegisterModalOpen(false)}
-                className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-
-            {registerError && (
-              <div className="rounded-xl bg-rose-50 p-3 text-xs text-rose-800 border border-rose-200 flex items-center gap-2">
-                <AlertCircle className="h-4 w-4 shrink-0" />
-                <span>{registerError}</span>
-              </div>
-            )}
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {/* Employee ID */}
-              <div>
-                <label className="text-[11px] font-semibold text-slate-700 block mb-1">
-                  Employee ID Number *
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. EIPC-EMP-006"
-                  value={registerForm.employee_number}
-                  onChange={(e) =>
-                    setRegisterForm({ ...registerForm, employee_number: e.target.value.toUpperCase() })
-                  }
-                  className="w-full rounded-lg border border-slate-300 p-2 text-xs font-mono focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                />
-              </div>
-
-              {/* Phone */}
-              <div>
-                <label className="text-[11px] font-semibold text-slate-700 block mb-1">
-                  Phone Number
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. +251 91 123 4567"
-                  value={registerForm.phone}
-                  onChange={(e) => setRegisterForm({ ...registerForm, phone: e.target.value })}
-                  className="w-full rounded-lg border border-slate-300 p-2 text-xs focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                />
-              </div>
-
-              {/* First Name */}
-              <div>
-                <label className="text-[11px] font-semibold text-slate-700 block mb-1">
-                  First Name *
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. Dawit"
-                  value={registerForm.first_name}
-                  onChange={(e) => setRegisterForm({ ...registerForm, first_name: e.target.value })}
-                  className="w-full rounded-lg border border-slate-300 p-2 text-xs focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                />
-              </div>
-
-              {/* Last Name */}
-              <div>
-                <label className="text-[11px] font-semibold text-slate-700 block mb-1">
-                  Last Name *
-                </label>
-                <input
-                  type="text"
-                  placeholder="e.g. Tadesse"
-                  value={registerForm.last_name}
-                  onChange={(e) => setRegisterForm({ ...registerForm, last_name: e.target.value })}
-                  className="w-full rounded-lg border border-slate-300 p-2 text-xs focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                />
-              </div>
-
-              {/* Department */}
-              <div>
-                <label className="text-[11px] font-semibold text-slate-700 block mb-1">
-                  Department *
-                </label>
-                <select
-                  value={registerForm.department_id}
-                  onChange={(e) =>
-                    setRegisterForm({ ...registerForm, department_id: Number(e.target.value) })
-                  }
-                  className="w-full rounded-lg border border-slate-300 p-2 text-xs focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
+                <button
+                  onClick={() => setIsRegisterModalOpen(false)}
+                  className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
                 >
-                  {departments.map((dept) => (
-                    <option key={dept.id} value={dept.id}>
-                      {dept.name} ({dept.code})
-                    </option>
-                  ))}
-                  {departments.length === 0 && (
-                    <option value={1}>General Academic & Administration</option>
-                  )}
-                </select>
+                  <X className="h-4 w-4" />
+                </button>
               </div>
 
-              {/* Job Category */}
-              <div>
-                <label className="text-[11px] font-semibold text-slate-700 block mb-1">
-                  Job Category *
-                </label>
-                <select
-                  value={registerForm.job_category}
-                  onChange={(e) =>
-                    setRegisterForm({ ...registerForm, job_category: e.target.value })
-                  }
-                  className="w-full rounded-lg border border-slate-300 p-2 text-xs focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 bg-white"
-                >
-                  <option value="REGULAR_STAFF">Regular Staff (Academic & Admin)</option>
-                  <option value="CLEANING_STAFF">Cleaning Staff (Facilities & Maintenance)</option>
-                  <option value="SECURITY_GUARD">Security Guard (Gate & 24h Shifts)</option>
-                </select>
-              </div>
-            </div>
-
-            {/* Consent verification checkbox */}
-            <div className="rounded-xl border border-slate-200 bg-slate-50 p-3">
-              <label className="flex items-start gap-2.5 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={registerForm.consent_verified}
-                  onChange={(e) =>
-                    setRegisterForm({ ...registerForm, consent_verified: e.target.checked })
-                  }
-                  className="mt-0.5 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                />
-                <span className="text-xs text-slate-700 leading-snug">
-                  <strong>Biometric Consent Verified (POL-01):</strong> Employee has signed the College
-                  biometric attendance consent form and consented to encrypted facial template storage.
-                </span>
-              </label>
-            </div>
-
-            {/* Modal Actions */}
-            <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 pt-2 border-t">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setIsRegisterModalOpen(false)}
-                disabled={isSubmittingRegister}
-              >
-                Cancel
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => handleRegisterSubmit(false)}
-                isLoading={isSubmittingRegister}
-              >
-                Save Staff Only
-              </Button>
-              <Button
-                variant="primary"
-                size="sm"
-                onClick={() => handleRegisterSubmit(true)}
-                isLoading={isSubmittingRegister}
-                className="shadow-sm font-semibold"
-              >
-                <Camera className="mr-1.5 h-3.5 w-3.5" />
-                Save & Enroll Face Now
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal 2: Live Biometric Face Enrollment */}
-      {activeEnrollEmployee && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-xl rounded-2xl bg-white p-6 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between border-b pb-3">
-              <div>
-                <h3 className="text-base font-bold text-slate-900">
-                  Biometric Face Enrollment
-                </h3>
-                <p className="text-xs text-slate-500">
-                  Enrolling: {activeEnrollEmployee.first_name} {activeEnrollEmployee.last_name} ({activeEnrollEmployee.employee_number})
-                </p>
-              </div>
-              <button
-                onClick={() => setActiveEnrollEmployee(null)}
-                className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
-
-            {/* Camera Viewport */}
-            <div className="rounded-xl overflow-hidden bg-slate-950 p-2">
-              <CameraCapture
-                onCapture={handleCaptureForEnrollment}
-                guideText="Look directly at camera. Hold still for quality verification."
-                captureButtonText="Capture Biometric Photo"
-              />
-            </div>
-
-            {/* Photo capture ready prompt */}
-            {enrollImageB64 && !enrollSuccess && !enrollError && (
-              <div className="rounded-xl bg-blue-50 p-3 text-xs text-blue-800 border border-blue-200 flex items-center gap-2">
-                <CheckCircle className="h-4 w-4 shrink-0 text-blue-600" />
-                <span>Photo captured! Click <strong>"Save Encrypted Template"</strong> below to finalize biometric enrollment.</span>
-              </div>
-            )}
-
-            {/* Status alerts */}
-            {enrollError && (
-              <div className="rounded-xl bg-rose-50 p-3 text-xs text-rose-800 border border-rose-200 flex items-center gap-2">
-                <AlertCircle className="h-4 w-4 shrink-0" />
-                <span>{enrollError}</span>
-              </div>
-            )}
-
-            {enrollSuccess && (
-              <div className="rounded-xl bg-emerald-50 p-3 text-xs text-emerald-800 border border-emerald-200 flex items-center gap-2">
-                <CheckCircle className="h-4 w-4 shrink-0" />
-                <span>{enrollSuccess}</span>
-              </div>
-            )}
-
-            {/* Action Bar */}
-            <div className="flex items-center justify-between pt-2 border-t">
-              <div className="flex items-center gap-2 text-xs text-slate-600">
-                <ShieldCheck className="h-4 w-4 text-blue-600" />
-                <span>Encrypted at rest via Fernet AES-128</span>
-              </div>
-
-              <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setActiveEnrollEmployee(null)}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  variant="primary"
-                  size="sm"
-                  onClick={handleConfirmEnrollment}
-                  disabled={!enrollImageB64 || isSubmittingEnroll}
-                  isLoading={isSubmittingEnroll}
-                >
-                  Save Encrypted Template
-                </Button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal 3: Right to Erasure / Biometric Purge */}
-      {activePurgeEmployee && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl space-y-4">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-rose-100 text-rose-600">
-                <Trash2 className="h-5 w-5" />
-              </div>
-              <div>
-                <h3 className="text-base font-bold text-slate-900">Right to Erasure (POL-02)</h3>
-                <p className="text-xs text-slate-500">
-                  Permanently purge biometrics for {activePurgeEmployee.first_name} {activePurgeEmployee.last_name}
-                </p>
-              </div>
-            </div>
-
-            <p className="text-xs text-slate-600">
-              This action permanently deletes all encrypted face embeddings for this employee from the database, resets consent status, and records an immutable entry in the audit trail.
-            </p>
-
-            <div>
-              <label className="text-xs font-semibold text-slate-700 block mb-1">
-                Reason for Erasure:
-              </label>
-              <input
-                type="text"
-                value={purgeReason}
-                onChange={(e) => setPurgeReason(e.target.value)}
-                className="w-full rounded-lg border border-slate-300 p-2 text-xs focus:ring-1 focus:ring-rose-500"
-              />
-            </div>
-
-            <div className="flex justify-end gap-2 pt-2">
-              <Button variant="outline" size="sm" onClick={() => setActivePurgeEmployee(null)}>
-                Cancel
-              </Button>
-              <Button
-                variant="danger"
-                size="sm"
-                onClick={handleConfirmPurge}
-                isLoading={isSubmittingPurge}
-              >
-                Permanently Purge
-              </Button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Modal 4: Edit Employee Profile */}
-      {editingEmployee && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-lg rounded-2xl bg-white p-6 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between border-b pb-3">
-              <div className="flex items-center gap-2">
-                <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-100 text-blue-700">
-                  <Pencil className="h-5 w-5" />
+              {registerError && (
+                <div className="rounded-lg bg-rose-50 p-2.5 text-xs text-rose-800 border border-rose-200 flex items-center gap-2">
+                  <AlertCircle className="h-4 w-4 shrink-0" />
+                  <span>{registerError}</span>
                 </div>
+              )}
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                 <div>
-                  <h3 className="text-base font-bold text-slate-900">Edit Employee Profile</h3>
-                  <p className="text-xs text-slate-500 font-mono">
-                    {editingEmployee.employee_number}
-                  </p>
+                  <label className="text-[11px] font-medium text-slate-700 block mb-1">
+                    Employee ID Number *
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. EIPC-EMP-006"
+                    value={registerForm.employee_number}
+                    onChange={(e) =>
+                      setRegisterForm({ ...registerForm, employee_number: e.target.value.toUpperCase() })
+                    }
+                    className="h-9 w-full rounded-lg border border-[#E5E7EB] px-2.5 text-xs font-mono focus:border-[#4F46E5] focus:outline-none focus:ring-2 focus:ring-indigo-500/15"
+                  />
                 </div>
-              </div>
-              <button
-                onClick={() => setEditingEmployee(null)}
-                className="rounded-lg p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
-              >
-                <X className="h-5 w-5" />
-              </button>
-            </div>
 
-            {editError && (
-              <div className="rounded-xl bg-rose-50 p-3 text-xs text-rose-800 border border-rose-200 flex items-center gap-2">
-                <AlertCircle className="h-4 w-4 shrink-0" />
-                <span>{editError}</span>
-              </div>
-            )}
-
-            <form onSubmit={handleEditSubmit} className="space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="text-[11px] font-semibold text-slate-700 block mb-1">
+                  <label className="text-[11px] font-medium text-slate-700 block mb-1">
+                    Phone Number
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. +251 91 123 4567"
+                    value={registerForm.phone}
+                    onChange={(e) => setRegisterForm({ ...registerForm, phone: e.target.value })}
+                    className="h-9 w-full rounded-lg border border-[#E5E7EB] px-2.5 text-xs focus:border-[#4F46E5] focus:outline-none focus:ring-2 focus:ring-indigo-500/15"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[11px] font-medium text-slate-700 block mb-1">
                     First Name *
                   </label>
                   <input
                     type="text"
-                    required
-                    value={editForm.first_name}
-                    onChange={(e) => setEditForm({ ...editForm, first_name: e.target.value })}
-                    className="w-full rounded-lg border border-slate-300 p-2 text-xs focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    placeholder="e.g. Dawit"
+                    value={registerForm.first_name}
+                    onChange={(e) => setRegisterForm({ ...registerForm, first_name: e.target.value })}
+                    className="h-9 w-full rounded-lg border border-[#E5E7EB] px-2.5 text-xs focus:border-[#4F46E5] focus:outline-none focus:ring-2 focus:ring-indigo-500/15"
                   />
                 </div>
+
                 <div>
-                  <label className="text-[11px] font-semibold text-slate-700 block mb-1">
+                  <label className="text-[11px] font-medium text-slate-700 block mb-1">
                     Last Name *
                   </label>
                   <input
                     type="text"
-                    required
-                    value={editForm.last_name}
-                    onChange={(e) => setEditForm({ ...editForm, last_name: e.target.value })}
-                    className="w-full rounded-lg border border-slate-300 p-2 text-xs focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    placeholder="e.g. Tadesse"
+                    value={registerForm.last_name}
+                    onChange={(e) => setRegisterForm({ ...registerForm, last_name: e.target.value })}
+                    className="h-9 w-full rounded-lg border border-[#E5E7EB] px-2.5 text-xs focus:border-[#4F46E5] focus:outline-none focus:ring-2 focus:ring-indigo-500/15"
                   />
                 </div>
-              </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="text-[11px] font-semibold text-slate-700 block mb-1">
+                  <label className="text-[11px] font-medium text-slate-700 block mb-1">
                     Department *
                   </label>
                   <select
-                    value={editForm.department_id}
-                    onChange={(e) => setEditForm({ ...editForm, department_id: Number(e.target.value) })}
-                    className="w-full rounded-lg border border-slate-300 p-2 text-xs bg-white focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    value={registerForm.department_id}
+                    onChange={(e) =>
+                      setRegisterForm({ ...registerForm, department_id: Number(e.target.value) })
+                    }
+                    className="h-9 w-full rounded-lg border border-[#E5E7EB] px-2.5 text-xs bg-white focus:border-[#4F46E5] focus:outline-none focus:ring-2 focus:ring-indigo-500/15"
                   >
-                    {departments.map((d) => (
-                      <option key={d.id} value={d.id}>
-                        {d.name} ({d.code})
+                    {departments.map((dept) => (
+                      <option key={dept.id} value={dept.id}>
+                        {dept.name} ({dept.code})
                       </option>
                     ))}
+                    {departments.length === 0 && (
+                      <option value={1}>General Academic & Administration</option>
+                    )}
                   </select>
                 </div>
 
                 <div>
-                  <label className="text-[11px] font-semibold text-slate-700 block mb-1">
-                    Job Category
+                  <label className="text-[11px] font-medium text-slate-700 block mb-1">
+                    Job Category *
                   </label>
                   <select
-                    value={editForm.job_category}
-                    onChange={(e) => setEditForm({ ...editForm, job_category: e.target.value })}
-                    className="w-full rounded-lg border border-slate-300 p-2 text-xs bg-white focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                    value={registerForm.job_category}
+                    onChange={(e) =>
+                      setRegisterForm({ ...registerForm, job_category: e.target.value })
+                    }
+                    className="h-9 w-full rounded-lg border border-[#E5E7EB] px-2.5 text-xs bg-white focus:border-[#4F46E5] focus:outline-none focus:ring-2 focus:ring-indigo-500/15"
                   >
-                    <option value="REGULAR_STAFF">Regular Academic/Admin Staff</option>
-                    <option value="CLEANING_STAFF">Cleaning / Sanitation Staff</option>
-                    <option value="SECURITY_GUARD">Security Guard (24h/Rotational)</option>
+                    <option value="REGULAR_STAFF">Regular Staff (Academic & Admin)</option>
+                    <option value="CLEANING_STAFF">Cleaning Staff (Facilities)</option>
+                    <option value="SECURITY_GUARD">Security Guard (24h Shifts)</option>
                   </select>
                 </div>
               </div>
 
-              <div>
-                <label className="text-[11px] font-semibold text-slate-700 block mb-1">
-                  Phone Number
-                </label>
-                <input
-                  type="text"
-                  placeholder="+251 ..."
-                  value={editForm.phone}
-                  onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })}
-                  className="w-full rounded-lg border border-slate-300 p-2 text-xs focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                />
-              </div>
-
-              <div className="flex items-start gap-2.5 rounded-xl border border-slate-200 bg-slate-50/70 p-3">
-                <input
-                  type="checkbox"
-                  id="edit_consent_verified"
-                  checked={editForm.consent_verified}
-                  onChange={(e) =>
-                    setEditForm({ ...editForm, consent_verified: e.target.checked })
-                  }
-                  className="mt-0.5 h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                />
-                <label htmlFor="edit_consent_verified" className="text-xs text-slate-700 cursor-pointer">
-                  <strong>Biometric Consent Verified (POL-01):</strong> Employee has an active signed consent agreement.
-                  Unchecking will immediately withdraw consent and revoke active face templates.
+              <div className="rounded-lg border border-[#EAECEF] bg-[#FAFBFD] p-3">
+                <label className="flex items-start gap-2.5 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={registerForm.consent_verified}
+                    onChange={(e) =>
+                      setRegisterForm({ ...registerForm, consent_verified: e.target.checked })
+                    }
+                    className="mt-0.5 h-4 w-4 rounded border-slate-300 text-[#4F46E5] focus:ring-indigo-500"
+                  />
+                  <span className="text-xs text-slate-600 leading-snug">
+                    <strong className="text-slate-900">Biometric Consent Verified (POL-01):</strong> Employee signed College consent for encrypted facial template storage.
+                  </span>
                 </label>
               </div>
 
-              <div className="flex justify-end gap-2 pt-3 border-t">
+              <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 pt-3 border-t border-[#EAECEF]">
                 <Button
-                  type="button"
                   variant="outline"
                   size="sm"
-                  onClick={() => setEditingEmployee(null)}
-                  disabled={isSubmittingEdit}
+                  onClick={() => setIsRegisterModalOpen(false)}
+                  disabled={isSubmittingRegister}
                 >
                   Cancel
                 </Button>
                 <Button
-                  type="submit"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleRegisterSubmit(false)}
+                  isLoading={isSubmittingRegister}
+                >
+                  Save Profile Only
+                </Button>
+                <Button
                   variant="primary"
                   size="sm"
-                  isLoading={isSubmittingEdit}
+                  onClick={() => handleRegisterSubmit(true)}
+                  isLoading={isSubmittingRegister}
                 >
-                  Save Profile Changes
+                  <Camera className="h-3.5 w-3.5" />
+                  <span>Save &amp; Enroll Face</span>
                 </Button>
               </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* Modal 5: Toggle Employee Status (Activate / Deactivate) */}
-      {statusTargetEmployee && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl space-y-4">
-            <div className="flex items-center gap-3">
-              <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${
-                statusTargetEmployee.status === "ACTIVE"
-                  ? "bg-amber-100 text-amber-700"
-                  : "bg-emerald-100 text-emerald-700"
-              }`}>
-                {statusTargetEmployee.status === "ACTIVE" ? (
-                  <UserX className="h-5 w-5" />
-                ) : (
-                  <UserCheck className="h-5 w-5" />
-                )}
-              </div>
-              <div>
-                <h3 className="text-base font-bold text-slate-900">
-                  {statusTargetEmployee.status === "ACTIVE" ? "Deactivate Employee" : "Reactivate Employee"}
-                </h3>
-                <p className="text-xs text-slate-500">
-                  {statusTargetEmployee.first_name} {statusTargetEmployee.last_name} ({statusTargetEmployee.employee_number})
-                </p>
-              </div>
             </div>
+          </div>
+        )}
 
-            <p className="text-xs text-slate-600">
-              {statusTargetEmployee.status === "ACTIVE"
-                ? "Deactivating an employee prevents future biometric attendance punches while permanently preserving all historical attendance sessions and audit records (AT-07)."
-                : "Reactivating this employee restores their active status and enables attendance punching."}
-            </p>
-
-            {statusError && (
-              <div className="rounded-xl bg-rose-50 p-2.5 text-xs text-rose-800 border border-rose-200">
-                {statusError}
+        {/* Modal 2: Live Biometric Enrollment with Image 3 Viewfinder */}
+        {activeEnrollEmployee && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/55 p-4 backdrop-blur-[2px]">
+            <div className="w-full max-w-xl rounded-xl border border-[#E5E7EB] bg-white p-5 shadow-xl space-y-4">
+              <div className="flex items-center justify-between border-b border-[#EAECEF] pb-3">
+                <div>
+                  <h3 className="text-sm font-semibold text-slate-900">
+                    Biometric Face Enrollment
+                  </h3>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    {activeEnrollEmployee.first_name} {activeEnrollEmployee.last_name} ({activeEnrollEmployee.employee_number})
+                  </p>
+                </div>
+                <button
+                  onClick={() => setActiveEnrollEmployee(null)}
+                  className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                >
+                  <X className="h-4 w-4" />
+                </button>
               </div>
-            )}
 
-            <div>
-              <label className="text-[11px] font-semibold text-slate-700 block mb-1">
-                Reason for Status Change:
-              </label>
-              <input
-                type="text"
-                value={statusReason}
-                onChange={(e) => setStatusReason(e.target.value)}
-                placeholder="e.g. Leave of absence / transfer / resumed duties"
-                className="w-full rounded-lg border border-slate-300 p-2 text-xs focus:ring-1 focus:ring-blue-500 focus:outline-none"
+              <CameraCapture
+                onCapture={handleCaptureForEnrollment}
+                guideText="Center face inside the corner brackets"
+                captureButtonText="Capture Enrollment Photo"
+                scanState={enrollImageB64 ? "matched" : enrollError ? "error" : "idle"}
               />
-            </div>
 
-            <div className="flex justify-end gap-2 pt-2 border-t">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setStatusTargetEmployee(null)}
-                disabled={isSubmittingStatus}
-              >
-                Cancel
-              </Button>
-              <Button
-                variant={statusTargetEmployee.status === "ACTIVE" ? "danger" : "success"}
-                size="sm"
-                onClick={handleStatusToggleSubmit}
-                isLoading={isSubmittingStatus}
-              >
-                Confirm {statusTargetEmployee.status === "ACTIVE" ? "Deactivation" : "Reactivation"}
-              </Button>
+              {enrollImageB64 && !enrollSuccess && !enrollError && (
+                <div className="rounded-lg bg-[#EEF2FF] p-3 text-xs text-[#4338CA] border border-indigo-200 flex items-center gap-2">
+                  <CheckCircle className="h-4 w-4 shrink-0" />
+                  <span>Snapshot ready. Click <strong>Save Encrypted Template</strong> to enroll.</span>
+                </div>
+              )}
+
+              {enrollError && (
+                <div className="rounded-lg bg-rose-50 p-3 text-xs text-rose-800 border border-rose-200 flex items-center gap-2">
+                  <AlertCircle className="h-4 w-4 shrink-0" />
+                  <span>{enrollError}</span>
+                </div>
+              )}
+
+              {enrollSuccess && (
+                <div className="rounded-lg bg-emerald-50 p-3 text-xs text-emerald-800 border border-emerald-200 flex items-center gap-2">
+                  <CheckCircle className="h-4 w-4 shrink-0" />
+                  <span>{enrollSuccess}</span>
+                </div>
+              )}
+
+              <div className="flex items-center justify-between pt-3 border-t border-[#EAECEF]">
+                <div className="flex items-center gap-1.5 text-[11px] text-slate-500">
+                  <ShieldCheck className="h-3.5 w-3.5 text-[#4F46E5]" />
+                  <span>Fernet AES-128 encrypted at rest</span>
+                </div>
+
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setActiveEnrollEmployee(null)}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={handleConfirmEnrollment}
+                    disabled={!enrollImageB64 || isSubmittingEnroll}
+                    isLoading={isSubmittingEnroll}
+                  >
+                    Save Encrypted Template
+                  </Button>
+                </div>
+              </div>
             </div>
           </div>
-        </div>
-      )}
-    </div>
+        )}
+
+        {/* Modal 3: Right to Erasure / Purge */}
+        {activePurgeEmployee && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-[2px]">
+            <div className="w-full max-w-md rounded-xl border border-[#E5E7EB] bg-white p-5 shadow-xl space-y-4">
+              <div className="flex items-center gap-3">
+                <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-rose-50 border border-rose-200 text-rose-600">
+                  <Trash2 className="h-4 w-4" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-semibold text-slate-900">Right to Erasure (POL-02)</h3>
+                  <p className="text-xs text-slate-500">
+                    Purge biometrics for {activePurgeEmployee.first_name} {activePurgeEmployee.last_name}
+                  </p>
+                </div>
+              </div>
+
+              <p className="text-xs text-slate-600 leading-relaxed">
+                Permanently deletes all encrypted facial embeddings for this employee, withdraws biometric consent, and writes an immutable audit entry.
+              </p>
+
+              <div>
+                <label className="text-[11px] font-medium text-slate-700 block mb-1">
+                  Reason for Erasure
+                </label>
+                <input
+                  type="text"
+                  value={purgeReason}
+                  onChange={(e) => setPurgeReason(e.target.value)}
+                  className="h-9 w-full rounded-lg border border-[#E5E7EB] px-2.5 text-xs focus:border-rose-500 focus:outline-none focus:ring-2 focus:ring-rose-500/15"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-2 border-t border-[#EAECEF]">
+                <Button variant="outline" size="sm" onClick={() => setActivePurgeEmployee(null)}>
+                  Cancel
+                </Button>
+                <Button
+                  variant="danger"
+                  size="sm"
+                  onClick={handleConfirmPurge}
+                  isLoading={isSubmittingPurge}
+                >
+                  Permanently Purge
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Modal 4: Edit Employee Profile */}
+        {editingEmployee && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-[2px]">
+            <div className="w-full max-w-lg rounded-xl border border-[#E5E7EB] bg-white p-5 shadow-xl space-y-4">
+              <div className="flex items-center justify-between border-b border-[#EAECEF] pb-3">
+                <div>
+                  <h3 className="text-sm font-semibold text-slate-900">Edit Employee Profile</h3>
+                  <p className="text-xs text-slate-500 font-mono mt-0.5">
+                    {editingEmployee.employee_number}
+                  </p>
+                </div>
+                <button
+                  onClick={() => setEditingEmployee(null)}
+                  className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              {editError && (
+                <div className="rounded-lg bg-rose-50 p-2.5 text-xs text-rose-800 border border-rose-200 flex items-center gap-2">
+                  <AlertCircle className="h-4 w-4 shrink-0" />
+                  <span>{editError}</span>
+                </div>
+              )}
+
+              <form onSubmit={handleEditSubmit} className="space-y-3.5">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                  <div>
+                    <label className="text-[11px] font-medium text-slate-700 block mb-1">
+                      First Name *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={editForm.first_name}
+                      onChange={(e) => setEditForm({ ...editForm, first_name: e.target.value })}
+                      className="h-9 w-full rounded-lg border border-[#E5E7EB] px-2.5 text-xs focus:border-[#4F46E5] focus:outline-none focus:ring-2 focus:ring-indigo-500/15"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[11px] font-medium text-slate-700 block mb-1">
+                      Last Name *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      value={editForm.last_name}
+                      onChange={(e) => setEditForm({ ...editForm, last_name: e.target.value })}
+                      className="h-9 w-full rounded-lg border border-[#E5E7EB] px-2.5 text-xs focus:border-[#4F46E5] focus:outline-none focus:ring-2 focus:ring-indigo-500/15"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                  <div>
+                    <label className="text-[11px] font-medium text-slate-700 block mb-1">
+                      Department *
+                    </label>
+                    <select
+                      value={editForm.department_id}
+                      onChange={(e) => setEditForm({ ...editForm, department_id: Number(e.target.value) })}
+                      className="h-9 w-full rounded-lg border border-[#E5E7EB] px-2.5 text-xs bg-white focus:border-[#4F46E5] focus:outline-none focus:ring-2 focus:ring-indigo-500/15"
+                    >
+                      {departments.map((d) => (
+                        <option key={d.id} value={d.id}>
+                          {d.name} ({d.code})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="text-[11px] font-medium text-slate-700 block mb-1">
+                      Job Category
+                    </label>
+                    <select
+                      value={editForm.job_category}
+                      onChange={(e) => setEditForm({ ...editForm, job_category: e.target.value })}
+                      className="h-9 w-full rounded-lg border border-[#E5E7EB] px-2.5 text-xs bg-white focus:border-[#4F46E5] focus:outline-none focus:ring-2 focus:ring-indigo-500/15"
+                    >
+                      <option value="REGULAR_STAFF">Regular Academic/Admin Staff</option>
+                      <option value="CLEANING_STAFF">Cleaning / Sanitation Staff</option>
+                      <option value="SECURITY_GUARD">Security Guard (24h/Rotational)</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="text-[11px] font-medium text-slate-700 block mb-1">
+                    Phone Number
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="+251 ..."
+                    value={editForm.phone}
+                    onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })}
+                    className="h-9 w-full rounded-lg border border-[#E5E7EB] px-2.5 text-xs focus:border-[#4F46E5] focus:outline-none focus:ring-2 focus:ring-indigo-500/15"
+                  />
+                </div>
+
+                <div className="flex items-start gap-2.5 rounded-lg border border-[#EAECEF] bg-[#FAFBFD] p-3">
+                  <input
+                    type="checkbox"
+                    id="edit_consent_verified"
+                    checked={editForm.consent_verified}
+                    onChange={(e) =>
+                      setEditForm({ ...editForm, consent_verified: e.target.checked })
+                    }
+                    className="mt-0.5 h-4 w-4 rounded border-slate-300 text-[#4F46E5] focus:ring-indigo-500"
+                  />
+                  <label htmlFor="edit_consent_verified" className="text-xs text-slate-600 cursor-pointer leading-snug">
+                    <strong className="text-slate-900">Biometric Consent Verified (POL-01):</strong> Active signed agreement. Unchecking revokes face templates.
+                  </label>
+                </div>
+
+                <div className="flex justify-end gap-2 pt-3 border-t border-[#EAECEF]">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setEditingEmployee(null)}
+                    disabled={isSubmittingEdit}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="submit"
+                    variant="primary"
+                    size="sm"
+                    isLoading={isSubmittingEdit}
+                  >
+                    Save Changes
+                  </Button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* Modal 5: Toggle Status */}
+        {statusTargetEmployee && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-[2px]">
+            <div className="w-full max-w-md rounded-xl border border-[#E5E7EB] bg-white p-5 shadow-xl space-y-4">
+              <div className="flex items-center gap-3">
+                <div
+                  className={`flex h-9 w-9 items-center justify-center rounded-lg border ${
+                    statusTargetEmployee.status === "ACTIVE"
+                      ? "bg-amber-50 border-amber-200 text-amber-700"
+                      : "bg-emerald-50 border-emerald-200 text-emerald-700"
+                  }`}
+                >
+                  {statusTargetEmployee.status === "ACTIVE" ? (
+                    <UserX className="h-4 w-4" />
+                  ) : (
+                    <UserCheck className="h-4 w-4" />
+                  )}
+                </div>
+                <div>
+                  <h3 className="text-sm font-semibold text-slate-900">
+                    {statusTargetEmployee.status === "ACTIVE" ? "Deactivate Employee" : "Reactivate Employee"}
+                  </h3>
+                  <p className="text-xs text-slate-500">
+                    {statusTargetEmployee.first_name} {statusTargetEmployee.last_name} ({statusTargetEmployee.employee_number})
+                  </p>
+                </div>
+              </div>
+
+              <p className="text-xs text-slate-600 leading-relaxed">
+                {statusTargetEmployee.status === "ACTIVE"
+                  ? "Deactivating prevents future biometric punches while preserving historical sessions and audit logs (AT-07)."
+                  : "Reactivating restores active status and allows attendance punching."}
+              </p>
+
+              {statusError && (
+                <div className="rounded-lg bg-rose-50 p-2.5 text-xs text-rose-800 border border-rose-200">
+                  {statusError}
+                </div>
+              )}
+
+              <div>
+                <label className="text-[11px] font-medium text-slate-700 block mb-1">
+                  Reason
+                </label>
+                <input
+                  type="text"
+                  value={statusReason}
+                  onChange={(e) => setStatusReason(e.target.value)}
+                  placeholder="e.g. Leave of absence / resumed duties"
+                  className="h-9 w-full rounded-lg border border-[#E5E7EB] px-2.5 text-xs focus:border-[#4F46E5] focus:outline-none focus:ring-2 focus:ring-indigo-500/15"
+                />
+              </div>
+
+              <div className="flex justify-end gap-2 pt-3 border-t border-[#EAECEF]">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setStatusTargetEmployee(null)}
+                  disabled={isSubmittingStatus}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant={statusTargetEmployee.status === "ACTIVE" ? "danger" : "success"}
+                  size="sm"
+                  onClick={handleStatusToggleSubmit}
+                  isLoading={isSubmittingStatus}
+                >
+                  Confirm {statusTargetEmployee.status === "ACTIVE" ? "Deactivation" : "Reactivation"}
+                </Button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
     </AuthGuard>
   );
 }
