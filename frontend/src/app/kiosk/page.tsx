@@ -14,7 +14,6 @@ import {
   UserCheck,
   ShieldCheck,
   Clock,
-  Sparkles,
   Zap,
   LifeBuoy,
   Send,
@@ -345,35 +344,37 @@ export default function KioskPage() {
 
   return (
     <div className="space-y-5">
-      {/* Clean Kiosk Control Header */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 rounded-2xl border border-slate-200/80 bg-white p-4 sm:px-5 shadow-[0_1px_3px_rgba(15,23,42,0.04)]">
-        <div className="space-y-0.5">
-          <div className="flex items-center gap-2.5">
-            <h1 className="text-lg sm:text-xl font-bold tracking-tight text-slate-900">
-              Attendance Kiosk
-            </h1>
-            {isOnline ? (
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-700 border border-emerald-200/80">
-                <Wifi className="h-3 w-3 text-emerald-600" />
-                <span>Online</span>
-              </span>
-            ) : (
-              <span
-                className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-0.5 text-[11px] font-semibold text-amber-700 border border-amber-200/80"
-                title="Terminal is buffering offline punches locally until network recovers."
-              >
-                <WifiOff className="h-3 w-3 text-amber-600" />
-                <span>Offline {offlineQueueCount > 0 ? `(${offlineQueueCount})` : ""}</span>
-              </span>
-            )}
+      {/* Calm Kiosk Header Bar */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 rounded-xl border border-[#E5E7EB] bg-white px-4 py-3 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+        <div className="flex items-center gap-3 min-w-0">
+          <div>
+            <div className="flex items-center gap-2">
+              <h1 className="text-base font-semibold tracking-tight text-slate-900">
+                Attendance Kiosk
+              </h1>
+              {isOnline ? (
+                <Badge variant="success" className="gap-1 text-[10px]">
+                  <Wifi className="h-3 w-3" />
+                  <span>Online</span>
+                </Badge>
+              ) : (
+                <Badge
+                  variant="warning"
+                  className="gap-1 text-[10px]"
+                  title="Terminal is buffering offline punches locally until network recovers."
+                >
+                  <WifiOff className="h-3 w-3" />
+                  <span>Offline {offlineQueueCount > 0 ? `(${offlineQueueCount})` : ""}</span>
+                </Badge>
+              )}
+            </div>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Align your face inside the viewfinder to check in or check out.
+            </p>
           </div>
-          <p className="text-xs text-slate-500">
-            Position your face in the frame to verify identity and record check-in or check-out.
-          </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {/* Offline Buffer Sync Button */}
           {offlineQueueCount > 0 && (
             <Button
               type="button"
@@ -381,30 +382,29 @@ export default function KioskPage() {
               variant="outline"
               onClick={syncOfflineQueue}
               disabled={isSyncingQueue || !isOnline}
-              className="text-xs border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100"
+              className="border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100"
               title="Synchronize buffered offline records with attendance server"
             >
-              <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${isSyncingQueue ? "animate-spin" : ""}`} />
+              <RefreshCw className={`h-3.5 w-3.5 ${isSyncingQueue ? "animate-spin" : ""}`} />
               <span>{isSyncingQueue ? "Syncing..." : `Sync ${offlineQueueCount}`}</span>
             </Button>
           )}
 
-          {/* Touchless Auto-Punch Toggle */}
           <button
             type="button"
             onClick={() => {
               setTouchlessAutoPunch(!touchlessAutoPunch);
               setAutoConfirmCountdown(null);
             }}
-            className={`inline-flex h-8 items-center gap-1.5 rounded-lg px-3 text-xs font-medium border transition-colors ${
+            className={`inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium border transition-colors ${
               touchlessAutoPunch
-                ? "bg-blue-50 text-blue-700 border-blue-200"
-                : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
+                ? "bg-[#EEF2FF] text-[#4338CA] border-indigo-200"
+                : "bg-white text-slate-600 border-[#E5E7EB] hover:bg-slate-50"
             }`}
             title="Toggle hands-free automatic attendance confirmation"
           >
             <Hand className="h-3.5 w-3.5" />
-            <span>Touchless: {touchlessAutoPunch ? "On" : "Off"}</span>
+            <span>Touchless {touchlessAutoPunch ? "On" : "Off"}</span>
           </button>
 
           <Button
@@ -414,18 +414,16 @@ export default function KioskPage() {
               setEnrollError(null);
               setShowEnrollModal(true);
             }}
-            className="text-xs"
           >
-            <UserPlus className="h-3.5 w-3.5 mr-1.5 text-blue-600" />
-            Enroll Face
+            <UserPlus className="h-3.5 w-3.5 text-[#4F46E5]" />
+            <span>Quick Enroll</span>
           </Button>
 
-          {/* Station Selector */}
           <select
             value={stationId}
             onChange={(e) => setStationId(e.target.value)}
             aria-label="Terminal Station"
-            className="h-8 rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-xs font-medium text-slate-800 focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+            className="h-8 rounded-lg border border-[#E5E7EB] bg-[#FAFBFD] px-2.5 text-xs font-medium text-slate-800 focus:border-[#4F46E5] focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500/15"
           >
             {stationsList.length > 0 ? (
               stationsList.map((st) => (
@@ -446,413 +444,426 @@ export default function KioskPage() {
       </div>
 
       {enrollSuccess && (
-        <div className="rounded-xl border border-emerald-300 bg-emerald-50 p-4 text-xs font-medium text-emerald-800 flex items-center justify-between">
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs font-medium text-emerald-800 flex items-center justify-between">
           <span className="flex items-center gap-2">
-            <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+            <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
             {enrollSuccess}
           </span>
-          <button onClick={() => setEnrollSuccess(null)} className="text-slate-400 hover:text-slate-600">✕</button>
+          <button onClick={() => setEnrollSuccess(null)} className="text-emerald-600 hover:text-emerald-800">
+            ✕
+          </button>
         </div>
       )}
 
       {syncFeedback && (
-        <div className="rounded-xl border border-emerald-300 bg-emerald-50 p-3.5 text-xs font-medium text-emerald-800 flex items-center justify-between shadow-xs">
+        <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-xs font-medium text-emerald-800 flex items-center justify-between">
           <span className="flex items-center gap-2">
             <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
             {syncFeedback}
           </span>
-          <button onClick={() => setSyncFeedback(null)} className="text-emerald-700 hover:text-emerald-900 underline text-[11px] font-semibold">
+          <button onClick={() => setSyncFeedback(null)} className="text-emerald-700 hover:text-emerald-900 underline text-[11px]">
             Dismiss
           </button>
         </div>
       )}
 
-      {/* Main Grid: Left Camera, Right Decision Panel */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* Left Column: Camera Viewport */}
-        <div className="lg:col-span-7">
-          <Card className="p-4 bg-slate-950 border-slate-900 shadow-2xl">
-            <CameraCapture
-              onCapture={handleCapture}
-              isProcessing={isProcessing}
-              autoScanIntervalMs={1600}
-              guideText="Align face within the green oval for automatic recognition"
-            />
-            <div className="mt-3 flex items-center justify-between px-2 text-[11px] text-slate-400">
-              <span className="flex items-center gap-1.5">
-                <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" /> Liveness Check Active
-              </span>
-              <button
-                type="button"
-                onClick={() => setShowSimTools(!showSimTools)}
-                className="text-slate-400 hover:text-slate-200 font-medium transition-colors"
-              >
-                {showSimTools ? "Hide Test Controls" : "Test Controls"}
-              </button>
-            </div>
+      {/* Split Workspace: Camera Left, Identity Panel Right */}
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
+        {/* Left Column: Image-3 Inspired Unobstructed Viewfinder */}
+        <div className="lg:col-span-7 space-y-2.5">
+          <CameraCapture
+            onCapture={handleCapture}
+            isProcessing={isProcessing}
+            autoScanIntervalMs={1600}
+            guideText="Position face inside the corner viewfinder"
+            captureButtonText="Manual Shot"
+            scanState={
+              isProcessing
+                ? "scanning"
+                : recognition?.matched
+                ? "matched"
+                : feedbackError
+                ? "error"
+                : "idle"
+            }
+          />
 
-            {/* Collapsible Quick Test Simulation Strip */}
-            {showSimTools && (
-              <div className="mt-3 rounded-xl border border-slate-800 bg-slate-900/80 p-3">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-[11px] font-semibold text-slate-300">
-                    Simulation Mode (Testing)
-                  </span>
-                  <span className="text-[10px] text-slate-400 font-mono">Simulated Biometrics</span>
-                </div>
-                <div className="flex flex-wrap gap-1.5">
-                  <button
-                    type="button"
-                    disabled={isProcessing}
-                    onClick={() => handleSimulateScan("FACE_SIG_EIPC-EMP-001", "Abebe Kebede")}
-                    className="rounded-lg bg-slate-800 hover:bg-blue-600 px-2.5 py-1 text-[11px] font-medium text-slate-200 transition-colors"
-                  >
-                    Abebe Kebede
-                  </button>
-                  <button
-                    type="button"
-                    disabled={isProcessing}
-                    onClick={() => handleSimulateScan("FACE_SIG_EIPC-EMP-002", "Hanna Mekonnen")}
-                    className="rounded-lg bg-slate-800 hover:bg-blue-600 px-2.5 py-1 text-[11px] font-medium text-slate-200 transition-colors"
-                  >
-                    Hanna Mekonnen
-                  </button>
-                  <button
-                    type="button"
-                    disabled={isProcessing}
-                    onClick={() => handleSimulateScan("FACE_SIG_EIPC-EMP-003", "Chaltu Girma")}
-                    className="rounded-lg bg-slate-800 hover:bg-blue-600 px-2.5 py-1 text-[11px] font-medium text-slate-200 transition-colors"
-                  >
-                    Chaltu Girma
-                  </button>
-                  <button
-                    type="button"
-                    disabled={isProcessing}
-                    onClick={() => handleSimulateScan("UNKNOWN_PERSON_001", "Unknown Visitor")}
-                    className="rounded-lg bg-slate-800 hover:bg-amber-600 px-2.5 py-1 text-[11px] font-medium text-slate-200 transition-colors"
-                  >
-                    Unknown Visitor
-                  </button>
-                  <button
-                    type="button"
-                    disabled={isProcessing}
-                    onClick={() => handleSimulateScan("POOR_LIGHTING", "Poor Lighting")}
-                    className="rounded-lg bg-slate-800 hover:bg-rose-600 px-2.5 py-1 text-[11px] font-medium text-slate-200 transition-colors"
-                  >
-                    Obstructed / Glare
-                  </button>
-                </div>
+          <div className="flex items-center justify-between px-1 text-[11px] text-slate-500">
+            <span className="flex items-center gap-1.5">
+              <ShieldCheck className="h-3.5 w-3.5 text-emerald-600" />
+              <span>Anti-spoof & liveness verification active</span>
+            </span>
+            <button
+              type="button"
+              onClick={() => setShowSimTools(!showSimTools)}
+              className="text-slate-500 hover:text-slate-900 font-medium transition-colors"
+            >
+              {showSimTools ? "Hide test presets" : "Test presets"}
+            </button>
+          </div>
+
+          {showSimTools && (
+            <div className="rounded-xl border border-[#E5E7EB] bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-medium text-slate-700">
+                  Simulation Presets (Testing)
+                </span>
+                <span className="text-[10px] text-slate-400 font-mono">Mock Biometrics</span>
               </div>
-            )}
-          </Card>
+              <div className="flex flex-wrap gap-1.5">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={isProcessing}
+                  onClick={() => handleSimulateScan("FACE_SIG_EIPC-EMP-001", "Abebe Kebede")}
+                >
+                  Abebe Kebede
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={isProcessing}
+                  onClick={() => handleSimulateScan("FACE_SIG_EIPC-EMP-002", "Hanna Mekonnen")}
+                >
+                  Hanna Mekonnen
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={isProcessing}
+                  onClick={() => handleSimulateScan("FACE_SIG_EIPC-EMP-003", "Chaltu Girma")}
+                >
+                  Chaltu Girma
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={isProcessing}
+                  onClick={() => handleSimulateScan("UNKNOWN_PERSON_001", "Unknown Visitor")}
+                  className="text-amber-700 border-amber-200 hover:bg-amber-50"
+                >
+                  Unknown Visitor
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={isProcessing}
+                  onClick={() => handleSimulateScan("POOR_LIGHTING", "Poor Lighting")}
+                  className="text-rose-700 border-rose-200 hover:bg-rose-50"
+                >
+                  Obstructed / Glare
+                </Button>
+              </div>
+            </div>
+          )}
         </div>
 
-        {/* Right Column: Instant Recognition Result & Confirmation Card */}
+        {/* Right Column: Calm Confirmation Panel */}
         <div className="lg:col-span-5 space-y-4">
-          {/* Card State 1: Idle waiting for scan */}
+          {/* State 1: Idle Ready */}
           {!recognition && !feedbackError && (
-            <Card className="border-dashed border-2 border-slate-200 bg-slate-50/50 p-8 text-center text-slate-500">
-              <div className="mx-auto mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-blue-50 text-blue-600">
-                <UserCheck className="h-8 w-8" />
+            <Card className="p-8 text-center">
+              <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full border border-[#EAECEF] bg-[#FAFBFD] text-[#4F46E5]">
+                <UserCheck className="h-6 w-6" />
               </div>
-              <h3 className="text-base font-semibold text-slate-800">Ready for Employee Scan</h3>
-              <p className="mt-2 text-xs text-slate-500 max-w-sm mx-auto">
-                Look directly into the camera. The system will detect your face, verify anti-spoofing liveness, and verify against your encrypted biometric template.
+              <h2 className="text-base font-semibold text-slate-900">Ready for Verification</h2>
+              <p className="mt-1.5 text-xs text-slate-500 max-w-xs mx-auto leading-relaxed">
+                Look naturally toward the camera. Your frame is verified automatically for liveness and identity.
               </p>
+              <div className="mt-5 pt-4 border-t border-[#EAECEF] flex items-center justify-between text-[11px] text-slate-400">
+                <span>Touchless: {touchlessAutoPunch ? "2s Auto-Punch" : "Manual Confirm"}</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEnrollError(null);
+                    setShowEnrollModal(true);
+                  }}
+                  className="font-medium text-[#4F46E5] hover:underline"
+                >
+                  Quick Enrollment →
+                </button>
+              </div>
             </Card>
           )}
 
-          {/* Card State 2: Face Recognized Successfully */}
+          {/* State 2: Matched & Awaiting Confirmation */}
           {recognition?.matched && recognition.employee && !attendanceOutcome && (
-            <Card className="border-emerald-300 bg-emerald-50/40 p-6 shadow-lg shadow-emerald-500/10">
-              <div className="flex items-center justify-between">
-                <Badge variant="success" className="text-xs py-1 px-3">
-                  <CheckCircle2 className="mr-1.5 h-3.5 w-3.5" /> Biometric Identity Verified
+            <Card className="p-6 border-emerald-200">
+              <div className="flex items-center justify-between gap-2 pb-4 border-b border-[#EAECEF]">
+                <Badge variant="success" className="gap-1">
+                  <CheckCircle2 className="h-3 w-3" />
+                  <span>Identity Verified</span>
                 </Badge>
                 {recognition.latency_ms && (
-                  <span className="font-mono text-xs font-semibold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded">
+                  <span className="font-mono text-[11px] font-medium text-slate-500 tabular-nums">
                     {recognition.latency_ms} ms
                   </span>
                 )}
               </div>
 
-              {/* Employee Bio Card */}
-              <div className="mt-4 flex items-center gap-4 border-b border-emerald-200/80 pb-4">
-                <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-emerald-600 text-white text-xl font-bold shadow-md">
+              {/* Employee Profile Header */}
+              <div className="mt-5 flex flex-col items-center text-center">
+                <div className="flex h-16 w-16 items-center justify-center rounded-full bg-[#EEF2FF] text-[#4338CA] text-lg font-semibold ring-2 ring-emerald-500/40 ring-offset-2">
                   {recognition.employee.first_name[0]}
                   {recognition.employee.last_name[0]}
                 </div>
-                <div>
-                  <h2 className="text-lg font-bold text-slate-900">
-                    {recognition.employee.first_name} {recognition.employee.last_name}
-                  </h2>
-                  <p className="font-mono text-xs text-slate-600">
-                    ID: {recognition.employee.employee_number}
-                  </p>
-                  <p className="text-xs text-slate-500">
-                    {recognition.employee.department_name} • {recognition.employee.job_category}
-                  </p>
-                </div>
+                <h2 className="mt-3 text-lg font-semibold tracking-tight text-slate-900">
+                  {recognition.employee.first_name} {recognition.employee.last_name}
+                </h2>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  {recognition.employee.department_name} · {recognition.employee.employee_number} ·{" "}
+                  {recognition.employee.job_category}
+                </p>
               </div>
 
-              {/* Match Metrics breakdown */}
-              <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
-                <div className="rounded-lg bg-white p-2.5 border border-emerald-200">
-                  <span className="text-slate-500 block text-[11px]">Cosine Match Score</span>
-                  <span className="font-bold text-emerald-700 text-sm">
+              {/* Metric Strip */}
+              <div className="mt-5 grid grid-cols-2 gap-2.5">
+                <div className="rounded-lg border border-[#EAECEF] bg-[#FAFBFD] p-3 text-center">
+                  <span className="text-[11px] text-slate-500 block">Confidence</span>
+                  <span className="mt-0.5 block text-sm font-semibold text-slate-900 tabular-nums">
                     {recognition.match_score ? `${(recognition.match_score * 100).toFixed(1)}%` : "N/A"}
                   </span>
                 </div>
-                <div className="rounded-lg bg-white p-2.5 border border-emerald-200">
-                  <span className="text-slate-500 block text-[11px]">Anti-Spoofing</span>
-                  <span className="font-bold text-emerald-700 text-sm flex items-center gap-1">
-                    <ShieldCheck className="h-3.5 w-3.5 text-emerald-600" /> Live Bona Fide
+                <div className="rounded-lg border border-[#EAECEF] bg-[#FAFBFD] p-3 text-center">
+                  <span className="text-[11px] text-slate-500 block">Liveness</span>
+                  <span className="mt-0.5 inline-flex items-center gap-1 text-sm font-semibold text-emerald-700">
+                    <ShieldCheck className="h-3.5 w-3.5" />
+                    <span>PASS</span>
                   </span>
                 </div>
               </div>
 
-              {/* Punch Error Notice */}
               {punchError && (
-                <div className="mt-3 rounded-lg bg-rose-100 border border-rose-300 p-2.5 text-xs text-rose-800 flex items-center gap-2">
+                <div className="mt-4 rounded-lg border border-rose-200 bg-rose-50 p-2.5 text-xs text-rose-800 flex items-center gap-2">
                   <XCircle className="h-4 w-4 shrink-0 text-rose-600" />
                   <span>{punchError}</span>
                 </div>
               )}
 
-              {/* Touchless Auto-Confirm Countdown Banner (E3) */}
               {touchlessAutoPunch && autoConfirmCountdown !== null && (
-                <div className="mt-4 rounded-xl border border-indigo-300 bg-indigo-50/80 p-3 text-center space-y-1.5 animate-pulse">
-                  <div className="flex items-center justify-center gap-2 text-xs font-bold text-indigo-950">
-                    <Sparkles className="h-4 w-4 text-indigo-600" />
-                    <span>Touchless Auto-Confirm in {autoConfirmCountdown}s...</span>
+                <div className="mt-4 rounded-lg border border-indigo-200 bg-[#EEF2FF] px-3 py-2.5 flex items-center justify-between gap-2 text-xs">
+                  <div className="flex items-center gap-2 font-medium text-[#4338CA] tabular-nums">
+                    <Clock className="h-3.5 w-3.5" />
+                    <span>Auto-confirming in {autoConfirmCountdown}s</span>
                   </div>
-                  <p className="text-[10px] text-indigo-700">
-                    Hands-free mode automatically detects check-in vs check-out based on your open session.
-                  </p>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-6 text-[10px] px-2.5 py-0 border-indigo-200 text-indigo-700 hover:bg-indigo-100"
+                  <button
+                    type="button"
                     onClick={() => setAutoConfirmCountdown(null)}
+                    className="text-[11px] font-medium text-[#4F46E5] hover:underline"
                   >
-                    Cancel Auto-Punch (Choose Manually)
-                  </Button>
+                    Cancel
+                  </button>
                 </div>
               )}
 
-              {/* Explicit Check-In and Check-Out Selection */}
-              <div className="mt-5 space-y-3">
-                <p className="text-xs font-semibold text-slate-700 text-center">
-                  Select Attendance Action to Confirm:
-                </p>
-                <div className="grid grid-cols-2 gap-3">
-                  <Button
-                    variant="success"
-                    size="lg"
-                    className="w-full text-sm font-bold shadow-md shadow-emerald-600/20 flex items-center justify-center gap-2 py-4"
-                    onClick={() => handleConfirmAttendance("CHECK_IN")}
-                    isLoading={isConfirming && selectedAction === "CHECK_IN"}
+              {/* Stacked Check-In / Check-Out Actions */}
+              <div className="mt-5 space-y-2.5">
+                <Button
+                  variant="primary"
+                  size="lg"
+                  className="w-full"
+                  onClick={() => handleConfirmAttendance("CHECK_IN")}
+                  isLoading={isConfirming && selectedAction === "CHECK_IN"}
+                  disabled={isConfirming}
+                >
+                  <LogIn className="h-4 w-4" />
+                  <span>Confirm Check-In (መግቢያ)</span>
+                </Button>
+                <Button
+                  variant="outline"
+                  size="lg"
+                  className="w-full"
+                  onClick={() => handleConfirmAttendance("CHECK_OUT")}
+                  isLoading={isConfirming && selectedAction === "CHECK_OUT"}
+                  disabled={isConfirming}
+                >
+                  <LogOut className="h-4 w-4 text-slate-600" />
+                  <span>Check-Out (መውጫ)</span>
+                </Button>
+              </div>
+
+              <div className="mt-4 pt-3 border-t border-[#EAECEF] flex items-center justify-between text-xs">
+                <button
+                  type="button"
+                  onClick={handleReset}
+                  disabled={isConfirming}
+                  className="text-slate-500 hover:text-slate-900 font-medium"
+                >
+                  Re-scan
+                </button>
+                {lastCapturedImage && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEnrollError(null);
+                      setShowEnrollModal(true);
+                    }}
                     disabled={isConfirming}
+                    className="text-[#4F46E5] hover:underline font-medium"
                   >
-                    <LogIn className="h-5 w-5" />
-                    <span>Check-In (መግቢያ)</span>
-                  </Button>
-                  <Button
-                    variant="primary"
-                    size="lg"
-                    className="w-full text-sm font-bold bg-indigo-600 hover:bg-indigo-700 shadow-md shadow-indigo-600/20 flex items-center justify-center gap-2 py-4"
-                    onClick={() => handleConfirmAttendance("CHECK_OUT")}
-                    isLoading={isConfirming && selectedAction === "CHECK_OUT"}
-                    disabled={isConfirming}
-                  >
-                    <LogOut className="h-5 w-5" />
-                    <span>Check-Out (መውጫ)</span>
-                  </Button>
-                </div>
-                <div className="flex gap-2">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="flex-1 text-xs text-slate-500"
-                    onClick={handleReset}
-                    disabled={isConfirming}
-                  >
-                    Rescan / Cancel
-                  </Button>
-                  {lastCapturedImage && (
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      className="flex-1 text-xs text-blue-700 border-blue-200 bg-white hover:bg-blue-50"
-                      onClick={() => {
-                        setEnrollError(null);
-                        setShowEnrollModal(true);
-                      }}
-                      disabled={isConfirming}
-                    >
-                      <UserPlus className="mr-1 h-3.5 w-3.5 text-blue-600" />
-                      Not You? Re-Enroll Face
-                    </Button>
-                  )}
-                </div>
+                    Not you? Re-enroll
+                  </button>
+                )}
               </div>
             </Card>
           )}
 
-          {/* Card State 3: Attendance Successfully Created / Punched */}
+          {/* State 3: Attendance Recorded Confirmation */}
           {attendanceOutcome && (
-            <Card className="border-blue-400 bg-blue-50/50 p-6 text-center shadow-xl">
-              <div className="mx-auto mb-3 flex h-16 w-16 items-center justify-center rounded-full bg-blue-600 text-white shadow-lg shadow-blue-500/30">
-                <Sparkles className="h-8 w-8" />
+            <Card className="p-6 text-center border-emerald-200">
+              <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-emerald-50 border border-emerald-200 text-emerald-600">
+                <CheckCircle2 className="h-6 w-6" />
               </div>
-              <Badge variant="brand" className="text-xs py-1 px-3">
+              <Badge variant="brand">
                 {attendanceOutcome.event_type === "CHECK_IN" ? "CHECK-IN RECORDED" : "CHECK-OUT RECORDED"}
               </Badge>
-              <h2 className="mt-3 text-lg font-bold text-slate-900">{attendanceOutcome.message}</h2>
-              <p className="mt-1 font-mono text-xs text-slate-600">
-                Timestamp: {new Date(attendanceOutcome.timestamp).toLocaleTimeString()} (EAT)
+              <h2 className="mt-3 text-base font-semibold text-slate-900">{attendanceOutcome.message}</h2>
+              <p className="mt-1 font-mono text-xs text-slate-500 tabular-nums">
+                {new Date(attendanceOutcome.timestamp).toLocaleTimeString()} EAT
               </p>
 
               {attendanceOutcome.is_late && (
-                <div className="mt-3 rounded-lg bg-amber-100 p-2 text-xs font-semibold text-amber-800">
-                  Late Arrival: {attendanceOutcome.minutes_late} minute(s) past shift start.
+                <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800">
+                  Late arrival recorded: {attendanceOutcome.minutes_late} minute(s) past shift start.
                 </div>
               )}
 
-              <Button variant="primary" size="md" className="mt-6 w-full" onClick={handleReset}>
-                Done • Next Person
+              <Button variant="primary" size="md" className="mt-5 w-full" onClick={handleReset}>
+                Done · Next Person
               </Button>
             </Card>
           )}
 
-          {/* Card State 4: Rejection / Anomaly Detected (Only if not matched) */}
+          {/* State 4: Rejection / Unrecognized Face */}
           {feedbackError && !recognition?.matched && (
-            <Card className="border-rose-300 bg-rose-50/60 p-6 shadow-lg space-y-4">
-              <div className="flex items-center gap-3">
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-rose-600 text-white shrink-0">
-                  <XCircle className="h-6 w-6" />
-                </div>
-                <div>
-                  <h3 className="font-bold text-rose-900 text-sm">Recognition Rejected</h3>
-                  {recognition?.rejection_code && (
-                    <Badge variant="danger" className="mt-0.5 text-[10px] font-mono">
-                      {recognition.rejection_code}
-                    </Badge>
-                  )}
+            <Card className="p-6 space-y-4 border-rose-200">
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-2.5">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-rose-50 border border-rose-200 text-rose-600 shrink-0">
+                    <XCircle className="h-5 w-5" />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-semibold text-slate-900">Verification Unmatched</h3>
+                    {recognition?.rejection_code && (
+                      <span className="font-mono text-[10px] text-rose-600">
+                        {recognition.rejection_code}
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
 
-              <p className="text-xs text-rose-700 bg-white/70 p-3 rounded-lg border border-rose-200">
+              <p className="text-xs text-slate-600 bg-[#FAFBFD] p-3 rounded-lg border border-[#EAECEF] leading-relaxed">
                 {feedbackError}
               </p>
 
               {recognition && typeof recognition.match_score === "number" && recognition.match_score > 0 && (
-                <div className="flex items-center justify-between text-[11px] text-slate-600 bg-slate-100/90 px-3 py-1.5 rounded-lg border border-slate-200">
-                  <span>Match Confidence: <strong className="font-mono">{(recognition.match_score * 100).toFixed(1)}%</strong></span>
-                  <span>Required: <strong className="font-mono">35.0%</strong></span>
+                <div className="flex items-center justify-between text-[11px] text-slate-500 bg-[#FAFBFD] px-3 py-2 rounded-lg border border-[#EAECEF] tabular-nums">
+                  <span>
+                    Score: <strong className="font-mono text-slate-900">{(recognition.match_score * 100).toFixed(1)}%</strong>
+                  </span>
+                  <span>
+                    Threshold: <strong className="font-mono text-slate-700">35.0%</strong>
+                  </span>
                 </div>
               )}
 
               {helpSuccess && (
-                <div className="rounded-lg bg-emerald-100 border border-emerald-300 p-3 text-xs text-emerald-800">
-                  <div className="font-semibold flex items-center gap-1.5 mb-1">
-                    <CheckCircle2 className="h-4 w-4 text-emerald-600" />
-                    Request Logged for HR Review
+                <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-800">
+                  <div className="font-medium flex items-center gap-1.5 mb-0.5">
+                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-600" />
+                    <span>Submitted to HR Review Queue</span>
                   </div>
                   {helpSuccess}
                 </div>
               )}
 
               {helpError && (
-                <div className="rounded-lg bg-rose-100 border border-rose-300 p-2.5 text-xs text-rose-800">
+                <div className="rounded-lg border border-rose-200 bg-rose-50 p-2.5 text-xs text-rose-800">
                   {helpError}
                 </div>
               )}
 
               <div className="flex flex-wrap gap-2">
-                <Button variant="danger" size="sm" className="flex-1" onClick={handleReset}>
+                <Button variant="secondary" size="sm" className="flex-1" onClick={handleReset}>
                   Try Again
                 </Button>
                 {lastCapturedImage && (
                   <Button
                     variant="outline"
                     size="sm"
-                    className="flex-1 bg-white text-blue-700 border-blue-300 hover:bg-blue-50"
+                    className="flex-1"
                     onClick={() => {
                       setEnrollError(null);
                       setShowEnrollModal(true);
                     }}
                   >
-                    <UserPlus className="mr-1.5 h-3.5 w-3.5 text-blue-600" />
-                    Quick Enroll My Face
+                    <UserPlus className="h-3.5 w-3.5 text-[#4F46E5]" />
+                    <span>Quick Enroll</span>
                   </Button>
                 )}
                 <Button
                   variant="outline"
                   size="sm"
-                  className="flex-1 text-slate-700 border-slate-300 hover:bg-slate-100"
+                  className="flex-1"
                   onClick={() => setShowHelpDrawer(!showHelpDrawer)}
                 >
-                  <LifeBuoy className="mr-1.5 h-3.5 w-3.5 text-blue-600" />
-                  {showHelpDrawer ? "Hide Help" : "Request HR Help"}
+                  <LifeBuoy className="h-3.5 w-3.5" />
+                  <span>{showHelpDrawer ? "Hide Help" : "HR Help"}</span>
                 </Button>
               </div>
 
-              {/* Collapsible HR Assistance Ticket Drawer */}
               {showHelpDrawer && !helpSuccess && (
-                <form onSubmit={handleSubmitHelp} className="rounded-xl border border-blue-200 bg-white p-4 shadow-sm space-y-3">
+                <form
+                  onSubmit={handleSubmitHelp}
+                  className="rounded-xl border border-[#EAECEF] bg-[#FAFBFD] p-4 space-y-3"
+                >
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-semibold text-slate-800 flex items-center gap-1.5">
-                      <LifeBuoy className="h-3.5 w-3.5 text-blue-600" />
+                    <span className="text-xs font-semibold text-slate-800">
                       Request HR Biometric Enrollment
                     </span>
-                    <Badge variant="brand" className="text-[10px]">Station Ticket</Badge>
+                    <Badge variant="outline" className="text-[10px]">
+                      Ticket
+                    </Badge>
                   </div>
                   <p className="text-[11px] text-slate-500">
-                    If your face is not yet registered, enter your College Employee ID to notify the HR Officer.
+                    Enter your College Employee ID to notify HR for biometric registration.
                   </p>
 
                   <div>
-                    <label className="text-[11px] font-medium text-slate-700">Claimed Employee ID / Number</label>
+                    <label className="text-[11px] font-medium text-slate-700">Employee ID</label>
                     <input
                       type="text"
                       placeholder="e.g. EIPC-EMP-001"
                       value={claimedEmpNumber}
                       onChange={(e) => setClaimedEmpNumber(e.target.value)}
-                      className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-1.5 text-xs focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      className="mt-1 h-8 w-full rounded-lg border border-[#E5E7EB] bg-white px-2.5 text-xs focus:border-[#4F46E5] focus:outline-none focus:ring-2 focus:ring-indigo-500/15"
                     />
                   </div>
 
                   <div>
-                    <label className="text-[11px] font-medium text-slate-700">Reason / Note (optional)</label>
+                    <label className="text-[11px] font-medium text-slate-700">Note (optional)</label>
                     <input
                       type="text"
-                      placeholder="e.g. New employee requesting biometric enrollment"
+                      placeholder="e.g. Requesting face enrollment"
                       value={helpReason}
                       onChange={(e) => setHelpReason(e.target.value)}
-                      className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-1.5 text-xs focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                      className="mt-1 h-8 w-full rounded-lg border border-[#E5E7EB] bg-white px-2.5 text-xs focus:border-[#4F46E5] focus:outline-none focus:ring-2 focus:ring-indigo-500/15"
                     />
                   </div>
 
-                  <Button
-                    type="submit"
-                    variant="primary"
-                    size="sm"
-                    className="w-full text-xs"
-                    isLoading={isSubmittingHelp}
-                  >
-                    <Send className="mr-1.5 h-3 w-3" />
-                    Submit to HR Review Queue
+                  <Button type="submit" variant="primary" size="sm" className="w-full" isLoading={isSubmittingHelp}>
+                    <Send className="h-3 w-3" />
+                    <span>Submit Request</span>
                   </Button>
 
-                  <div className="pt-2 border-t border-slate-100 flex items-center justify-between text-[11px] text-slate-500">
-                    <span>Authorized HR Officer?</span>
+                  <div className="pt-2 border-t border-[#EAECEF] flex items-center justify-between text-[11px] text-slate-500">
+                    <span>HR Staff?</span>
                     <Link
                       href="/employees"
-                      className="font-semibold text-blue-600 hover:text-blue-800 flex items-center gap-0.5"
+                      className="font-medium text-[#4F46E5] hover:underline inline-flex items-center gap-1"
                     >
-                      <UserPlus className="h-3 w-3 mr-0.5" />
-                      Enroll Face Directly
+                      <span>Open Directory</span>
                       <ArrowRight className="h-3 w-3" />
                     </Link>
                   </div>
@@ -863,29 +874,27 @@ export default function KioskPage() {
         </div>
       </div>
 
-      {/* Quick Biometric Face Enrollment Modal */}
+      {/* Quick Biometric Enrollment Modal */}
       {showEnrollModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-2xl space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <div className="flex items-center gap-2">
-                <UserPlus className="h-5 w-5 text-blue-600" />
-                <h3 className="font-bold text-slate-900 text-base">Quick Biometric Face Enrollment</h3>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-[2px]">
+          <div className="w-full max-w-md rounded-xl border border-[#E5E7EB] bg-white p-5 shadow-xl space-y-4">
+            <div className="flex items-center justify-between border-b border-[#EAECEF] pb-3">
+              <div>
+                <h3 className="font-semibold text-slate-900 text-sm">Quick Biometric Enrollment</h3>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  Link the captured snapshot to an active staff profile.
+                </p>
               </div>
               <button
                 onClick={() => setShowEnrollModal(false)}
-                className="text-slate-400 hover:text-slate-600 text-lg leading-none"
+                className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
               >
                 ✕
               </button>
             </div>
 
-            <p className="text-xs text-slate-500">
-              Register or update your face template directly at this kiosk terminal.
-            </p>
-
             {lastCapturedImage ? (
-              <div className="relative aspect-[4/3] w-full rounded-xl overflow-hidden border border-slate-200 bg-slate-900">
+              <div className="relative aspect-[4/3] w-full rounded-lg overflow-hidden border border-[#E5E7EB] bg-[#0B0F17]">
                 <img
                   src={lastCapturedImage}
                   alt="Captured face snapshot"
@@ -893,22 +902,23 @@ export default function KioskPage() {
                 />
               </div>
             ) : (
-              <div className="p-4 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-800">
-                Please position your face in the camera and click <strong>Scan Face Now</strong> first to capture a frame.
+              <div className="p-3.5 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-800">
+                Position your face in the camera and click <strong>Manual Shot</strong> first to capture a frame.
               </div>
             )}
 
             <div className="space-y-1.5">
-              <label className="text-xs font-semibold text-slate-700">Select Employee Profile:</label>
+              <label className="text-xs font-medium text-slate-700">Employee Profile</label>
               <select
                 value={enrollTargetEmpId}
                 onChange={(e) => setEnrollTargetEmpId(e.target.value ? Number(e.target.value) : "")}
-                className="w-full rounded-lg border border-slate-300 p-2 text-xs font-medium text-slate-800 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="h-9 w-full rounded-lg border border-[#E5E7EB] px-2.5 text-xs font-medium text-slate-800 bg-white focus:border-[#4F46E5] focus:outline-none focus:ring-2 focus:ring-indigo-500/15"
               >
-                <option value="">— Select your Employee Name &amp; ID —</option>
+                <option value="">— Select Employee Name &amp; ID —</option>
                 {employees.map((emp) => (
                   <option key={emp.id} value={emp.id}>
-                    {emp.employee_number} — {emp.first_name || emp.full_name} {emp.last_name || ""} ({emp.department_name || emp.department || "Staff"})
+                    {emp.employee_number} — {emp.first_name || emp.full_name} {emp.last_name || ""} (
+                    {emp.department_name || emp.department || "Staff"})
                   </option>
                 ))}
               </select>
@@ -930,13 +940,13 @@ export default function KioskPage() {
                 Cancel
               </Button>
               <Button
+                variant="primary"
                 size="sm"
                 onClick={handleConfirmEnrollment}
                 isLoading={isSubmittingEnroll}
                 disabled={!enrollTargetEmpId || !lastCapturedImage || isSubmittingEnroll}
-                className="bg-blue-600 hover:bg-blue-700 text-white"
               >
-                Confirm Biometric Enrollment
+                Save Enrollment
               </Button>
             </div>
           </div>

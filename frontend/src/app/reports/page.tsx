@@ -7,19 +7,11 @@ import { Button } from "@/components/ui/Button";
 import { AuthGuard } from "@/components/AuthGuard";
 import { api, AttendanceSessionRecord, EmployeeRecord } from "@/lib/api";
 import {
-  FileText,
   Download,
   Filter,
-  Search,
-  CheckCircle2,
-  Clock,
-  AlertCircle,
   RefreshCw,
-  UserCheck,
-  ShieldAlert,
-  Building2,
-  Calendar,
   Edit3,
+  X,
 } from "lucide-react";
 
 export default function ReportsPage() {
