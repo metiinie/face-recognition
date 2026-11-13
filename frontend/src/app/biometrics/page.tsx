@@ -17,20 +17,14 @@ import {
   ResponsiveContainer,
   BarChart,
   Bar,
-  AreaChart,
-  Area,
   ReferenceLine,
 } from "recharts";
 import {
   ShieldAlert,
-  ShieldCheck,
   Zap,
   Cpu,
-  Activity,
-  Layers,
   Database,
   RefreshCw,
-  Sliders,
   CheckCircle2,
   KeyRound,
   Gauge,
@@ -38,7 +32,6 @@ import {
   X,
   AlertCircle,
   AlertTriangle,
-  Clock,
 } from "lucide-react";
 
 export default function BiometricsLabPage() {

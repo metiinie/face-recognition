@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
-import { getStoredToken, getStoredUser, handleUnauthorized, UserProfile } from "@/lib/api";
+import { getStoredToken, getStoredUser, handleUnauthorized } from "@/lib/api";
 import { RefreshCw, ShieldAlert } from "lucide-react";
 
 interface AuthGuardProps {

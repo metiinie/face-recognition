@@ -8,16 +8,11 @@ import { Button } from "@/components/ui/Button";
 import { AuthGuard } from "@/components/AuthGuard";
 import { api, BackupRecord, BackupVerificationResponse, BackupRestoreResponse } from "@/lib/api";
 import {
-  ShieldAlert,
   ShieldCheck,
-  Search,
   Filter,
-  CheckCircle,
-  Clock,
   RefreshCw,
   AlertTriangle,
   UserCheck,
-  FileText,
   CheckCircle2,
   X,
   PlusCircle,
@@ -27,8 +22,6 @@ import {
   Trash2,
   Shield,
   AlertCircle,
-  Download,
-  Lock,
   ExternalLink,
 } from "lucide-react";
 

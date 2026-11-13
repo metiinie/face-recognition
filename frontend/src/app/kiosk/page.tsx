@@ -3,18 +3,16 @@
 import React, { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { CameraCapture } from "@/components/CameraCapture";
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/Card";
+import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { api, RecognitionResult, AttendanceConfirmResponse, StationRecord } from "@/lib/api";
 import {
   CheckCircle2,
-  AlertTriangle,
   XCircle,
   UserCheck,
   ShieldCheck,
   Clock,
-  Zap,
   LifeBuoy,
   Send,
   UserPlus,

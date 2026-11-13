@@ -1,8 +1,6 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/Card";
-import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import {
   api,
@@ -18,17 +16,13 @@ import {
 import { getEntranceSocket } from "@/lib/socket";
 import {
   Radio,
-  Camera,
   Play,
   Pause,
   RefreshCw,
   Users,
   CheckCircle2,
   Clock,
-  ArrowRight,
   ShieldAlert,
-  ShieldCheck,
-  Zap,
   Building2,
   AlertCircle,
   Volume2,
@@ -41,7 +35,6 @@ import {
   FlipHorizontal,
   X,
   Sliders,
-  Settings,
   Lock,
 } from "lucide-react";
 
