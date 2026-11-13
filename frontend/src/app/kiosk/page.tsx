@@ -161,6 +161,7 @@ export default function KioskPage() {
   const [isSubmittingHelp, setIsSubmittingHelp] = useState(false);
   const [helpSuccess, setHelpSuccess] = useState<string | null>(null);
   const [helpError, setHelpError] = useState<string | null>(null);
+  const [showSimTools, setShowSimTools] = useState(false);
 
   const handleCapture = async (base64Image: string) => {
     setLastCapturedImage(base64Image);
@@ -343,68 +344,67 @@ export default function KioskPage() {
   };
 
   return (
-    <div className="space-y-6">
-      {/* Top Banner */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 rounded-2xl bg-gradient-to-r from-blue-900 via-indigo-900 to-slate-950 p-6 text-white shadow-xl">
-        <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-xl sm:text-2xl font-bold tracking-tight">Kiosk Attendance Terminal</h1>
-            <Badge variant="brand" className="bg-blue-500/20 text-blue-300 border-blue-400/30">
-              UltraFace + SFace ONNX (OpenCV)
-            </Badge>
+    <div className="space-y-5">
+      {/* Clean Kiosk Control Header */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 rounded-2xl border border-slate-200/80 bg-white p-4 sm:px-5 shadow-[0_1px_3px_rgba(15,23,42,0.04)]">
+        <div className="space-y-0.5">
+          <div className="flex items-center gap-2.5">
+            <h1 className="text-lg sm:text-xl font-bold tracking-tight text-slate-900">
+              Attendance Kiosk
+            </h1>
+            {isOnline ? (
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-700 border border-emerald-200/80">
+                <Wifi className="h-3 w-3 text-emerald-600" />
+                <span>Online</span>
+              </span>
+            ) : (
+              <span
+                className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-0.5 text-[11px] font-semibold text-amber-700 border border-amber-200/80"
+                title="Terminal is buffering offline punches locally until network recovers."
+              >
+                <WifiOff className="h-3 w-3 text-amber-600" />
+                <span>Offline {offlineQueueCount > 0 ? `(${offlineQueueCount})` : ""}</span>
+              </span>
+            )}
           </div>
-          <p className="mt-1 text-xs sm:text-sm text-slate-300">
-            Real-time biometric attendance with sub-200ms latency and anti-spoofing presentation attack detection.
+          <p className="text-xs text-slate-500">
+            Position your face in the frame to verify identity and record check-in or check-out.
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">
-          {/* Network & Offline Status Indicator (E4) */}
-          {isOnline ? (
-            <span className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-500/20 px-2.5 py-1 text-xs font-semibold text-emerald-300 border border-emerald-400/30">
-              <Wifi className="h-3.5 w-3.5 text-emerald-400" />
-              <span>LAN Online</span>
-            </span>
-          ) : (
-            <span
-              className="inline-flex items-center gap-1.5 rounded-lg bg-amber-500/20 px-2.5 py-1 text-xs font-semibold text-amber-300 border border-amber-400/30"
-              title="Terminal is buffering offline punches locally until network recovers."
-            >
-              <WifiOff className="h-3.5 w-3.5 text-amber-400" />
-              <span>Offline Buffer {offlineQueueCount > 0 ? `(${offlineQueueCount})` : ""}</span>
-            </span>
-          )}
-
-          {/* Offline Buffer Sync Button (E4) */}
+          {/* Offline Buffer Sync Button */}
           {offlineQueueCount > 0 && (
-            <button
+            <Button
               type="button"
+              size="sm"
+              variant="outline"
               onClick={syncOfflineQueue}
               disabled={isSyncingQueue || !isOnline}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-amber-500/25 px-2.5 py-1 text-xs font-semibold text-amber-200 border border-amber-400/40 hover:bg-amber-500/35 transition-colors disabled:opacity-50"
-              title="Click to immediately synchronize buffered offline records with attendance server"
+              className="text-xs border-amber-300 bg-amber-50 text-amber-800 hover:bg-amber-100"
+              title="Synchronize buffered offline records with attendance server"
             >
-              <RefreshCw className={`h-3 w-3 ${isSyncingQueue ? "animate-spin" : ""}`} />
-              <span>{isSyncingQueue ? "Syncing..." : `Sync ${offlineQueueCount} Offline`}</span>
-            </button>
+              <RefreshCw className={`mr-1.5 h-3.5 w-3.5 ${isSyncingQueue ? "animate-spin" : ""}`} />
+              <span>{isSyncingQueue ? "Syncing..." : `Sync ${offlineQueueCount}`}</span>
+            </Button>
           )}
 
-          {/* Touchless Auto-Punch Toggle (E3) */}
+          {/* Touchless Auto-Punch Toggle */}
           <button
             type="button"
             onClick={() => {
               setTouchlessAutoPunch(!touchlessAutoPunch);
               setAutoConfirmCountdown(null);
             }}
-            className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1 text-xs font-medium border transition-colors ${
+            className={`inline-flex h-8 items-center gap-1.5 rounded-lg px-3 text-xs font-medium border transition-colors ${
               touchlessAutoPunch
-                ? "bg-indigo-500/30 text-indigo-200 border-indigo-400/40"
-                : "bg-white/10 text-slate-300 border-white/20 hover:bg-white/20"
+                ? "bg-blue-50 text-blue-700 border-blue-200"
+                : "bg-white text-slate-600 border-slate-200 hover:bg-slate-50"
             }`}
             title="Toggle hands-free automatic attendance confirmation"
           >
             <Hand className="h-3.5 w-3.5" />
-            <span>Touchless: {touchlessAutoPunch ? "ON" : "OFF"}</span>
+            <span>Touchless: {touchlessAutoPunch ? "On" : "Off"}</span>
           </button>
 
           <Button
@@ -414,36 +414,34 @@ export default function KioskPage() {
               setEnrollError(null);
               setShowEnrollModal(true);
             }}
-            className="text-xs h-8 bg-white/10 hover:bg-white/20 text-white border-white/20"
+            className="text-xs"
           >
-            <UserPlus className="h-3.5 w-3.5 mr-1.5 text-emerald-400" />
-            Quick Face Enrollment
+            <UserPlus className="h-3.5 w-3.5 mr-1.5 text-blue-600" />
+            Enroll Face
           </Button>
 
           {/* Station Selector */}
-          <div className="flex items-center gap-2 rounded-xl bg-white/10 p-1.5 backdrop-blur-md">
-            <span className="text-xs text-slate-300 font-medium">Terminal Station:</span>
-            <select
-              value={stationId}
-              onChange={(e) => setStationId(e.target.value)}
-              className="rounded-lg bg-slate-900/90 px-3 py-1 text-xs text-white border border-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono"
-            >
-              {stationsList.length > 0 ? (
-                stationsList.map((st) => (
-                  <option key={st.id} value={st.station_code}>
-                    {st.station_code} — {st.name} ({st.department_code})
-                  </option>
-                ))
-              ) : (
-                <>
-                  <option value="ST-ICT-01">Block A - ICT Wing (Kiosk #1)</option>
-                  <option value="ST-AUTO-01">Automotive & Mechanical (Kiosk #2)</option>
-                  <option value="ST-CIVIL-01">Textile & Civil Block (Kiosk #3)</option>
-                  <option value="ST-GATE-01">Main Campus Gate (Kiosk #4)</option>
-                </>
-              )}
-            </select>
-          </div>
+          <select
+            value={stationId}
+            onChange={(e) => setStationId(e.target.value)}
+            aria-label="Terminal Station"
+            className="h-8 rounded-lg border border-slate-200 bg-slate-50 px-2.5 text-xs font-medium text-slate-800 focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20"
+          >
+            {stationsList.length > 0 ? (
+              stationsList.map((st) => (
+                <option key={st.id} value={st.station_code}>
+                  {st.station_code} — {st.name} ({st.department_code})
+                </option>
+              ))
+            ) : (
+              <>
+                <option value="ST-ICT-01">Block A - ICT Wing (Kiosk #1)</option>
+                <option value="ST-AUTO-01">Automotive & Mechanical (Kiosk #2)</option>
+                <option value="ST-CIVIL-01">Textile & Civil Block (Kiosk #3)</option>
+                <option value="ST-GATE-01">Main Campus Gate (Kiosk #4)</option>
+              </>
+            )}
+          </select>
         </div>
       </div>
 
@@ -481,65 +479,71 @@ export default function KioskPage() {
               guideText="Align face within the green oval for automatic recognition"
             />
             <div className="mt-3 flex items-center justify-between px-2 text-[11px] text-slate-400">
-              <span className="flex items-center gap-1">
-                <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" /> Multi-factor Anti-Spoofing (PAD) Active
+              <span className="flex items-center gap-1.5">
+                <ShieldCheck className="h-3.5 w-3.5 text-emerald-400" /> Liveness Check Active
               </span>
-              <span className="flex items-center gap-1 font-mono">
-                <Zap className="h-3.5 w-3.5 text-amber-400" /> Target Latency: &lt; 250ms
-              </span>
+              <button
+                type="button"
+                onClick={() => setShowSimTools(!showSimTools)}
+                className="text-slate-400 hover:text-slate-200 font-medium transition-colors"
+              >
+                {showSimTools ? "Hide Test Controls" : "Test Controls"}
+              </button>
             </div>
 
-            {/* Quick Test Simulation Strip */}
-            <div className="mt-3 rounded-xl border border-slate-800 bg-slate-900/80 p-3">
-              <div className="flex items-center justify-between mb-2">
-                <span className="text-[11px] font-semibold text-slate-300">
-                  Quick Simulation Mode (Kiosk Testing):
-                </span>
-                <span className="text-[10px] text-blue-400 font-mono">ALLOW_SIMULATED_BIOMETRICS=1</span>
+            {/* Collapsible Quick Test Simulation Strip */}
+            {showSimTools && (
+              <div className="mt-3 rounded-xl border border-slate-800 bg-slate-900/80 p-3">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[11px] font-semibold text-slate-300">
+                    Simulation Mode (Testing)
+                  </span>
+                  <span className="text-[10px] text-slate-400 font-mono">Simulated Biometrics</span>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  <button
+                    type="button"
+                    disabled={isProcessing}
+                    onClick={() => handleSimulateScan("FACE_SIG_EIPC-EMP-001", "Abebe Kebede")}
+                    className="rounded-lg bg-slate-800 hover:bg-blue-600 px-2.5 py-1 text-[11px] font-medium text-slate-200 transition-colors"
+                  >
+                    Abebe Kebede
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isProcessing}
+                    onClick={() => handleSimulateScan("FACE_SIG_EIPC-EMP-002", "Hanna Mekonnen")}
+                    className="rounded-lg bg-slate-800 hover:bg-blue-600 px-2.5 py-1 text-[11px] font-medium text-slate-200 transition-colors"
+                  >
+                    Hanna Mekonnen
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isProcessing}
+                    onClick={() => handleSimulateScan("FACE_SIG_EIPC-EMP-003", "Chaltu Girma")}
+                    className="rounded-lg bg-slate-800 hover:bg-blue-600 px-2.5 py-1 text-[11px] font-medium text-slate-200 transition-colors"
+                  >
+                    Chaltu Girma
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isProcessing}
+                    onClick={() => handleSimulateScan("UNKNOWN_PERSON_001", "Unknown Visitor")}
+                    className="rounded-lg bg-slate-800 hover:bg-amber-600 px-2.5 py-1 text-[11px] font-medium text-slate-200 transition-colors"
+                  >
+                    Unknown Visitor
+                  </button>
+                  <button
+                    type="button"
+                    disabled={isProcessing}
+                    onClick={() => handleSimulateScan("POOR_LIGHTING", "Poor Lighting")}
+                    className="rounded-lg bg-slate-800 hover:bg-rose-600 px-2.5 py-1 text-[11px] font-medium text-slate-200 transition-colors"
+                  >
+                    Obstructed / Glare
+                  </button>
+                </div>
               </div>
-              <div className="flex flex-wrap gap-1.5">
-                <button
-                  type="button"
-                  disabled={isProcessing}
-                  onClick={() => handleSimulateScan("FACE_SIG_EIPC-EMP-001", "Abebe Kebede")}
-                  className="rounded bg-slate-800 hover:bg-blue-600 px-2 py-1 text-[10px] font-medium text-slate-200 transition-colors"
-                >
-                  👤 Abebe Kebede
-                </button>
-                <button
-                  type="button"
-                  disabled={isProcessing}
-                  onClick={() => handleSimulateScan("FACE_SIG_EIPC-EMP-002", "Hanna Mekonnen")}
-                  className="rounded bg-slate-800 hover:bg-blue-600 px-2 py-1 text-[10px] font-medium text-slate-200 transition-colors"
-                >
-                  👤 Hanna Mekonnen
-                </button>
-                <button
-                  type="button"
-                  disabled={isProcessing}
-                  onClick={() => handleSimulateScan("FACE_SIG_EIPC-EMP-003", "Chaltu Girma")}
-                  className="rounded bg-slate-800 hover:bg-blue-600 px-2 py-1 text-[10px] font-medium text-slate-200 transition-colors"
-                >
-                  👤 Chaltu Girma
-                </button>
-                <button
-                  type="button"
-                  disabled={isProcessing}
-                  onClick={() => handleSimulateScan("UNKNOWN_PERSON_001", "Unknown Visitor")}
-                  className="rounded bg-slate-800 hover:bg-amber-600 px-2 py-1 text-[10px] font-medium text-slate-200 transition-colors"
-                >
-                  ❓ Unknown Visitor
-                </button>
-                <button
-                  type="button"
-                  disabled={isProcessing}
-                  onClick={() => handleSimulateScan("POOR_LIGHTING", "Poor Lighting")}
-                  className="rounded bg-slate-800 hover:bg-rose-600 px-2 py-1 text-[10px] font-medium text-slate-200 transition-colors"
-                >
-                  ⚠️ Obstructed / Glare
-                </button>
-              </div>
-            </div>
+            )}
           </Card>
         </div>
 

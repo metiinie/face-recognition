@@ -59,58 +59,60 @@ function LoginForm() {
   };
 
   return (
-    <div className="flex min-h-[80vh] items-center justify-center py-8 px-4 sm:px-6 lg:px-8">
-      <div className="w-full max-w-md space-y-6">
-        {/* College Header */}
+    <div className="flex items-center justify-center py-6">
+      <div className="w-full max-w-[400px] space-y-5">
+        {/* Institution Identity */}
         <div className="text-center space-y-2">
-          <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-blue-600 text-white shadow-lg shadow-blue-500/25">
-            <Building2 className="h-7 w-7" />
+          <div className="mx-auto flex h-11 w-11 items-center justify-center rounded-xl bg-[#4F46E5] text-white shadow-[0_1px_2px_rgba(79,70,229,0.25)]">
+            <Building2 className="h-5 w-5" />
           </div>
-          <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
-            Ethio-Italy Polytechnic College
-          </h2>
-          <p className="text-xs text-slate-500 dark:text-slate-400">
-            Attendance Management & Biometric System (Dire Dawa)
-          </p>
+          <div>
+            <h1 className="text-lg font-semibold tracking-tight text-slate-900">
+              Faceo · EIPC Portal
+            </h1>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Ethio-Italy Polytechnic College · Dire Dawa
+            </p>
+          </div>
         </div>
 
         {/* Login Card */}
-        <Card className="border-slate-200/80 shadow-xl backdrop-blur-sm dark:border-slate-800">
+        <Card>
           <CardHeader className="space-y-1 pb-4">
             <div className="flex items-center justify-between">
-              <CardTitle className="text-lg">Staff Authentication</CardTitle>
-              <Badge variant="brand" className="text-[10px]">
-                RBAC Secured
+              <CardTitle>Staff Sign In</CardTitle>
+              <Badge variant="outline" className="text-[10px] font-medium text-slate-500">
+                RBAC
               </Badge>
             </div>
-            <CardDescription className="text-xs">
-              Enter your authorized staff credentials to access administrative and reporting portals.
+            <CardDescription>
+              Sign in with authorized institutional credentials.
             </CardDescription>
           </CardHeader>
 
           <CardContent className="space-y-4">
             {/* Session Expired / Redirection Notification */}
             {isExpired && !errorMessage && (
-              <div className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/40 dark:text-amber-300">
+              <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
                 <Clock className="h-4 w-4 shrink-0 text-amber-600 mt-0.5" />
                 <div>
-                  <span className="font-semibold">Session Expired:</span> Please sign in again. You will be redirected back to{" "}
-                  <code className="font-mono bg-amber-100 px-1 py-0.5 rounded text-[11px]">{targetDestination}</code> upon authentication.
+                  <span className="font-semibold">Session Expired:</span> Sign in to return to{" "}
+                  <code className="font-mono bg-amber-100/80 px-1 py-0.5 rounded text-[11px]">{targetDestination}</code>.
                 </div>
               </div>
             )}
 
             {/* Error Banner */}
             {errorMessage && (
-              <div className="flex items-start gap-2 rounded-xl border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800 dark:border-rose-900/60 dark:bg-rose-950/40 dark:text-rose-300">
-                <AlertCircle className="h-4 w-4 shrink-0 text-rose-500 mt-0.5" />
+              <div className="flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 p-3 text-xs text-rose-800">
+                <AlertCircle className="h-4 w-4 shrink-0 text-rose-600 mt-0.5" />
                 <span>{errorMessage}</span>
               </div>
             )}
 
             <form onSubmit={handleSubmit} className="space-y-3.5">
-              <div className="space-y-1">
-                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-slate-700">
                   Username
                 </label>
                 <div className="relative">
@@ -123,13 +125,13 @@ function LoginForm() {
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
                     placeholder="e.g. hr_officer or admin"
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50/50 py-2.5 pl-9 pr-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-800 dark:bg-slate-900 dark:text-white"
+                    className="h-9 w-full rounded-lg border border-[#E5E7EB] bg-white pl-9 pr-3 text-sm text-slate-900 placeholder:text-slate-400 focus:border-[#4F46E5] focus:outline-none focus:ring-2 focus:ring-indigo-500/15"
                   />
                 </div>
               </div>
 
-              <div className="space-y-1">
-                <label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-slate-700">
                   Password
                 </label>
                 <div className="relative">
@@ -142,7 +144,7 @@ function LoginForm() {
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
                     placeholder="Enter password"
-                    className="w-full rounded-xl border border-slate-200 bg-slate-50/50 py-2.5 pl-9 pr-10 text-sm text-slate-900 placeholder:text-slate-400 focus:border-blue-500 focus:bg-white focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-slate-800 dark:bg-slate-900 dark:text-white"
+                    className="h-9 w-full rounded-lg border border-[#E5E7EB] bg-white pl-9 pr-9 text-sm text-slate-900 placeholder:text-slate-400 focus:border-[#4F46E5] focus:outline-none focus:ring-2 focus:ring-indigo-500/15"
                   />
                   <button
                     type="button"
@@ -161,17 +163,17 @@ function LoginForm() {
                 className="w-full mt-2"
                 isLoading={isLoading}
               >
-                <span>Sign In to College Portal</span>
-                <ArrowRight className="h-4 w-4 ml-1.5" />
+                <span>Sign In</span>
+                <ArrowRight className="h-4 w-4" />
               </Button>
             </form>
           </CardContent>
         </Card>
 
         {/* Security Notice */}
-        <div className="flex items-center justify-center gap-2 text-[11px] text-slate-400">
-          <ShieldCheck className="h-3.5 w-3.5 text-emerald-500" />
-          <span>Biometric templates protected by AES-128-CBC + HMAC-SHA256 at rest</span>
+        <div className="flex items-center justify-center gap-1.5 text-[11px] text-slate-400">
+          <ShieldCheck className="h-3.5 w-3.5 text-emerald-600" />
+          <span>Encrypted biometric storage (AES-128-CBC + HMAC-SHA256)</span>
         </div>
       </div>
     </div>
@@ -182,8 +184,8 @@ export default function LoginPage() {
   return (
     <Suspense
       fallback={
-        <div className="flex min-h-[80vh] items-center justify-center">
-          <RefreshCw className="h-6 w-6 animate-spin text-blue-600" />
+        <div className="flex min-h-screen items-center justify-center bg-[#F6F7F9]">
+          <RefreshCw className="h-5 w-5 animate-spin text-[#4F46E5]" />
         </div>
       }
     >

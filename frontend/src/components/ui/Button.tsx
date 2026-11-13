@@ -1,58 +1,55 @@
 import React from "react";
-import clsx from "clsx";
+import { clsx, type ClassValue } from "clsx";
+import { twMerge } from "tailwind-merge";
+import { Loader2 } from "lucide-react";
 
-interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
+function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs));
+}
+
+export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   variant?: "primary" | "secondary" | "success" | "danger" | "ghost" | "outline";
   size?: "sm" | "md" | "lg";
   isLoading?: boolean;
 }
 
-export function Button({
-  className,
-  variant = "primary",
-  size = "md",
-  isLoading = false,
-  children,
-  disabled,
-  ...props
-}: ButtonProps) {
-  const sizes = {
-    sm: "h-8 px-3 text-xs rounded-md",
-    md: "h-9 px-4 text-sm rounded-lg",
-    lg: "h-11 px-6 text-base rounded-lg",
-  };
+export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
+  ({ className, variant = "primary", size = "md", isLoading = false, children, disabled, ...props }, ref) => {
+    const base =
+      "inline-flex items-center justify-center gap-2 font-medium tracking-[-0.01em] rounded-lg transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/30 disabled:opacity-50 disabled:pointer-events-none select-none";
 
-  const variants = {
-    primary: "bg-blue-600 text-white hover:bg-blue-700 shadow-sm focus-visible:ring-blue-500",
-    secondary: "bg-slate-800 text-white hover:bg-slate-900 dark:bg-slate-700 dark:hover:bg-slate-600",
-    success: "bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm focus-visible:ring-emerald-500",
-    danger: "bg-rose-600 text-white hover:bg-rose-700 shadow-sm focus-visible:ring-rose-500",
-    outline: "border border-slate-300 bg-transparent hover:bg-slate-100 text-slate-800 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800",
-    ghost: "bg-transparent hover:bg-slate-100 text-slate-700 dark:text-slate-300 dark:hover:bg-slate-800",
-  };
+    const variants = {
+      primary:
+        "bg-[#4F46E5] hover:bg-[#4338CA] text-white border border-[#4338CA]/10 shadow-[0_1px_2px_rgba(79,70,229,0.18)]",
+      secondary:
+        "bg-[#0F172A] hover:bg-[#1E293B] text-white border border-slate-900 shadow-[0_1px_2px_rgba(15,23,42,0.12)]",
+      success:
+        "bg-[#059669] hover:bg-[#047857] text-white border border-emerald-700/10 shadow-[0_1px_2px_rgba(5,150,105,0.15)]",
+      danger:
+        "bg-[#DC2626] hover:bg-[#B91C1C] text-white border border-rose-700/10 shadow-[0_1px_2px_rgba(220,38,38,0.15)]",
+      outline:
+        "bg-white hover:bg-slate-50 text-slate-700 border border-[#E5E7EB] hover:border-slate-300 shadow-[0_1px_2px_rgba(15,23,42,0.02)]",
+      ghost: "bg-transparent hover:bg-slate-100/80 text-slate-600 hover:text-slate-900",
+    };
 
-  return (
-    <button
-      className={clsx(
-        "inline-flex items-center justify-center font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 disabled:pointer-events-none disabled:opacity-50 select-none",
-        sizes[size],
-        variants[variant],
-        className
-      )}
-      disabled={disabled || isLoading}
-      {...props}
-    >
-      {isLoading ? (
-        <span className="inline-flex items-center gap-2">
-          <svg className="h-4 w-4 animate-spin text-current" fill="none" viewBox="0 0 24 24">
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z" />
-          </svg>
-          <span>Processing...</span>
-        </span>
-      ) : (
-        children
-      )}
-    </button>
-  );
-}
+    const sizes = {
+      sm: "h-8 px-3 text-xs",
+      md: "h-9 px-4 text-[13px]",
+      lg: "h-11 px-5 text-sm",
+    };
+
+    return (
+      <button
+        ref={ref}
+        className={cn(base, variants[variant], sizes[size], className)}
+        disabled={disabled || isLoading}
+        {...props}
+      >
+        {isLoading && <Loader2 className="w-3.5 h-3.5 animate-spin shrink-0" />}
+        {children}
+      </button>
+    );
+  }
+);
+
+Button.displayName = "Button";

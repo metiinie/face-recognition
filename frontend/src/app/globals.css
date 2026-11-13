@@ -3,38 +3,119 @@
 @tailwind utilities;
 
 :root {
-  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  --font-mono: 'JetBrains Mono', monospace;
-  --foreground-rgb: 15, 23, 42;
-  --background-start-rgb: 248, 250, 252;
-  --background-end-rgb: 241, 245, 249;
+  --font-sans: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+
+  --bg-canvas: #F6F7F9;
+  --bg-surface: #FFFFFF;
+  --bg-subtle: #FAFBFD;
+  --border-hairline: #E5E7EB;
+  --border-subtle: #EAECEF;
+  --ink-primary: #0F172A;
+  --ink-secondary: #475569;
+  --ink-muted: #64748B;
+  --accent-indigo: #4F46E5;
+  --accent-indigo-hover: #4338CA;
 }
 
-body {
-  font-family: var(--font-sans);
-  color: rgb(var(--foreground-rgb));
-  background: linear-gradient(to bottom,
-      transparent,
-      rgb(var(--background-end-rgb))) rgb(var(--background-start-rgb));
-  min-height: 100vh;
-  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+@layer base {
+  html,
+  body {
+    font-family: var(--font-sans);
+    background-color: var(--bg-canvas);
+    color: var(--ink-primary);
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
 }
 
-/* Pulsing scanline effect for camera liveness */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Custom restrained scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #CBD5E1;
+  border-radius: 9999px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #94A3B8;
+}
+
+.dark-scroll::-webkit-scrollbar-thumb {
+  background: #334155;
+}
+
+.dark-scroll::-webkit-scrollbar-thumb:hover {
+  background: #475569;
+}
+
+/* Subtle horizontal biometric pass hairline (no neon laser glow) */
+@keyframes biometric-sweep {
+  0% {
+    top: 12%;
+    opacity: 0;
+  }
+  15% {
+    opacity: 0.7;
+  }
+  85% {
+    opacity: 0.7;
+  }
+  100% {
+    top: 86%;
+    opacity: 0;
+  }
+}
+
+.animate-biometric-sweep {
+  animation: biometric-sweep 2.2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+/* Subtle scanline compatibility class */
 @keyframes scanline {
   0% {
-    top: 0%;
+    top: 12%;
+    opacity: 0;
   }
-
-  50% {
-    top: 98%;
+  20% {
+    opacity: 0.55;
   }
-
+  80% {
+    opacity: 0.55;
+  }
   100% {
-    top: 0%;
+    top: 86%;
+    opacity: 0;
   }
 }
 
 .animate-scanline {
-  animation: scanline 2.5s ease-in-out infinite;
+  animation: scanline 2.2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
+}
+
+@keyframes landmark-breathe {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.65;
+  }
+  50% {
+    transform: scale(1.22);
+    opacity: 1;
+  }
+}
+
+.animate-landmark {
+  animation: landmark-breathe 1.8s ease-in-out infinite;
 }

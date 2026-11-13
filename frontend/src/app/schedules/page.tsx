@@ -264,22 +264,19 @@ export default function SchedulesStationsPage() {
     <AuthGuard>
       <div className="space-y-6 pb-12">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-slate-200 pb-5">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-slate-200/80 pb-5">
         <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-bold tracking-tight text-slate-900">
-              Screen 5 — Schedules, Ethiopian Clock & Stations
-            </h1>
-            <Badge variant="brand" className="text-xs">AT-15..AT-24</Badge>
-          </div>
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900">
+            Schedules, Shifts &amp; Stations
+          </h1>
           <p className="mt-1 text-xs text-slate-500">
-            Configure regular, sanitation & 24h guard shifts with dual Ethiopian-Clock mapping, assign effective schedules, manage leaves, and register trusted stations.
+            Configure shift templates with Ethiopian-Clock mapping, assign staff schedules, manage leaves, and register terminals.
           </p>
         </div>
 
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={fetchData} isLoading={isLoading}>
-            <RefreshCw className="mr-1.5 h-3.5 w-3.5" /> Refresh Data
+            <RefreshCw className="mr-1.5 h-3.5 w-3.5" /> Refresh
           </Button>
         </div>
       </div>

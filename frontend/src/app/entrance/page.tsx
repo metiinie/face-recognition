@@ -43,7 +43,6 @@ import {
   X,
   Sliders,
   Settings,
-  Compass,
   Lock,
 } from "lucide-react";
 
@@ -109,6 +108,7 @@ export default function ContinuousEntrancePage() {
   const [enrollSnapshotB64, setEnrollSnapshotB64] = useState<string | null>(null);
   const [isSubmittingEnroll, setIsSubmittingEnroll] = useState<boolean>(false);
   const [enrollError, setEnrollError] = useState<string | null>(null);
+  const [showSimTools, setShowSimTools] = useState<boolean>(false);
 
   // References
   const videoRef = useRef<HTMLVideoElement | null>(null);
@@ -116,6 +116,7 @@ export default function ContinuousEntrancePage() {
   const overlayCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const isStreamingRef = useRef<boolean>(false);
   const isProcessingRef = useRef<boolean>(false);
+  const isMountedRef = useRef<boolean>(true);
   const frameCountRef = useRef<number>(0);
   const lastFpsTimeRef = useRef<number>(Date.now());
 
@@ -191,7 +192,6 @@ export default function ContinuousEntrancePage() {
       socket.off("disconnect", onDisconnect);
       socket.off("passage_event", onPassageEvent);
       socket.emit("leave_station", { station_code: selectedStation });
-      socket.disconnect();
     };
   }, [selectedStation, fetchGateData]);
 
@@ -325,11 +325,14 @@ export default function ContinuousEntrancePage() {
   }, []);
 
   const stopCamera = useCallback(() => {
+    isMountedRef.current = false;
     isStreamingRef.current = false;
     setIsStreaming(false);
     if (videoRef.current && videoRef.current.srcObject) {
       const stream = videoRef.current.srcObject as MediaStream;
-      stream.getTracks().forEach((track) => track.stop());
+      stream.getTracks().forEach((track) => {
+        try { track.stop(); } catch {}
+      });
       videoRef.current.srcObject = null;
     }
     const canvas = overlayCanvasRef.current;
@@ -342,8 +345,10 @@ export default function ContinuousEntrancePage() {
 
   // Automatically start optical camera stream when Continuous Entrance page mounts
   useEffect(() => {
+    isMountedRef.current = true;
     startCamera();
     return () => {
+      isMountedRef.current = false;
       stopCamera();
     };
   }, [startCamera, stopCamera]);
@@ -560,7 +565,7 @@ export default function ContinuousEntrancePage() {
 
   // 3. Process Live Optical Frame (WebSocket Streaming + Optimized Bandwidth)
   const processLiveFrame = useCallback(async () => {
-    if (!videoRef.current || videoRef.current.readyState < 2 || isProcessingRef.current || !isStreamingRef.current) {
+    if (!isMountedRef.current || !videoRef.current || videoRef.current.readyState < 2 || isProcessingRef.current || !isStreamingRef.current) {
       return;
     }
 
@@ -629,6 +634,7 @@ export default function ContinuousEntrancePage() {
         });
       }
 
+      if (!isMountedRef.current || !isStreamingRef.current) return;
       const tookMs = Math.round(performance.now() - startTime);
       setLatencyMs(tookMs);
       setDetectedFaces(res.faces);
@@ -655,11 +661,14 @@ export default function ContinuousEntrancePage() {
       }
       setStreamError(null);
     } catch (err: any) {
+      if (!isMountedRef.current) return;
       console.warn("Continuous frame processing error:", err);
       setStreamError(err.message || "Frame recognition request failed.");
     } finally {
-      isProcessingRef.current = false;
-      setIsProcessing(false);
+      if (isMountedRef.current) {
+        isProcessingRef.current = false;
+        setIsProcessing(false);
+      }
     }
   }, [selectedStation, gateMode, drawOverlays, fetchGateData]);
 
@@ -689,6 +698,7 @@ export default function ContinuousEntrancePage() {
 
     return () => {
       active = false;
+      isStreamingRef.current = false;
       if (timerId) clearTimeout(timerId);
     };
   }, [isStreaming, isWsConnected, processLiveFrame]);
@@ -792,6 +802,7 @@ export default function ContinuousEntrancePage() {
         gate_mode: gateMode,
       });
 
+      if (!isMountedRef.current || !isStreamingRef.current) return;
       const tookMs = Math.round(performance.now() - startTime);
       setLatencyMs(tookMs);
       setDetectedFaces(res.faces);
@@ -866,260 +877,194 @@ export default function ContinuousEntrancePage() {
   };
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-5">
       {/* Offscreen frame capture canvas */}
       <canvas ref={canvasRef} className="hidden" />
 
-      {/* Top Header & Gate Controller Bar */}
-      <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between border-b border-slate-200 pb-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-bold tracking-tight text-slate-900">
-              Screen V2 — Continuous-Entrance Multi-Face Gate
-            </h1>
-            <Badge variant="brand" className="text-xs">Option B • Autonomous</Badge>
-            {transportMode === "WEBSOCKET" && isWsConnected ? (
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-500/10 px-2.5 py-0.5 text-xs font-semibold text-emerald-700 border border-emerald-500/20">
-                <Radio className="h-3 w-3 text-emerald-600 animate-pulse" />
-                WebSocket Live
-              </span>
-            ) : (
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500/10 px-2.5 py-0.5 text-xs font-medium text-amber-700 border border-amber-500/20">
-                <Radio className="h-3 w-3 text-amber-600" />
-                HTTP Polling Fallback
-              </span>
-            )}
-          </div>
-          <p className="mt-1 text-xs text-slate-500">
-            Real-time, high-throughput multi-person face tracking, automated hands-free check-ins/check-outs, and gate pass-through cooldown.
-          </p>
-        </div>
-
-        <div className="flex flex-wrap items-center gap-2.5">
-          {/* Station Selector */}
-          <div className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs shadow-sm">
-            <Building2 className="h-3.5 w-3.5 text-blue-600" />
-            <select
-              value={selectedStation}
-              onChange={(e) => setSelectedStation(e.target.value)}
-              className="font-mono font-medium text-slate-800 bg-transparent focus:outline-none"
-            >
-              {stations.length > 0 ? (
-                stations.map((s) => (
-                  <option key={s.id} value={s.station_code}>
-                    {s.station_code} — {s.name}
-                  </option>
-                ))
+      {/* Unified Clean Gate Header & Controls */}
+      <div className="rounded-2xl border border-slate-200/80 bg-white p-4 sm:px-5 shadow-[0_1px_3px_rgba(15,23,42,0.04)] space-y-3.5">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+          <div className="space-y-0.5">
+            <div className="flex flex-wrap items-center gap-2">
+              <h1 className="text-lg sm:text-xl font-bold tracking-tight text-slate-900">
+                Continuous Gate
+              </h1>
+              {transportMode === "WEBSOCKET" && isWsConnected ? (
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-0.5 text-[11px] font-semibold text-emerald-700 border border-emerald-200/80">
+                  <Radio className="h-3 w-3 text-emerald-600 animate-pulse" />
+                  <span>Live{rttMs !== null ? ` • ${rttMs}ms` : ""}</span>
+                </span>
               ) : (
-                <option value="ST-GATE-01">ST-GATE-01 — Main Campus Gate</option>
+                <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-50 px-2.5 py-0.5 text-[11px] font-medium text-amber-700 border border-amber-200/80">
+                  <Radio className="h-3 w-3 text-amber-600" />
+                  <span>Polling{rttMs !== null ? ` • ${rttMs}ms` : ""}</span>
+                </span>
               )}
-            </select>
+            </div>
+            <p className="text-xs text-slate-500">
+              Hands-free multi-person face tracking with automatic check-in and check-out.
+            </p>
           </div>
 
-          {/* Direction Mode Buttons */}
-          <div className="flex rounded-lg border border-slate-200 bg-slate-100 p-0.5 text-xs shadow-sm">
-            <button
-              onClick={() => handleModeChange("IN")}
-              className={`rounded-md px-3 py-1 font-medium transition-all ${
-                gateMode === "IN"
-                  ? "bg-white text-emerald-700 shadow-sm font-bold"
-                  : "text-slate-600 hover:text-slate-900"
-              }`}
-            >
-              Entry (Check-In)
-            </button>
-            <button
-              onClick={() => handleModeChange("OUT")}
-              className={`rounded-md px-3 py-1 font-medium transition-all ${
-                gateMode === "OUT"
-                  ? "bg-white text-blue-700 shadow-sm font-bold"
-                  : "text-slate-600 hover:text-slate-900"
-              }`}
-            >
-              Exit (Check-Out)
-            </button>
-            <button
-              onClick={() => handleModeChange("AUTO_DETECT")}
-              className={`rounded-md px-3 py-1 font-medium transition-all ${
-                gateMode === "AUTO_DETECT"
-                  ? "bg-white text-indigo-700 shadow-sm font-bold"
-                  : "text-slate-600 hover:text-slate-900"
-              }`}
-            >
-              Auto-Detect
-            </button>
-          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Station Selector */}
+            <div className="flex items-center gap-1.5 rounded-lg border border-slate-200 bg-slate-50 px-2.5 h-8 text-xs">
+              <Building2 className="h-3.5 w-3.5 text-blue-600 shrink-0" />
+              <select
+                value={selectedStation}
+                onChange={(e) => setSelectedStation(e.target.value)}
+                aria-label="Gate Station"
+                className="font-medium text-slate-800 bg-transparent focus:outline-none"
+              >
+                {stations.length > 0 ? (
+                  stations.map((s) => (
+                    <option key={s.id} value={s.station_code}>
+                      {s.station_code} — {s.name}
+                    </option>
+                  ))
+                ) : (
+                  <option value="ST-GATE-01">ST-GATE-01 — Main Campus Gate</option>
+                )}
+              </select>
+            </div>
 
-          {/* Gate Tuning Button (M4) */}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setIsSettingsOpen(true)}
-            className="flex items-center gap-1.5 border-slate-300 text-slate-700 hover:bg-slate-50"
-            title="Configure Gate Timing & Persistence"
-          >
-            <Sliders className="h-3.5 w-3.5 text-slate-500" />
-            <span className="hidden sm:inline">Gate Tuning</span>
-          </Button>
+            {/* Direction Mode Segmented Control */}
+            <div className="inline-flex h-8 items-center rounded-lg border border-slate-200 bg-slate-100 p-0.5 text-xs">
+              <button
+                type="button"
+                onClick={() => handleModeChange("IN")}
+                className={`rounded-md px-2.5 py-1 font-medium transition-all ${
+                  gateMode === "IN"
+                    ? "bg-white text-emerald-700 shadow-sm font-semibold"
+                    : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                Entry
+              </button>
+              <button
+                type="button"
+                onClick={() => handleModeChange("OUT")}
+                className={`rounded-md px-2.5 py-1 font-medium transition-all ${
+                  gateMode === "OUT"
+                    ? "bg-white text-blue-700 shadow-sm font-semibold"
+                    : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                Exit
+              </button>
+              <button
+                type="button"
+                onClick={() => handleModeChange("AUTO_DETECT")}
+                className={`rounded-md px-2.5 py-1 font-medium transition-all ${
+                  gateMode === "AUTO_DETECT"
+                    ? "bg-white text-indigo-700 shadow-sm font-semibold"
+                    : "text-slate-600 hover:text-slate-900"
+                }`}
+              >
+                Auto
+              </button>
+            </div>
 
-          {/* Audio Autoplay Warning Pill (E2) */}
-          {soundEnabled && isAudioSuspended && (
-            <button
-              onClick={() => {
-                const ctx = getAudioContext();
-                ctx?.resume().then(() => setIsAudioSuspended(false)).catch(() => {});
-              }}
-              className="flex items-center gap-1.5 rounded-lg bg-amber-500/15 px-2.5 py-1 text-xs font-medium text-amber-700 dark:text-amber-400 border border-amber-300 dark:border-amber-500/30 hover:bg-amber-500/25 transition-colors"
-              title="Browser autoplay policy suspended gate audio chimes. Click to enable sound."
-            >
-              <VolumeX className="h-3.5 w-3.5 text-amber-500 animate-pulse" />
-              <span className="hidden sm:inline">Tap to Enable Sound</span>
-            </button>
-          )}
-
-          {/* Sound Toggle */}
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => {
-              const next = !soundEnabled;
-              setSoundEnabled(next);
-              if (next) {
-                const ctx = getAudioContext();
-                ctx?.resume().then(() => setIsAudioSuspended(false)).catch(() => {});
-              }
-            }}
-            title={soundEnabled ? "Mute Gate Chime" : "Enable Gate Chime"}
-          >
-            {soundEnabled ? (
-              <Volume2 className="h-3.5 w-3.5 text-emerald-600" />
-            ) : (
-              <VolumeX className="h-3.5 w-3.5 text-slate-400" />
+            {/* Audio Autoplay Warning Pill */}
+            {soundEnabled && isAudioSuspended && (
+              <button
+                type="button"
+                onClick={() => {
+                  const ctx = getAudioContext();
+                  ctx?.resume().then(() => setIsAudioSuspended(false)).catch(() => {});
+                }}
+                className="flex h-8 items-center gap-1.5 rounded-lg bg-amber-50 px-2.5 text-xs font-medium text-amber-700 border border-amber-200 hover:bg-amber-100 transition-colors"
+              >
+                <VolumeX className="h-3.5 w-3.5 text-amber-500 animate-pulse" />
+                <span>Enable Sound</span>
+              </button>
             )}
-          </Button>
 
-          <Button variant="outline" size="sm" onClick={fetchGateData}>
-            <RefreshCw className="h-3.5 w-3.5" />
-          </Button>
-        </div>
-      </div>
+            {/* Sound Toggle */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                const next = !soundEnabled;
+                setSoundEnabled(next);
+                if (next) {
+                  const ctx = getAudioContext();
+                  ctx?.resume().then(() => setIsAudioSuspended(false)).catch(() => {});
+                }
+              }}
+              title={soundEnabled ? "Mute Gate Chime" : "Enable Gate Chime"}
+            >
+              {soundEnabled ? (
+                <Volume2 className="h-3.5 w-3.5 text-emerald-600" />
+              ) : (
+                <VolumeX className="h-3.5 w-3.5 text-slate-400" />
+              )}
+            </Button>
 
-      {/* Operator Live Gate Configuration & Connection Transport Status Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-slate-50/90 p-3 text-xs shadow-xs dark:border-slate-800 dark:bg-slate-900/60">
-        {/* Gate Direction (Operator Control) */}
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="font-semibold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-            <Compass className="h-4 w-4 text-blue-600 shrink-0" />
-            <span>Direction:</span>
-          </span>
-          <div className="inline-flex rounded-lg border border-slate-300 bg-white p-0.5 shadow-xs dark:border-slate-700 dark:bg-slate-800">
-            <button
-              type="button"
-              onClick={() => handleModeChange("IN")}
-              className={`px-2.5 py-1 rounded-md text-xs font-bold transition-all ${
-                gateMode === "IN"
-                  ? "bg-emerald-600 text-white shadow-xs"
-                  : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"
-              }`}
-              title="Set direction to IN (Entry / መግቢያ)"
+            {/* Gate Tuning Button */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setIsSettingsOpen(true)}
+              className="gap-1.5"
+              title="Configure Gate Timing & Persistence"
             >
-              IN (መግቢያ)
-            </button>
-            <button
-              type="button"
-              onClick={() => handleModeChange("OUT")}
-              className={`px-2.5 py-1 rounded-md text-xs font-bold transition-all ${
-                gateMode === "OUT"
-                  ? "bg-blue-600 text-white shadow-xs"
-                  : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"
-              }`}
-              title="Set direction to OUT (Exit / መውጫ)"
+              <Sliders className="h-3.5 w-3.5 text-slate-500" />
+              <span className="hidden sm:inline">Tuning</span>
+              {!isAdmin && <Lock className="h-3 w-3 text-amber-500" />}
+            </Button>
+
+            {/* Refresh / Reconnect */}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                fetchGateData();
+                handleReconnectTransport();
+              }}
+              isLoading={isTestingPing}
+              title="Refresh data & check connection"
             >
-              OUT (መውጫ)
-            </button>
-            <button
-              type="button"
-              onClick={() => handleModeChange("AUTO_DETECT")}
-              className={`px-2.5 py-1 rounded-md text-xs font-bold transition-all ${
-                gateMode === "AUTO_DETECT"
-                  ? "bg-indigo-600 text-white shadow-xs"
-                  : "text-slate-600 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white"
-              }`}
-              title="Set direction to Bidirectional Auto-Detect"
-            >
-              AUTO (ሁለትዮሽ)
-            </button>
+              <RefreshCw className="h-3.5 w-3.5" />
+            </Button>
           </div>
         </div>
 
-        {/* Sensitive Tuning Parameters Visibility (Read-Only to Operators, Admin Locked) */}
-        <div className="flex flex-wrap items-center gap-2 text-[11px] font-mono">
-          <div
-            className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 shadow-xs cursor-pointer hover:border-slate-300"
-            onClick={() => setIsSettingsOpen(true)}
-            title="Accidental checkout debounce window (Click to view/tune)"
-          >
-            <Clock className="h-3 w-3 text-amber-500 shrink-0" />
-            <span>Min Checkout: <strong className="text-slate-900 dark:text-white">{minCheckoutMins}m</strong></span>
+        {/* Quiet Single-Line Timing Summary */}
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-slate-100 pt-2.5 text-[11px] text-slate-500">
+          <div className="flex flex-wrap items-center gap-3 font-mono">
+            <button
+              type="button"
+              onClick={() => setIsSettingsOpen(true)}
+              className="inline-flex items-center gap-1 hover:text-slate-800 transition-colors"
+            >
+              <Clock className="h-3 w-3 text-amber-500" />
+              <span>Min Checkout: <strong className="text-slate-700">{minCheckoutMins}m</strong></span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsSettingsOpen(true)}
+              className="inline-flex items-center gap-1 hover:text-slate-800 transition-colors"
+            >
+              <Layers className="h-3 w-3 text-blue-500" />
+              <span>Persistence: <strong className="text-slate-700">{minPersistenceFrames}f</strong></span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setIsSettingsOpen(true)}
+              className="inline-flex items-center gap-1 hover:text-slate-800 transition-colors"
+            >
+              <ShieldAlert className="h-3 w-3 text-purple-500" />
+              <span>Cooldown: <strong className="text-slate-700">{cooldownSec}s</strong></span>
+            </button>
           </div>
-
-          <div
-            className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 shadow-xs cursor-pointer hover:border-slate-300"
-            onClick={() => setIsSettingsOpen(true)}
-            title="Tracking persistence consensus threshold (Click to view/tune)"
+          <button
+            type="button"
+            onClick={() => setShowSimTools(!showSimTools)}
+            className="text-slate-500 hover:text-slate-800 font-medium transition-colors"
           >
-            <Layers className="h-3 w-3 text-blue-500 shrink-0" />
-            <span>Persistence: <strong className="text-slate-900 dark:text-white">{minPersistenceFrames}f</strong></span>
-          </div>
-
-          <div
-            className="inline-flex items-center gap-1 rounded-md border border-slate-200 bg-white px-2 py-1 text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-300 shadow-xs cursor-pointer hover:border-slate-300"
-            onClick={() => setIsSettingsOpen(true)}
-            title="Passage cooldown period (Click to view/tune)"
-          >
-            <ShieldAlert className="h-3 w-3 text-purple-500 shrink-0" />
-            <span>Cooldown: <strong className="text-slate-900 dark:text-white">{cooldownSec}s</strong></span>
-          </div>
-        </div>
-
-        {/* Transport Status & Ping Telemetry */}
-        <div className="flex items-center gap-2">
-          {transportMode === "WEBSOCKET" && isWsConnected ? (
-            <span className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-500/15 border border-emerald-500/30 px-2.5 py-1 text-xs font-semibold text-emerald-700 dark:text-emerald-300">
-              <Radio className="h-3.5 w-3.5 text-emerald-600 animate-pulse shrink-0" />
-              <span>WebSocket Live</span>
-              {rttMs !== null && <span className="text-[10px] font-mono font-normal opacity-80">({rttMs}ms)</span>}
-            </span>
-          ) : (
-            <span className="inline-flex items-center gap-1.5 rounded-lg bg-amber-500/15 border border-amber-500/30 px-2.5 py-1 text-xs font-semibold text-amber-800 dark:text-amber-300">
-              <Radio className="h-3.5 w-3.5 text-amber-600 shrink-0" />
-              <span>HTTP Polling Fallback</span>
-              {rttMs !== null && <span className="text-[10px] font-mono font-normal opacity-80">({rttMs}ms)</span>}
-            </span>
-          )}
-
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleReconnectTransport}
-            isLoading={isTestingPing}
-            className="h-7 px-2 text-[11px]"
-            title="Test transport latency and reconnect"
-          >
-            <RefreshCw className="h-3 w-3" />
-          </Button>
-
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setIsSettingsOpen(true)}
-            className="h-7 px-2.5 text-[11px] gap-1 border-blue-200 text-blue-700 hover:bg-blue-50"
-            title="Open Gate Tuning Parameters"
-          >
-            <Sliders className="h-3 w-3" />
-            <span>Tuning</span>
-            {!isAdmin && <Lock className="h-2.5 w-2.5 text-amber-500 ml-0.5" />}
-          </Button>
+            {showSimTools ? "Hide Test Controls" : "Test Controls"}
+          </button>
         </div>
       </div>
 
@@ -1377,68 +1322,70 @@ export default function ContinuousEntrancePage() {
             </div>
           </Card>
 
-          {/* Quick Crowd & Passage Simulation Sandbox */}
-          <Card className="bg-slate-50 border-slate-200 shadow-sm">
-            <CardHeader className="py-3 px-4 bg-white border-b border-slate-100 flex flex-row items-center justify-between">
-              <div>
-                <CardTitle className="text-xs font-bold flex items-center gap-1.5 text-slate-800">
-                  <Sparkles className="h-3.5 w-3.5 text-blue-600" />
-                  Option B Multi-Person Simulation Sandbox
-                </CardTitle>
-                <CardDescription className="text-[11px]">
-                  Test continuous multi-face detection, cooldown and autonomous punching without a camera.
-                </CardDescription>
-              </div>
-              <Badge variant="brand" className="text-[10px]">Developer Rig</Badge>
-            </CardHeader>
-            <CardContent className="p-3">
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => runSimulation(["EIPC-EMP-001", "EIPC-EMP-002"], "2 Staff Entering Together")}
-                  isLoading={isProcessing}
-                  className="text-[11px] h-8 justify-center bg-white"
-                >
-                  <Users className="h-3 w-3 mr-1 text-emerald-600" />
-                  Abebe + Hanna
-                </Button>
+          {/* Collapsible Crowd & Passage Simulation Sandbox */}
+          {showSimTools && (
+            <Card className="bg-slate-50 border-slate-200 shadow-sm">
+              <CardHeader className="py-3 px-4 bg-white border-b border-slate-100 flex flex-row items-center justify-between rounded-t-2xl">
+                <div>
+                  <CardTitle className="text-xs font-bold flex items-center gap-1.5 text-slate-800">
+                    <Sparkles className="h-3.5 w-3.5 text-blue-600" />
+                    Multi-Person Simulation Sandbox
+                  </CardTitle>
+                  <CardDescription className="text-[11px]">
+                    Test continuous multi-face detection, cooldown, and autonomous punching without a camera.
+                  </CardDescription>
+                </div>
+                <Badge variant="outline" className="text-[10px]">Testing</Badge>
+              </CardHeader>
+              <CardContent className="p-3">
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => runSimulation(["EIPC-EMP-001", "EIPC-EMP-002"], "2 Staff Entering Together")}
+                    isLoading={isProcessing}
+                    className="text-[11px] h-8 justify-center bg-white"
+                  >
+                    <Users className="h-3 w-3 mr-1 text-emerald-600" />
+                    Abebe + Hanna
+                  </Button>
 
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => runSimulation(["EIPC-EMP-003"], "Solo Staff Fast Passage")}
-                  isLoading={isProcessing}
-                  className="text-[11px] h-8 justify-center bg-white"
-                >
-                  <UserCheck className="h-3 w-3 mr-1 text-blue-600" />
-                  Chaltu Girma
-                </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => runSimulation(["EIPC-EMP-003"], "Solo Staff Fast Passage")}
+                    isLoading={isProcessing}
+                    className="text-[11px] h-8 justify-center bg-white"
+                  >
+                    <UserCheck className="h-3 w-3 mr-1 text-blue-600" />
+                    Chaltu Girma
+                  </Button>
 
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => runSimulation(["EIPC-EMP-004", "UNKNOWN_VISITOR"], "Staff + Unknown Visitor")}
-                  isLoading={isProcessing}
-                  className="text-[11px] h-8 justify-center bg-white"
-                >
-                  <UserX className="h-3 w-3 mr-1 text-rose-600" />
-                  Staff + Visitor
-                </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => runSimulation(["EIPC-EMP-004", "UNKNOWN_VISITOR"], "Staff + Unknown Visitor")}
+                    isLoading={isProcessing}
+                    className="text-[11px] h-8 justify-center bg-white"
+                  >
+                    <UserX className="h-3 w-3 mr-1 text-rose-600" />
+                    Staff + Visitor
+                  </Button>
 
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => runSimulation(["EIPC-EMP-001", "EIPC-EMP-002", "EIPC-EMP-003"], "3 Staff Crowd")}
-                  isLoading={isProcessing}
-                  className="text-[11px] h-8 justify-center bg-white"
-                >
-                  <Layers className="h-3 w-3 mr-1 text-indigo-600" />
-                  3-Person Crowd
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => runSimulation(["EIPC-EMP-001", "EIPC-EMP-002", "EIPC-EMP-003"], "3 Staff Crowd")}
+                    isLoading={isProcessing}
+                    className="text-[11px] h-8 justify-center bg-white"
+                  >
+                    <Layers className="h-3 w-3 mr-1 text-indigo-600" />
+                    3-Person Crowd
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </div>
 
         {/* Right Column: Gate Telemetry & Real-Time Passage Ticker (5 Cols) */}

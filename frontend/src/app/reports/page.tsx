@@ -190,14 +190,11 @@ export default function ReportsPage() {
     <AuthGuard>
       <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-slate-200 pb-5">
+      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-slate-200/80 pb-5">
         <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-bold tracking-tight text-slate-900">Attendance Records & Reports</h1>
-            <Badge variant="brand" className="text-xs">AT-25 Compliant</Badge>
-          </div>
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900">Attendance Records &amp; Reports</h1>
           <p className="mt-1 text-xs text-slate-500">
-            Multi-criteria attendance queries, immutable audit verification, punctuality tracking, and official CSV export.
+            Multi-criteria attendance queries, punctuality tracking, and official CSV export.
           </p>
         </div>
 
@@ -213,7 +210,7 @@ export default function ReportsPage() {
             disabled={isExporting}
           >
             <Download className="mr-1.5 h-4 w-4" />
-            <span>Export CSV (AT-25)</span>
+            <span>Export CSV</span>
           </Button>
         </div>
       </div>

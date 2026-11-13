@@ -1,78 +1,45 @@
 import React from "react";
-import clsx from "clsx";
+import { clsx, type ClassValue } from "clsx";
+import { twMerge } from "tailwind-merge";
 
-export function Card({
-  className,
-  children,
-  ...props
-}: React.HTMLAttributes<HTMLDivElement>) {
+function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs));
+}
+
+export function Card({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
   return (
     <div
-      className={clsx(
-        "rounded-xl border border-slate-200/80 bg-white/95 text-slate-900 shadow-sm backdrop-blur-sm dark:border-slate-800 dark:bg-slate-900/90 dark:text-slate-100",
+      className={cn(
+        "rounded-xl border border-[#E5E7EB] bg-white text-slate-900 shadow-[0_1px_2px_rgba(15,23,42,0.03)]",
         className
       )}
       {...props}
-    >
-      {children}
-    </div>
+    />
   );
 }
 
-export function CardHeader({
-  className,
-  children,
-  ...props
-}: React.HTMLAttributes<HTMLDivElement>) {
+export function CardHeader({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
   return (
     <div
-      className={clsx("flex flex-col space-y-1.5 p-5 pb-3", className)}
+      className={cn("px-5 py-4 border-b border-[#EAECEF] flex flex-col gap-0.5", className)}
       {...props}
-    >
-      {children}
-    </div>
+    />
   );
 }
 
-export function CardTitle({
-  className,
-  children,
-  ...props
-}: React.HTMLAttributes<HTMLHeadingElement>) {
+export function CardTitle({ className, ...props }: React.HTMLAttributes<HTMLHeadingElement>) {
   return (
     <h3
-      className={clsx("font-semibold leading-none tracking-tight text-slate-900 dark:text-white", className)}
+      className={cn("text-[14px] font-semibold tracking-tight text-slate-900", className)}
       {...props}
-    >
-      {children}
-    </h3>
+    />
   );
 }
 
-export function CardDescription({
-  className,
-  children,
-  ...props
-}: React.HTMLAttributes<HTMLParagraphElement>) {
-  return (
-    <p
-      className={clsx("text-xs text-slate-500 dark:text-slate-400", className)}
-      {...props}
-    >
-      {children}
-    </p>
-  );
+export function CardDescription({ className, ...props }: React.HTMLAttributes<HTMLParagraphElement>) {
+  return <p className={cn("text-xs text-slate-500", className)} {...props} />;
 }
 
-export function CardContent({
-  className,
-  children,
-  ...props
-}: React.HTMLAttributes<HTMLDivElement>) {
-  return (
-    <div className={clsx("p-5 pt-0", className)} {...props}>
-      {children}
-    </div>
-  );
+export function CardContent({ className, ...props }: React.HTMLAttributes<HTMLDivElement>) {
+  return <div className={cn("p-5", className)} {...props} />;
 }
-

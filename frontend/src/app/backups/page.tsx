@@ -285,7 +285,7 @@ export default function BackupsPage() {
 
   return (
     <AuthGuard allowedRoles={["SYSTEM_ADMIN"]}>
-      <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6 space-y-6">
+      <div className="space-y-6">
         {/* Header with Title and Administrative Scope */}
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between border-b pb-5 border-slate-200 dark:border-slate-800">
           <div>
