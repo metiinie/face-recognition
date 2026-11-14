@@ -56,7 +56,10 @@ def create_app(config_class=Config, seed_db: bool = True) -> Flask:
 
     with app.app_context():
         import backend.database.models  # noqa: F401
+        from backend.database import ensure_schema_columns
+
         db.create_all()
+        ensure_schema_columns()
         if seed_db and not app.config.get("TESTING", False):
             from backend.database.seed import seed_initial_data
             seed_initial_data()

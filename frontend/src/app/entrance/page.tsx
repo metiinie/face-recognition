@@ -1567,6 +1567,88 @@ export default function ContinuousEntrancePage() {
 
         {/* Right: Active Detections + Last 25 Passages */}
         <div className="lg:col-span-4 space-y-4">
+          {/* 5-Stage Continuous Gate Tracking Sequence */}
+          {(() => {
+            const minPersist = gateStatus?.min_persistence_frames || 3;
+            const hasDetections = detectedFaces.length > 0;
+            const hasTracked = detectedFaces.some(
+              (f) => f.matched || f.action_status === "CONFIRMED" || (f.frames_seen || 0) >= minPersist
+            );
+            const hasAcquiring = detectedFaces.some((f) => f.action_status === "ACQUIRING_TRACK");
+            const hasMatched = detectedFaces.some((f) => f.matched && f.liveness_passed);
+            const hasBlocked = detectedFaces.some((f) =>
+              ["SPOOF_BLOCKED", "INACTIVE_BLOCKED", "CONSENT_BLOCKED", "REJECTED"].includes(
+                f.action_status || ""
+              )
+            );
+            const hasConfirmed = detectedFaces.some((f) => f.action_status === "CONFIRMED");
+
+            const gateSteps = [
+              {
+                n: "01",
+                label: "Face Detect",
+                state: hasDetections ? "PASSED" : isStreaming ? "ACTIVE" : "IDLE",
+              },
+              {
+                n: "02",
+                label: `Track (${minPersist}f)`,
+                state: hasTracked ? "PASSED" : hasAcquiring ? "ACTIVE" : "IDLE",
+              },
+              {
+                n: "03",
+                label: "Match & Live",
+                state: hasMatched ? "PASSED" : hasBlocked ? "FAILED" : "IDLE",
+              },
+              {
+                n: "04",
+                label: "Consent/Dir",
+                state: hasConfirmed
+                  ? "PASSED"
+                  : detectedFaces.some((f) => f.action_status === "CONSENT_BLOCKED")
+                  ? "FAILED"
+                  : hasMatched
+                  ? "ACTIVE"
+                  : "IDLE",
+              },
+              {
+                n: "05",
+                label: "Auto Commit",
+                state: hasConfirmed ? "PASSED" : "IDLE",
+              },
+            ];
+
+            return (
+              <div className="rounded-xl border border-[#E5E7EB] bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-600">
+                    Continuous Gate Sequence (1–5)
+                  </span>
+                  <span className="font-mono text-[10px] text-slate-500">
+                    {isStreaming ? "STREAM LIVE" : "STANDBY"}
+                  </span>
+                </div>
+                <div className="grid grid-cols-5 gap-1">
+                  {gateSteps.map((gs) => {
+                    const cls =
+                      gs.state === "PASSED"
+                        ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                        : gs.state === "FAILED"
+                        ? "border-rose-200 bg-rose-50 text-rose-700"
+                        : gs.state === "ACTIVE"
+                        ? "border-indigo-200 bg-[#EEF2FF] text-[#4338CA]"
+                        : "border-[#EAECEF] bg-[#FAFBFD] text-slate-400";
+                    return (
+                      <div key={gs.n} className={`rounded-md border px-1 py-1.5 text-center ${cls}`}>
+                        <div className="font-mono text-[10px] font-semibold">{gs.n}</div>
+                        <div className="text-[9px] font-medium truncate mt-0.5">{gs.label}</div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })()}
+
           {/* Active Frame Detections */}
           <div className="rounded-xl border border-[#E5E7EB] bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)] overflow-hidden">
             <div className="px-4 py-3 border-b border-[#EAECEF] flex items-center justify-between">

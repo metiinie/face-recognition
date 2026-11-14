@@ -167,6 +167,35 @@ function LoginForm() {
                 <ArrowRight className="h-4 w-4" />
               </Button>
             </form>
+
+            {/* Quick-Fill University Governance Role Pills */}
+            <div className="pt-3 border-t border-[#EAECEF]">
+              <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 mb-2">
+                University Governance Demo Roles
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {[
+                  { label: "Admin", u: "admin", p: "Admin@EIPC2026" },
+                  { label: "HR / Registrar", u: "hr_officer", p: "Hr@EIPC2026" },
+                  { label: "Dept Head (ICT)", u: "dean_ict", p: "DeanPassword123!" },
+                  { label: "Auditor (Read-Only)", u: "auditor", p: "Audit@EIPC2026" },
+                  { label: "Gate Operator", u: "gate_op", p: "GatePassword123!" },
+                ].map((preset) => (
+                  <button
+                    key={preset.u}
+                    type="button"
+                    onClick={() => {
+                      setUsername(preset.u);
+                      setPassword(preset.p);
+                      setErrorMessage(null);
+                    }}
+                    className="rounded-md border border-[#E5E7EB] bg-[#FAFBFD] px-2 py-1 text-[11px] font-medium text-slate-600 hover:border-[#C7D2FE] hover:bg-[#EEF2FF] hover:text-[#4338CA] transition-colors"
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
+            </div>
           </CardContent>
         </Card>
 

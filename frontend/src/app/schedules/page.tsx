@@ -13,6 +13,9 @@ import {
   StationRecord,
   PolicySignoffRecord,
   EmployeeRecord,
+  UserProfile,
+  isAdminRole,
+  canManageSchedules,
 } from "@/lib/api";
 import {
   CalendarClock,
@@ -62,6 +65,7 @@ function calculateEthiopianClock(timeStr: string): string {
 
 export default function SchedulesStationsPage() {
   const [activeTab, setActiveTab] = useState<"templates" | "assignments" | "exceptions" | "stations" | "policies">("templates");
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [statusMessage, setStatusMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
@@ -118,14 +122,15 @@ export default function SchedulesStationsPage() {
     setIsLoading(true);
     setStatusMessage(null);
     try {
-      const [tmplRes, assignRes, excRes, stRes, polRes, empRes, deptRes] = await Promise.all([
+      const [tmplRes, assignRes, excRes, stRes, polRes, empRes, deptRes, me] = await Promise.all([
         api.getShiftTemplates(),
         api.getShiftAssignments(),
         api.getScheduleExceptions(),
-        api.getStations(),
-        api.getPolicies(),
-        api.getEmployees(),
+        api.getStations().catch(() => [] as StationRecord[]),
+        api.getPolicies().catch(() => [] as PolicySignoffRecord[]),
+        api.getEmployees().catch(() => [] as EmployeeRecord[]),
         api.getDepartments(),
+        api.getMe().catch(() => null),
       ]);
 
       setTemplates(tmplRes);
@@ -135,6 +140,7 @@ export default function SchedulesStationsPage() {
       setPolicies(polRes);
       setEmployees(empRes);
       setDepartments(deptRes);
+      if (me) setCurrentUser(me);
 
       if (tmplRes.length > 0 && !newAssignment.shift_template_id) {
         setNewAssignment((prev) => ({ ...prev, shift_template_id: String(tmplRes[0].id) }));
@@ -154,8 +160,19 @@ export default function SchedulesStationsPage() {
   };
 
   useEffect(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const cached = localStorage.getItem("eipc_user");
+        if (cached) setCurrentUser(JSON.parse(cached));
+      } catch {
+        // ignore
+      }
+    }
     fetchData();
   }, []);
+
+  const allowAdmin = isAdminRole(currentUser?.role);
+  const allowManageSchedules = canManageSchedules(currentUser?.role);
 
   // Form Handlers
   const handleCreateShift = async (e: React.FormEvent) => {
@@ -470,6 +487,10 @@ export default function SchedulesStationsPage() {
                       className="w-full h-9 rounded-lg border border-[#E5E7EB] bg-white px-2.5 text-xs text-slate-900 focus:border-[#4F46E5] focus:outline-none"
                     >
                       <option value="REGULAR_STAFF">REGULAR_STAFF</option>
+                      <option value="ACADEMIC_LECTURER">ACADEMIC_LECTURER</option>
+                      <option value="LAB_INSTRUCTOR">LAB_INSTRUCTOR</option>
+                      <option value="ADMIN_STAFF">ADMIN_STAFF</option>
+                      <option value="RESEARCH_CANDIDATE">RESEARCH_CANDIDATE</option>
                       <option value="CLEANING_STAFF">CLEANING_STAFF</option>
                       <option value="SECURITY_GUARD">SECURITY_GUARD</option>
                     </select>
@@ -563,7 +584,7 @@ export default function SchedulesStationsPage() {
                     </label>
                   </div>
 
-                  <Button type="submit" className="w-full" size="sm">
+                  <Button type="submit" className="w-full" size="sm" disabled={!allowManageSchedules}>
                     Save Shift Template
                   </Button>
                 </form>
@@ -932,7 +953,8 @@ export default function SchedulesStationsPage() {
         {/* Tab 4: Departmental Stations */}
         {activeTab === "stations" && (
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-            {/* Station Registration Form */}
+            {/* Station Registration Form (Admin Only) */}
+            {allowAdmin && (
             <Card className="lg:col-span-1">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2">
@@ -1002,9 +1024,10 @@ export default function SchedulesStationsPage() {
                 </form>
               </CardContent>
             </Card>
+            )}
 
             {/* Stations Table */}
-            <Card className="lg:col-span-2">
+            <Card className={allowAdmin ? "lg:col-span-2" : "lg:col-span-3"}>
               <CardHeader className="flex flex-row items-center justify-between gap-2">
                 <div>
                   <CardTitle>Registered Departmental Attendance Stations</CardTitle>
@@ -1102,13 +1125,17 @@ export default function SchedulesStationsPage() {
                             <CheckCircle2 className="h-4 w-4 text-emerald-600" />
                             <span>Audited &amp; Confirmed</span>
                           </div>
-                        ) : (
+                        ) : allowAdmin ? (
                           <Button
                             size="sm"
                             onClick={() => handleConfirmPolicy(p.id)}
                           >
                             <CheckCircle2 className="h-3.5 w-3.5 mr-1" /> Confirm Policy
                           </Button>
+                        ) : (
+                          <Badge variant="outline" className="text-[10px]">
+                            Admin Approval Required
+                          </Badge>
                         )}
                       </div>
                     </div>

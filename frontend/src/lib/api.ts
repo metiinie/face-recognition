@@ -12,12 +12,79 @@ export interface UserProfile {
   fullName?: string;
   full_name?: string;
   departmentId?: number;
+  department_id?: number | null;
+  department_name?: string | null;
+  department_code?: string | null;
 }
 
 export type UserRole = UserProfile["role"];
 
 export function isAdminRole(role?: string | null): boolean {
   return role === "ADMIN" || role === "SYSTEM_ADMIN";
+}
+
+export function isAuditorRole(role?: string | null): boolean {
+  return role === "AUDITOR";
+}
+
+export function isDeptHeadRole(role?: string | null): boolean {
+  return role === "DEPT_HEAD";
+}
+
+export function canManageEmployees(role?: string | null): boolean {
+  return isAdminRole(role) || role === "HR_OFFICER";
+}
+
+export function canEnrollBiometrics(role?: string | null): boolean {
+  return isAdminRole(role) || role === "HR_OFFICER";
+}
+
+export function canManageSchedules(role?: string | null): boolean {
+  return isAdminRole(role) || role === "HR_OFFICER" || role === "DEPT_HEAD";
+}
+
+export function canReviewAttendance(role?: string | null): boolean {
+  return isAdminRole(role) || role === "HR_OFFICER";
+}
+
+export interface CandidateLifecycleStep {
+  step: number;
+  key:
+    | "REGISTERED"
+    | "CONSENT_VERIFIED"
+    | "BIOMETRIC_ENROLLED"
+    | "SCHEDULE_ASSIGNED"
+    | "VERIFIED_IDENTIFIED"
+    | string;
+  label: string;
+  completed: boolean;
+  timestamp?: string | null;
+}
+
+export interface CandidateLifecycle {
+  current_stage: string;
+  stage_number: number;
+  progress_pct: number;
+  ready_for_scanning: boolean;
+  next_action: string;
+  steps: CandidateLifecycleStep[];
+}
+
+export interface DepartmentRecord {
+  id: number;
+  name: string;
+  code: string;
+  faculty_name?: string;
+  unit_type?: "ACADEMIC_FACULTY" | "TECHNICAL_DEPT" | "ADMIN_UNIT" | "CAMPUS_OPERATIONS" | string;
+  status?: string;
+}
+
+export interface ScanSequenceStep {
+  step: number;
+  stage: string;
+  label: string;
+  status: "PASSED" | "FAILED" | "SKIPPED" | "RUNNING" | string;
+  detail: string;
 }
 
 export interface BiometricEvaluationMetrics {
@@ -95,13 +162,20 @@ export interface EmployeeRecord {
   employee_number: string;
   first_name: string;
   last_name: string;
+  full_name?: string;
   job_category: string;
   department_name: string;
   department_id: number;
+  department_faculty?: string;
+  department_unit_type?: string;
   status: string;
   has_active_template: boolean;
   template_model_version?: string;
   consent_verified: boolean;
+  active_shift_id?: number | null;
+  active_shift_name?: string | null;
+  last_identified_at?: string | null;
+  lifecycle?: CandidateLifecycle;
 }
 
 export interface ShiftTemplateRecord {
@@ -385,6 +459,7 @@ export interface RecognitionResult {
   liveness_passed?: boolean;
   rejection_code?: string;
   rejection_message?: string;
+  scan_sequence?: ScanSequenceStep[];
   latency_ms?: number;
 }
 
@@ -557,9 +632,58 @@ export const api = {
     return request("/api/attendance/summary");
   },
 
-  async getDepartments(): Promise<Array<{ id: number; name: string; code: string }>> {
+  async getDepartments(): Promise<DepartmentRecord[]> {
     const res = await request<any>("/api/departments");
     return Array.isArray(res) ? res : (res.departments || []);
+  },
+
+  async createDepartment(payload: {
+    name: string;
+    code: string;
+    faculty_name?: string;
+    unit_type?: string;
+  }): Promise<{ status: string; department: DepartmentRecord }> {
+    return request("/api/departments", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  },
+
+  async getEmployeeLifecycle(empId: number): Promise<{
+    employee_id: number;
+    employee_number: string;
+    full_name: string;
+    department_id: number;
+    department_name: string;
+    department_faculty?: string;
+    job_category: string;
+    status: string;
+    active_shift_id?: number | null;
+    active_shift_name?: string | null;
+    last_identified_at?: string | null;
+    lifecycle: CandidateLifecycle;
+  }> {
+    return request(`/api/employees/${empId}/lifecycle`);
+  },
+
+  async verifyEmployeeIdentification(
+    empId: number,
+    payload: { image_base64: string; quality_mode?: string }
+  ): Promise<{
+    verified: boolean;
+    matched_employee_number?: string | null;
+    match_score: number;
+    quality_score: number;
+    rejection_code?: string | null;
+    message: string;
+    scan_sequence: ScanSequenceStep[];
+    lifecycle: CandidateLifecycle;
+    latency_ms?: number;
+  }> {
+    return request(`/api/employees/${empId}/verify-identification`, {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
   },
 
   async getEmployees(params?: { q?: string; department_id?: number }): Promise<EmployeeRecord[]> {

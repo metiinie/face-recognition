@@ -5,7 +5,15 @@ import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/Ca
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { AuthGuard } from "@/components/AuthGuard";
-import { api, AttendanceSessionRecord, EmployeeRecord } from "@/lib/api";
+import {
+  api,
+  AttendanceSessionRecord,
+  EmployeeRecord,
+  UserProfile,
+  canReviewAttendance,
+  isAuditorRole,
+  isDeptHeadRole,
+} from "@/lib/api";
 import { extractEatTimeToken } from "@/lib/format";
 import {
   Download,
@@ -19,6 +27,7 @@ export default function ReportsPage() {
   const [sessions, setSessions] = useState<AttendanceSessionRecord[]>([]);
   const [departments, setDepartments] = useState<Array<{ id: number; name: string; code: string }>>([]);
   const [employees, setEmployees] = useState<EmployeeRecord[]>([]);
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   // Filter state
@@ -42,9 +51,14 @@ export default function ReportsPage() {
 
   const fetchFiltersData = async () => {
     try {
-      const [depts, emps] = await Promise.all([api.getDepartments(), api.getEmployees()]);
+      const [depts, emps, me] = await Promise.all([
+        api.getDepartments().catch(() => []),
+        api.getEmployees().catch(() => []),
+        api.getMe().catch(() => null),
+      ]);
       setDepartments(depts);
       setEmployees(emps);
+      if (me) setCurrentUser(me);
     } catch (err) {
       console.error("Failed to load filter metadata:", err);
     }
@@ -71,8 +85,23 @@ export default function ReportsPage() {
   };
 
   useEffect(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const cached = localStorage.getItem("eipc_user");
+        if (cached) setCurrentUser(JSON.parse(cached));
+      } catch {
+        // ignore
+      }
+    }
     fetchFiltersData();
   }, []);
+
+  const allowCorrect = canReviewAttendance(currentUser?.role);
+  const readOnlyBadgeLabel = isAuditorRole(currentUser?.role)
+    ? "Audit View"
+    : isDeptHeadRole(currentUser?.role)
+    ? "Dept View"
+    : "Read Only";
 
   useEffect(() => {
     fetchSessions();
@@ -533,10 +562,16 @@ export default function ReportsPage() {
                       </div>
                     </td>
                     <td className="py-3 px-4 text-right">
-                      <Button variant="outline" size="sm" onClick={() => handleOpenCorrection(s)}>
-                        <Edit3 className="h-3 w-3" />
-                        <span>Correct</span>
-                      </Button>
+                      {allowCorrect ? (
+                        <Button variant="outline" size="sm" onClick={() => handleOpenCorrection(s)}>
+                          <Edit3 className="h-3 w-3" />
+                          <span>Correct</span>
+                        </Button>
+                      ) : (
+                        <Badge variant="outline" className="text-[10px]">
+                          {readOnlyBadgeLabel}
+                        </Badge>
+                      )}
                     </td>
                   </tr>
                 ))}

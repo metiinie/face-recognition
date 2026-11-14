@@ -57,6 +57,7 @@ def authenticate_user(username: str, password: str) -> tuple[User | None, str | 
     session["username"] = user.username
     session["role_name"] = user.role.name if user.role else "UNKNOWN"
     session["full_name"] = user.full_name
+    session["department_id"] = user.department_id
 
     record_audit_log(
         action="AUTH_LOGIN_SUCCESS",
@@ -145,6 +146,38 @@ def permission_required(permission: str):
                 if _wants_json():
                     return jsonify({
                         "error": f"Forbidden: requires permission '{permission}'",
+                        "code": "FORBIDDEN"
+                    }), 403
+                abort(403)
+            return f(*args, **kwargs)
+        return decorated
+    return decorator
+
+
+def any_permission_required(*permissions: str):
+    """Enforce that the current user holds at least one of the specified permissions."""
+    def decorator(f):
+        @wraps(f)
+        def decorated(*args, **kwargs):
+            user = get_current_user()
+            if not user:
+                if _wants_json():
+                    return jsonify({"error": "Authentication required", "code": "UNAUTHENTICATED"}), 401
+                return redirect(url_for("web_ui.login_page", next=request.path))
+            if not any(user.has_permission(p) for p in permissions):
+                perm_label = "|".join(permissions)
+                record_audit_log(
+                    action="ACCESS_DENIED",
+                    target_type="PERMISSION",
+                    target_id=perm_label,
+                    reason=f"Role {user.role.name if user.role else 'NONE'} lacks any of {perm_label}",
+                    actor_user_id=user.id,
+                    actor_username=user.username,
+                    commit=True,
+                )
+                if _wants_json():
+                    return jsonify({
+                        "error": f"Forbidden: requires one of [{perm_label}]",
                         "code": "FORBIDDEN"
                     }), 403
                 abort(403)

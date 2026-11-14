@@ -28,6 +28,7 @@ interface NavItem {
   href: string;
   icon: React.ComponentType<{ className?: string }>;
   adminOnly?: boolean;
+  allowedRoles?: Array<UserProfile["role"]>;
 }
 
 const TERMINAL_ITEMS: NavItem[] = [
@@ -36,16 +37,52 @@ const TERMINAL_ITEMS: NavItem[] = [
 ];
 
 const OPERATIONS_ITEMS: NavItem[] = [
-  { name: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
-  { name: "Employees", href: "/employees", icon: Users },
-  { name: "Reports & CSV", href: "/reports", icon: FileText },
-  { name: "Schedules", href: "/schedules", icon: CalendarClock },
+  {
+    name: "Dashboard",
+    href: "/dashboard",
+    icon: LayoutDashboard,
+    allowedRoles: ["ADMIN", "SYSTEM_ADMIN", "HR_OFFICER", "DEPT_HEAD", "AUDITOR", "KIOSK_OPERATOR"],
+  },
+  {
+    name: "Employees",
+    href: "/employees",
+    icon: Users,
+    allowedRoles: ["ADMIN", "SYSTEM_ADMIN", "HR_OFFICER", "DEPT_HEAD"],
+  },
+  {
+    name: "Reports & CSV",
+    href: "/reports",
+    icon: FileText,
+    allowedRoles: ["ADMIN", "SYSTEM_ADMIN", "HR_OFFICER", "DEPT_HEAD", "AUDITOR"],
+  },
+  {
+    name: "Schedules",
+    href: "/schedules",
+    icon: CalendarClock,
+    allowedRoles: ["ADMIN", "SYSTEM_ADMIN", "HR_OFFICER", "DEPT_HEAD"],
+  },
 ];
 
 const ADMIN_ITEMS: NavItem[] = [
-  { name: "Audit & Review", href: "/audit", icon: ShieldAlert },
-  { name: "Biometrics Lab", href: "/biometrics", icon: LineChart },
-  { name: "Backups & DR", href: "/backups", icon: Database, adminOnly: true },
+  {
+    name: "Audit & Review",
+    href: "/audit",
+    icon: ShieldAlert,
+    allowedRoles: ["ADMIN", "SYSTEM_ADMIN", "HR_OFFICER", "AUDITOR"],
+  },
+  {
+    name: "Biometrics Lab",
+    href: "/biometrics",
+    icon: LineChart,
+    allowedRoles: ["ADMIN", "SYSTEM_ADMIN", "HR_OFFICER", "AUDITOR"],
+  },
+  {
+    name: "Backups & DR",
+    href: "/backups",
+    icon: Database,
+    adminOnly: true,
+    allowedRoles: ["ADMIN", "SYSTEM_ADMIN"],
+  },
 ];
 
 function FaceoBrandMark({ className = "h-7 w-7" }: { className?: string }) {
@@ -166,50 +203,56 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   };
 
   const canSeeItem = (item: NavItem) => {
-    if (!item.adminOnly) return true;
-    return !user || isAdminRole(user.role);
+    if (!user) return !item.adminOnly;
+    if (item.adminOnly && !isAdminRole(user.role)) return false;
+    if (item.allowedRoles && !item.allowedRoles.includes(user.role)) return false;
+    return true;
   };
 
   const renderNavSection = (
     title: string,
     items: NavItem[],
     compact: boolean
-  ) => (
-    <div>
-      {!compact && (
-        <p className="px-2.5 mb-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400">
-          {title}
-        </p>
-      )}
-      <div className="space-y-0.5">
-        {items.filter(canSeeItem).map((item) => {
-          const Icon = item.icon;
-          const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
+  ) => {
+    const visibleItems = items.filter(canSeeItem);
+    if (visibleItems.length === 0) return null;
+    return (
+      <div>
+        {!compact && (
+          <p className="px-2.5 mb-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400">
+            {title}
+          </p>
+        )}
+        <div className="space-y-0.5">
+          {visibleItems.map((item) => {
+            const Icon = item.icon;
+            const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
 
-          return (
-            <Link
-              key={item.href}
-              href={item.href}
-              prefetch={true}
-              title={compact ? item.name : undefined}
-              className={`group flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] transition-colors ${
-                active
-                  ? "bg-[#EEF2FF] text-[#4338CA] font-medium"
-                  : "text-slate-600 hover:bg-slate-100/75 hover:text-slate-900"
-              } ${compact ? "justify-center" : ""}`}
-            >
-              <Icon
-                className={`h-4 w-4 shrink-0 ${
-                  active ? "text-[#4F46E5]" : "text-slate-400 group-hover:text-slate-600"
-                }`}
-              />
-              {!compact && <span className="truncate">{item.name}</span>}
-            </Link>
-          );
-        })}
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                prefetch={true}
+                title={compact ? item.name : undefined}
+                className={`group flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] transition-colors ${
+                  active
+                    ? "bg-[#EEF2FF] text-[#4338CA] font-medium"
+                    : "text-slate-600 hover:bg-slate-100/75 hover:text-slate-900"
+                } ${compact ? "justify-center" : ""}`}
+              >
+                <Icon
+                  className={`h-4 w-4 shrink-0 ${
+                    active ? "text-[#4F46E5]" : "text-slate-400 group-hover:text-slate-600"
+                  }`}
+                />
+                {!compact && <span className="truncate">{item.name}</span>}
+              </Link>
+            );
+          })}
+        </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   const renderSidebarContent = (compact: boolean) => (
     <div className="flex flex-1 flex-col justify-between overflow-y-auto px-3 py-4 gap-6">
@@ -250,7 +293,14 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                 <p className="text-xs font-medium truncate text-slate-900">
                   {user.fullName || user.full_name || user.username}
                 </p>
-                <p className="text-[11px] text-slate-500 truncate">{formatRoleLabel(user.role)}</p>
+                <p className="text-[11px] text-slate-500 truncate">
+                  {formatRoleLabel(user.role)}
+                  {user.department_code
+                    ? ` · ${user.department_code}`
+                    : user.department_name
+                    ? ` · ${user.department_name}`
+                    : ""}
+                </p>
               </div>
             </div>
             <button

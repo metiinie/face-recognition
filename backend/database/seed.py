@@ -26,9 +26,82 @@ from backend.auth.service import hash_password
 from backend.face_enrollment.service import enroll_employee_face
 
 
+def ensure_university_roles_and_metadata():
+    """
+    Idempotently add university governance roles (DEPT_HEAD, KIOSK_OPERATOR),
+    academic faculty metadata on departments, and demo scoped accounts on both
+    fresh and pre-existing databases.
+    """
+    role_specs = [
+        (
+            "DEPT_HEAD",
+            "Academic Dean / Department Head — manages schedules and reports scoped to their assigned unit",
+            "employees.view_dept,schedules.manage,reports.view,reports.export",
+        ),
+        (
+            "KIOSK_OPERATOR",
+            "Campus Gate & Kiosk Operator — operates trusted attendance terminals",
+            "station.operate",
+        ),
+    ]
+    created_or_updated = False
+    for r_name, r_desc, r_perms in role_specs:
+        if not Role.query.filter_by(name=r_name).first():
+            db.session.add(Role(name=r_name, description=r_desc, permissions_csv=r_perms))
+            created_or_updated = True
+    if created_or_updated:
+        db.session.flush()
+
+    dept_metadata = {
+        "DEPT-ICT": ("Faculty of Computing & Digital Engineering", "ACADEMIC_FACULTY"),
+        "DEPT-AUTO": ("Faculty of Mechanical & Automotive Engineering", "TECHNICAL_DEPT"),
+        "DEPT-CIVIL": ("Faculty of Industrial Textile & Civil Works", "TECHNICAL_DEPT"),
+        "DEPT-SEC": ("Directorate of Campus Security & Facilities", "CAMPUS_OPERATIONS"),
+    }
+    for code, (faculty, u_type) in dept_metadata.items():
+        dept = Department.query.filter_by(code=code).first()
+        if dept:
+            if not dept.faculty_name or dept.faculty_name == "Ethio-Italy Polytechnic College":
+                dept.faculty_name = faculty
+            if not dept.unit_type or dept.unit_type == "TECHNICAL_DEPT":
+                dept.unit_type = u_type
+
+    dept_ict = Department.query.filter_by(code="DEPT-ICT").first()
+    dept_sec = Department.query.filter_by(code="DEPT-SEC").first()
+    dept_head_role = Role.query.filter_by(name="DEPT_HEAD").first()
+    kiosk_role = Role.query.filter_by(name="KIOSK_OPERATOR").first()
+
+    if dept_head_role and not User.query.filter_by(username="dean_ict").first():
+        db.session.add(
+            User(
+                username="dean_ict",
+                full_name="Dr. Samuel Tadesse (Dean, ICT Faculty)",
+                email="dean.ict@eipc-diredawa.edu.et",
+                password_hash=hash_password("DeanPassword123!"),
+                role_id=dept_head_role.id,
+                department_id=dept_ict.id if dept_ict else None,
+                status="ACTIVE",
+            )
+        )
+    if kiosk_role and not User.query.filter_by(username="gate_op").first():
+        db.session.add(
+            User(
+                username="gate_op",
+                full_name="Ato Bereket Alemu (Campus Gate Operator)",
+                email="gate@eipc-diredawa.edu.et",
+                password_hash=hash_password("GatePassword123!"),
+                role_id=kiosk_role.id,
+                department_id=dept_sec.id if dept_sec else None,
+                status="ACTIVE",
+            )
+        )
+    db.session.commit()
+
+
 def seed_initial_data():
-    """Seed college baseline data if roles table is empty."""
+    """Seed college baseline data if roles table is empty, and ensure university roles/metadata."""
     if Role.query.first() is not None:
+        ensure_university_roles_and_metadata()
         return
 
     # 1. Roles & Permissions
@@ -39,15 +112,25 @@ def seed_initial_data():
     )
     hr_role = Role(
         name="HR_OFFICER",
-        description="College HR Officer authorized for employee management, enrollment, schedules, reviews, corrections, and reports.",
+        description="College HR & Registrar Officer authorized for employee management, enrollment, schedules, reviews, corrections, and reports.",
         permissions_csv="employees.manage,enrollment.manage,schedules.manage,attendance.review,attendance.correct,reports.view,reports.export,audit.view",
+    )
+    dept_head_role = Role(
+        name="DEPT_HEAD",
+        description="Academic Dean / Department Head — manages schedules and reports scoped to their assigned unit",
+        permissions_csv="employees.view_dept,schedules.manage,reports.view,reports.export",
     )
     auditor_role = Role(
         name="AUDITOR",
         description="Read-only Auditor for attendance reports and audit logs.",
         permissions_csv="reports.view,audit.view",
     )
-    db.session.add_all([admin_role, hr_role, auditor_role])
+    kiosk_role = Role(
+        name="KIOSK_OPERATOR",
+        description="Campus Gate & Kiosk Operator — operates trusted attendance terminals",
+        permissions_csv="station.operate",
+    )
+    db.session.add_all([admin_role, hr_role, dept_head_role, auditor_role, kiosk_role])
     db.session.flush()
 
     # 2. Users
@@ -79,11 +162,56 @@ def seed_initial_data():
     db.session.flush()
 
     # 3. College Departments
-    dept_ict = Department(name="ICT & Software Engineering", code="DEPT-ICT", status="ACTIVE")
-    dept_auto = Department(name="Automotive & Electro-Mechanical", code="DEPT-AUTO", status="ACTIVE")
-    dept_civil = Department(name="Garment, Textile & Civil Works", code="DEPT-CIVIL", status="ACTIVE")
-    dept_sec = Department(name="Campus Security & Sanitation", code="DEPT-SEC", status="ACTIVE")
+    dept_ict = Department(
+        name="ICT & Software Engineering",
+        code="DEPT-ICT",
+        faculty_name="Faculty of Computing & Digital Engineering",
+        unit_type="ACADEMIC_FACULTY",
+        status="ACTIVE",
+    )
+    dept_auto = Department(
+        name="Automotive & Electro-Mechanical",
+        code="DEPT-AUTO",
+        faculty_name="Faculty of Mechanical & Automotive Engineering",
+        unit_type="TECHNICAL_DEPT",
+        status="ACTIVE",
+    )
+    dept_civil = Department(
+        name="Garment, Textile & Civil Works",
+        code="DEPT-CIVIL",
+        faculty_name="Faculty of Industrial Textile & Civil Works",
+        unit_type="TECHNICAL_DEPT",
+        status="ACTIVE",
+    )
+    dept_sec = Department(
+        name="Campus Security & Sanitation",
+        code="DEPT-SEC",
+        faculty_name="Directorate of Campus Security & Facilities",
+        unit_type="CAMPUS_OPERATIONS",
+        status="ACTIVE",
+    )
     db.session.add_all([dept_ict, dept_auto, dept_civil, dept_sec])
+    db.session.flush()
+
+    dean_ict_user = User(
+        username="dean_ict",
+        full_name="Dr. Samuel Tadesse (Dean, ICT Faculty)",
+        email="dean.ict@eipc-diredawa.edu.et",
+        password_hash=hash_password("DeanPassword123!"),
+        role_id=dept_head_role.id,
+        department_id=dept_ict.id,
+        status="ACTIVE",
+    )
+    gate_op_user = User(
+        username="gate_op",
+        full_name="Ato Bereket Alemu (Campus Gate Operator)",
+        email="gate@eipc-diredawa.edu.et",
+        password_hash=hash_password("GatePassword123!"),
+        role_id=kiosk_role.id,
+        department_id=dept_sec.id,
+        status="ACTIVE",
+    )
+    db.session.add_all([dean_ict_user, gate_op_user])
     db.session.flush()
 
     # 4. Departmental Attendance Stations (with trusted station secret tokens)

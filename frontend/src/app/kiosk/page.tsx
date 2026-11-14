@@ -559,6 +559,128 @@ export default function KioskPage() {
 
         {/* Right Column: Calm Confirmation Panel */}
         <div className="lg:col-span-5 space-y-4">
+          {/* 5-Stage Live Scan-to-Identification Sequence Tracker */}
+          {(() => {
+            const defaultSteps = [
+              {
+                step: 1,
+                stage: "OPTICAL_DETECTION",
+                label: "Optical Detection",
+                status: isProcessing ? "RUNNING" : recognition ? "PASSED" : "IDLE",
+                detail: isProcessing ? "Locating single candidate face..." : "Waiting for frame capture.",
+              },
+              {
+                step: 2,
+                stage: "QUALITY_LIVENESS_GATE",
+                label: "Quality & Liveness",
+                status: isProcessing ? "RUNNING" : recognition ? "PASSED" : "IDLE",
+                detail: isProcessing ? "Checking anti-spoof & lighting..." : "Anti-spoof & clarity check.",
+              },
+              {
+                step: 3,
+                stage: "NEURAL_EMBEDDING",
+                label: "Neural Embedding",
+                status: isProcessing ? "RUNNING" : recognition ? "PASSED" : "IDLE",
+                detail: "Extracting SFace facial vector.",
+              },
+              {
+                step: 4,
+                stage: "IDENTITY_CONSENT_MATCH",
+                label: "Identity & POL-02",
+                status: recognition?.matched ? "PASSED" : feedbackError ? "FAILED" : "IDLE",
+                detail: "Template cosine match & consent verification.",
+              },
+              {
+                step: 5,
+                stage: "SESSION_ACTION_READY",
+                label: "Session Punch",
+                status: attendanceOutcome ? "PASSED" : recognition?.matched ? "RUNNING" : "IDLE",
+                detail: attendanceOutcome
+                  ? `Confirmed ${attendanceOutcome.event_type}`
+                  : "Check-in / Check-out confirmation.",
+              },
+            ];
+            const sequenceSteps = recognition?.scan_sequence?.length
+              ? recognition.scan_sequence.map((st) =>
+                  st.step === 5 && attendanceOutcome
+                    ? {
+                        ...st,
+                        status: "PASSED",
+                        detail: `${attendanceOutcome.event_type} logged at ${new Date(
+                          attendanceOutcome.timestamp
+                        ).toLocaleTimeString()} EAT`,
+                      }
+                    : st
+                )
+              : defaultSteps;
+
+            return (
+              <div className="rounded-xl border border-[#E5E7EB] bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+                <div className="flex items-center justify-between mb-2.5">
+                  <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-600">
+                    Scan → Identification Sequence (1–5)
+                  </span>
+                  <Badge
+                    variant={
+                      attendanceOutcome || recognition?.matched
+                        ? "success"
+                        : feedbackError
+                        ? "danger"
+                        : isProcessing
+                        ? "brand"
+                        : "outline"
+                    }
+                    className="text-[10px]"
+                  >
+                    {attendanceOutcome
+                      ? "LOGGED"
+                      : recognition?.matched
+                      ? "IDENTIFIED"
+                      : feedbackError
+                      ? "BLOCKED"
+                      : isProcessing
+                      ? "SCANNING"
+                      : "STANDBY"}
+                  </Badge>
+                </div>
+                <div className="grid grid-cols-5 gap-1.5">
+                  {sequenceSteps.map((st) => {
+                    const cls =
+                      st.status === "PASSED"
+                        ? "border-emerald-200 bg-emerald-50 text-emerald-800"
+                        : st.status === "FAILED"
+                        ? "border-rose-200 bg-rose-50 text-rose-700"
+                        : st.status === "RUNNING"
+                        ? "border-indigo-200 bg-[#EEF2FF] text-[#4338CA]"
+                        : "border-[#EAECEF] bg-[#FAFBFD] text-slate-400";
+                    return (
+                      <div
+                        key={st.stage}
+                        title={st.detail}
+                        className={`rounded-lg border px-1.5 py-1.5 text-center transition-colors ${cls}`}
+                      >
+                        <div className="font-mono text-[10px] font-semibold">
+                          0{st.step}
+                        </div>
+                        <div className="text-[9.5px] font-medium leading-tight mt-0.5 truncate">
+                          {st.label}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                {recognition?.scan_sequence && recognition.scan_sequence.length > 0 && (
+                  <p className="mt-2 text-[11px] text-slate-500 truncate">
+                    {(
+                      sequenceSteps.find((s) => s.status === "FAILED") ||
+                      sequenceSteps[sequenceSteps.length - 1]
+                    )?.detail}
+                  </p>
+                )}
+              </div>
+            );
+          })()}
+
           {/* State 0: Active Biometric Scan In Progress */}
           {isProcessing && (
             <Card className="p-6 border-indigo-200">

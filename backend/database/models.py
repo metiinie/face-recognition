@@ -75,11 +75,13 @@ class User(db.Model):
     email = db.Column(db.String(120), unique=True, nullable=True)
     password_hash = db.Column(db.String(255), nullable=False)
     role_id = db.Column(db.Integer, db.ForeignKey("roles.id"), nullable=False)
+    department_id = db.Column(db.Integer, db.ForeignKey("departments.id"), nullable=True)
     status = db.Column(db.String(20), nullable=False, default="ACTIVE")  # ACTIVE, INACTIVE
     created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
     last_login_at = db.Column(db.DateTime, nullable=True)
 
     role = db.relationship("Role", back_populates="users")
+    department = db.relationship("Department", lazy="joined")
 
     def has_permission(self, perm: str) -> bool:
         if self.status != "ACTIVE" or not self.role:
@@ -93,6 +95,9 @@ class Department(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     name = db.Column(db.String(120), unique=True, nullable=False)
     code = db.Column(db.String(30), unique=True, nullable=False, index=True)
+    faculty_name = db.Column(db.String(140), nullable=True, default="Ethio-Italy Polytechnic College")
+    # ACADEMIC_FACULTY, TECHNICAL_DEPT, ADMIN_UNIT, CAMPUS_OPERATIONS
+    unit_type = db.Column(db.String(40), nullable=False, default="TECHNICAL_DEPT")
     status = db.Column(db.String(20), nullable=False, default="ACTIVE")
     created_at = db.Column(db.DateTime, nullable=False, default=utc_now)
 

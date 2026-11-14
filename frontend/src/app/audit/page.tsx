@@ -6,7 +6,15 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/com
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { AuthGuard } from "@/components/AuthGuard";
-import { api, BackupRecord, BackupVerificationResponse, BackupRestoreResponse } from "@/lib/api";
+import {
+  api,
+  BackupRecord,
+  BackupVerificationResponse,
+  BackupRestoreResponse,
+  UserProfile,
+  isAdminRole,
+  canReviewAttendance,
+} from "@/lib/api";
 import {
   ShieldCheck,
   Filter,
@@ -27,6 +35,7 @@ import {
 
 export default function AuditReviewPage() {
   const [activeTab, setActiveTab] = useState<"logs" | "reviews" | "backups">("logs");
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
   const [reviewCases, setReviewCases] = useState<any[]>([]);
   const [employees, setEmployees] = useState<any[]>([]);
@@ -114,9 +123,26 @@ export default function AuditReviewPage() {
   };
 
   useEffect(() => {
+    if (typeof window !== "undefined") {
+      try {
+        const cached = localStorage.getItem("eipc_user");
+        if (cached) setCurrentUser(JSON.parse(cached));
+      } catch {
+        // ignore
+      }
+    }
+    api.getMe().then((me) => setCurrentUser(me)).catch(() => {});
     fetchData();
-    fetchBackups();
   }, []);
+
+  const allowAdmin = isAdminRole(currentUser?.role);
+  const allowReview = canReviewAttendance(currentUser?.role);
+
+  useEffect(() => {
+    if (allowAdmin) {
+      fetchBackups();
+    }
+  }, [allowAdmin]);
 
   const handleCreateBackup = async () => {
     setIsCreatingBackup(true);
@@ -283,28 +309,36 @@ export default function AuditReviewPage() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setShowCreateModal(true)}
-            >
-              <Database className="mr-1.5 h-3.5 w-3.5 text-[#4F46E5]" />
-              Take Backup Snapshot
-            </Button>
-            <Button
-              variant="primary"
-              size="sm"
-              onClick={() => handleOpenManualModal()}
-            >
-              <PlusCircle className="mr-1.5 h-3.5 w-3.5" />
-              Record Manual HR Attendance
-            </Button>
+            {allowAdmin && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setShowCreateModal(true)}
+              >
+                <Database className="mr-1.5 h-3.5 w-3.5 text-[#4F46E5]" />
+                Take Backup Snapshot
+              </Button>
+            )}
+            {allowReview ? (
+              <Button
+                variant="primary"
+                size="sm"
+                onClick={() => handleOpenManualModal()}
+              >
+                <PlusCircle className="mr-1.5 h-3.5 w-3.5" />
+                Record Manual HR Attendance
+              </Button>
+            ) : (
+              <Badge variant="outline" className="text-[11px] py-1 px-2.5">
+                Read-Only Auditor Mode
+              </Badge>
+            )}
             <Button
               variant="outline"
               size="sm"
               onClick={() => {
                 fetchData();
-                fetchBackups();
+                if (allowAdmin) fetchBackups();
               }}
               isLoading={isLoading || isLoadingBackups}
             >
@@ -377,20 +411,22 @@ export default function AuditReviewPage() {
             )}
           </button>
 
-          <button
-            onClick={() => setActiveTab("backups")}
-            className={`py-2 px-3 rounded-lg text-xs font-medium flex items-center gap-2 whitespace-nowrap transition-colors ${
-              activeTab === "backups"
-                ? "bg-[#EEF2FF] text-[#4338CA] border border-[#C7D2FE]/70"
-                : "text-slate-600 hover:text-slate-900 hover:bg-[#F6F7F9]"
-            }`}
-          >
-            <Database className="h-3.5 w-3.5" />
-            <span>Disaster Recovery &amp; Backups</span>
-            <span className="rounded-md bg-white/80 border border-[#E5E7EB] px-1.5 py-0.5 text-[10px] font-mono tabular-nums text-slate-700">
-              {backups.length}
-            </span>
-          </button>
+          {allowAdmin && (
+            <button
+              onClick={() => setActiveTab("backups")}
+              className={`py-2 px-3 rounded-lg text-xs font-medium flex items-center gap-2 whitespace-nowrap transition-colors ${
+                activeTab === "backups"
+                  ? "bg-[#EEF2FF] text-[#4338CA] border border-[#C7D2FE]/70"
+                  : "text-slate-600 hover:text-slate-900 hover:bg-[#F6F7F9]"
+              }`}
+            >
+              <Database className="h-3.5 w-3.5" />
+              <span>Disaster Recovery &amp; Backups</span>
+              <span className="rounded-md bg-white/80 border border-[#E5E7EB] px-1.5 py-0.5 text-[10px] font-mono tabular-nums text-slate-700">
+                {backups.length}
+              </span>
+            </button>
+          )}
         </div>
 
         {/* Tab 1: Audit Log Stream */}
@@ -555,32 +591,40 @@ export default function AuditReviewPage() {
                             {rc.reason || rc.notes || "Assistance requested at station kiosk."}
                           </td>
                           <td className="py-2.5 px-4 text-right space-x-1.5 whitespace-nowrap">
-                            <Button
-                              variant="success"
-                              size="sm"
-                              className="h-7 text-[11px] px-2.5"
-                              onClick={() => handleOpenManualModal(rc)}
-                            >
-                              <UserCheck className="mr-1 h-3 w-3 inline" />
-                              Approve Manual Entry
-                            </Button>
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className="h-7 text-[11px] px-2.5 text-rose-600 hover:bg-rose-50 border border-rose-200"
-                              onClick={async () => {
-                                const conf = window.confirm(`Dismiss Review Case #${rc.id}?`);
-                                if (!conf) return;
-                                try {
-                                  await api.dismissReviewCase(rc.id, "Spurious scan dismissed by HR");
-                                  fetchData();
-                                } catch (err: any) {
-                                  alert(err.message || "Failed to dismiss case");
-                                }
-                              }}
-                            >
-                              Dismiss
-                            </Button>
+                            {allowReview ? (
+                              <>
+                                <Button
+                                  variant="success"
+                                  size="sm"
+                                  className="h-7 text-[11px] px-2.5"
+                                  onClick={() => handleOpenManualModal(rc)}
+                                >
+                                  <UserCheck className="mr-1 h-3 w-3 inline" />
+                                  Approve Manual Entry
+                                </Button>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-7 text-[11px] px-2.5 text-rose-600 hover:bg-rose-50 border border-rose-200"
+                                  onClick={async () => {
+                                    const conf = window.confirm(`Dismiss Review Case #${rc.id}?`);
+                                    if (!conf) return;
+                                    try {
+                                      await api.dismissReviewCase(rc.id, "Spurious scan dismissed by HR");
+                                      fetchData();
+                                    } catch (err: any) {
+                                      alert(err.message || "Failed to dismiss case");
+                                    }
+                                  }}
+                                >
+                                  Dismiss
+                                </Button>
+                              </>
+                            ) : (
+                              <Badge variant="outline" className="text-[10px]">
+                                Audit View Only
+                              </Badge>
+                            )}
                           </td>
                         </tr>
                       ))}

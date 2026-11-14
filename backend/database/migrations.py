@@ -45,8 +45,8 @@ def export_full_backup_snapshot() -> dict:
     """
     models_order = [
         ("roles", Role),
-        ("users", User),
         ("departments", Department),
+        ("users", User),
         ("employees", Employee),
         ("face_templates", FaceTemplate),
         ("attendance_stations", AttendanceStation),
@@ -90,8 +90,8 @@ def restore_backup_snapshot(snapshot: dict) -> dict:
 
     models_order = [
         ("roles", Role),
-        ("users", User),
         ("departments", Department),
+        ("users", User),
         ("employees", Employee),
         ("face_templates", FaceTemplate),
         ("attendance_stations", AttendanceStation),
