@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { AuthGuard } from "@/components/AuthGuard";
 import { api, AttendanceSessionRecord, EmployeeRecord } from "@/lib/api";
+import { extractEatTimeToken } from "@/lib/format";
 import {
   Download,
   Filter,
@@ -475,7 +476,7 @@ export default function ReportsPage() {
                       <div className="text-[11px] text-slate-400">{s.job_category}</div>
                     </td>
                     <td className="py-3 px-3 font-mono text-[11px] text-slate-500 whitespace-nowrap tabular-nums">
-                      {s.shift_start_eat.split(" ")[1]} – {s.shift_end_eat.split(" ")[1]}
+                      {extractEatTimeToken(s.shift_start_eat)} – {extractEatTimeToken(s.shift_end_eat)}
                     </td>
                     <td className="py-3 px-3 whitespace-nowrap font-mono text-[11px] tabular-nums">
                       {s.check_in ? (

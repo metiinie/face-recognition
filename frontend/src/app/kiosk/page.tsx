@@ -7,6 +7,7 @@ import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { api, RecognitionResult, AttendanceConfirmResponse, StationRecord } from "@/lib/api";
+import { FACE_MESH_NODES, FACE_MESH_EDGES } from "@/lib/faceMesh";
 import {
   CheckCircle2,
   XCircle,
@@ -160,24 +161,29 @@ export default function KioskPage() {
   const [helpError, setHelpError] = useState<string | null>(null);
   const [showSimTools, setShowSimTools] = useState(false);
 
-  const handleCapture = async (base64Image: string) => {
-    setLastCapturedImage(base64Image);
+  const runRecognitionFlow = async (
+    payload: Parameters<typeof api.recognizeFace>[0],
+    fallbackErrorMessage: string
+  ) => {
+    const startedAt = performance.now();
     setIsProcessing(true);
+    setRecognition(null);
     setFeedbackError(null);
     setPunchError(null);
     setAttendanceOutcome(null);
     setAutoConfirmCountdown(null);
 
     try {
-      const res = await api.recognizeFace({
-        image_base64: base64Image,
-        station_id: stationId,
-        quality_mode: "LIVE_CAPTURE",
-      });
+      const res = await api.recognizeFace(payload);
+      const elapsed = performance.now() - startedAt;
+      if (elapsed < 720) {
+        await new Promise((r) => setTimeout(r, 720 - elapsed));
+      }
+
       setRecognition(res);
 
       if (!res.matched) {
-        setFeedbackError(res.rejection_message || "Face not recognized. Please adjust position or contact HR.");
+        setFeedbackError(res.rejection_message || fallbackErrorMessage);
       } else if (res.recognition_token && touchlessAutoPunch) {
         // Trigger hands-free auto-confirm countdown
         setAutoConfirmCountdown(2);
@@ -188,6 +194,18 @@ export default function KioskPage() {
     } finally {
       setIsProcessing(false);
     }
+  };
+
+  const handleCapture = async (base64Image: string) => {
+    setLastCapturedImage(base64Image);
+    await runRecognitionFlow(
+      {
+        image_base64: base64Image,
+        station_id: stationId,
+        quality_mode: "LIVE_CAPTURE",
+      },
+      "Face not recognized. Please adjust position or contact HR."
+    );
   };
 
   const handleConfirmEnrollment = async () => {
@@ -211,31 +229,14 @@ export default function KioskPage() {
   };
 
   const handleSimulateScan = async (signature: string, label: string) => {
-    setIsProcessing(true);
-    setFeedbackError(null);
-    setPunchError(null);
-    setAttendanceOutcome(null);
-    setAutoConfirmCountdown(null);
-
-    try {
-      const res = await api.recognizeFace({
+    await runRecognitionFlow(
+      {
         biometric_signature: signature,
         station_id: stationId,
         quality_mode: "SIMULATION",
-      });
-      setRecognition(res);
-
-      if (!res.matched) {
-        setFeedbackError(res.rejection_message || `${label}: Match rejected by face engine.`);
-      } else if (res.recognition_token && touchlessAutoPunch) {
-        setAutoConfirmCountdown(2);
-      }
-    } catch (err: any) {
-      console.error("Simulation failed:", err);
-      setFeedbackError(err.message || "Failed to communicate with attendance server.");
-    } finally {
-      setIsProcessing(false);
-    }
+      },
+      `${label}: Match rejected by face engine.`
+    );
   };
 
   const [selectedAction, setSelectedAction] = useState<"CHECK_IN" | "CHECK_OUT" | null>(null);
@@ -558,8 +559,93 @@ export default function KioskPage() {
 
         {/* Right Column: Calm Confirmation Panel */}
         <div className="lg:col-span-5 space-y-4">
+          {/* State 0: Active Biometric Scan In Progress */}
+          {isProcessing && (
+            <Card className="p-6 border-indigo-200">
+              <div className="flex items-center justify-between gap-2 pb-4 border-b border-[#EAECEF]">
+                <Badge variant="brand" className="gap-1.5">
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-500 opacity-75" />
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-indigo-600" />
+                  </span>
+                  <span>Scanning Face</span>
+                </Badge>
+                <span className="font-mono text-[11px] text-slate-400">SFace + Anti-Spoof</span>
+              </div>
+
+              <div className="mt-5 flex flex-col items-center text-center">
+                <div className="relative flex h-20 w-20 items-center justify-center overflow-hidden rounded-2xl border border-indigo-200 bg-[#0D1117]">
+                  <svg className="h-14 w-14" viewBox="0 0 48 48" fill="none">
+                    <path d="M 8 15 L 8 8 L 15 8" stroke="#818CF8" strokeWidth="2.2" strokeLinecap="square" />
+                    <path d="M 33 8 L 40 8 L 40 15" stroke="#818CF8" strokeWidth="2.2" strokeLinecap="square" />
+                    <path d="M 8 33 L 8 40 L 15 40" stroke="#818CF8" strokeWidth="2.2" strokeLinecap="square" />
+                    <path d="M 33 40 L 40 40 L 40 33" stroke="#818CF8" strokeWidth="2.2" strokeLinecap="square" />
+                    {FACE_MESH_EDGES.map(([aIdx, bIdx], i) => {
+                      const a = FACE_MESH_NODES[aIdx];
+                      const b = FACE_MESH_NODES[bIdx];
+                      return (
+                        <line
+                          key={i}
+                          x1={11 + a.x * 26}
+                          y1={9 + a.y * 30}
+                          x2={11 + b.x * 26}
+                          y2={9 + b.y * 30}
+                          stroke="#818CF8"
+                          strokeWidth="0.6"
+                          strokeOpacity="0.4"
+                        />
+                      );
+                    })}
+                    {FACE_MESH_NODES.map((pt, idx) => (
+                      <circle
+                        key={idx}
+                        cx={11 + pt.x * 26}
+                        cy={9 + pt.y * 30}
+                        r={pt.anchor ? "1.1" : "0.75"}
+                        fill="#FFFFFF"
+                        className="animate-landmark"
+                        style={{ animationDelay: `${(idx % 6) * 110}ms` }}
+                      />
+                    ))}
+                  </svg>
+                  <div className="animate-biometric-sweep pointer-events-none absolute inset-x-2 h-5 -translate-y-full">
+                    <div className="h-full w-full bg-gradient-to-b from-transparent to-indigo-400/25" />
+                    <div className="h-[1.5px] w-full bg-white shadow-[0_0_6px_rgba(129,140,248,0.85)]" />
+                  </div>
+                </div>
+
+                <h2 className="mt-4 text-base font-semibold text-slate-900">
+                  Verifying Biometric Geometry
+                </h2>
+                <p className="mt-1 text-xs text-slate-500 max-w-xs">
+                  Hold steady inside the frame while liveness and identity embeddings are matched.
+                </p>
+              </div>
+
+              <div className="mt-5 space-y-2 rounded-lg border border-[#EAECEF] bg-[#FAFBFD] p-3 text-xs">
+                <div className="flex items-center justify-between text-slate-700">
+                  <span className="flex items-center gap-2">
+                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />
+                    <span>Frame captured</span>
+                  </span>
+                  <span className="font-mono text-[10px] text-emerald-600">OK</span>
+                </div>
+                <div className="flex items-center justify-between text-slate-700">
+                  <span className="flex items-center gap-2">
+                    <span className="h-2 w-2 rounded-full bg-indigo-500 animate-pulse mx-[3px]" />
+                    <span>Mapping landmarks &amp; liveness</span>
+                  </span>
+                  <span className="font-mono text-[10px] text-indigo-600">ACTIVE</span>
+                </div>
+                <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-slate-200">
+                  <div className="animate-scan-progress h-full w-1/2 rounded-full bg-[#4F46E5]" />
+                </div>
+              </div>
+            </Card>
+          )}
+
           {/* State 1: Idle Ready */}
-          {!recognition && !feedbackError && (
+          {!isProcessing && !recognition && !feedbackError && (
             <Card className="p-8 text-center">
               <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full border border-[#EAECEF] bg-[#FAFBFD] text-[#4F46E5]">
                 <UserCheck className="h-6 w-6" />
@@ -585,7 +671,7 @@ export default function KioskPage() {
           )}
 
           {/* State 2: Matched & Awaiting Confirmation */}
-          {recognition?.matched && recognition.employee && !attendanceOutcome && (
+          {!isProcessing && recognition?.matched && recognition.employee && !attendanceOutcome && (
             <Card className="p-6 border-emerald-200">
               <div className="flex items-center justify-between gap-2 pb-4 border-b border-[#EAECEF]">
                 <Badge variant="success" className="gap-1">
@@ -602,8 +688,8 @@ export default function KioskPage() {
               {/* Employee Profile Header */}
               <div className="mt-5 flex flex-col items-center text-center">
                 <div className="flex h-16 w-16 items-center justify-center rounded-full bg-[#EEF2FF] text-[#4338CA] text-lg font-semibold ring-2 ring-emerald-500/40 ring-offset-2">
-                  {recognition.employee.first_name[0]}
-                  {recognition.employee.last_name[0]}
+                  {(recognition.employee?.first_name?.[0] ?? "") +
+                    (recognition.employee?.last_name?.[0] ?? "") || "?"}
                 </div>
                 <h2 className="mt-3 text-lg font-semibold tracking-tight text-slate-900">
                   {recognition.employee.first_name} {recognition.employee.last_name}
@@ -707,7 +793,7 @@ export default function KioskPage() {
           )}
 
           {/* State 3: Attendance Recorded Confirmation */}
-          {attendanceOutcome && (
+          {!isProcessing && attendanceOutcome && (
             <Card className="p-6 text-center border-emerald-200">
               <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-emerald-50 border border-emerald-200 text-emerald-600">
                 <CheckCircle2 className="h-6 w-6" />
@@ -733,7 +819,7 @@ export default function KioskPage() {
           )}
 
           {/* State 4: Rejection / Unrecognized Face */}
-          {feedbackError && !recognition?.matched && (
+          {!isProcessing && feedbackError && !recognition?.matched && (
             <Card className="p-6 space-y-4 border-rose-200">
               <div className="flex items-start justify-between gap-3">
                 <div className="flex items-center gap-2.5">

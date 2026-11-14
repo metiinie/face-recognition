@@ -48,14 +48,10 @@ const ADMIN_ITEMS: NavItem[] = [
   { name: "Backups & DR", href: "/backups", icon: Database, adminOnly: true },
 ];
 
-function FaceoBrandMark({ className = "h-7 w-7", dark = false }: { className?: string; dark?: boolean }) {
+function FaceoBrandMark({ className = "h-7 w-7" }: { className?: string }) {
   return (
     <div
-      className={`flex shrink-0 items-center justify-center rounded-lg ${
-        dark
-          ? "bg-[#4F46E5] text-white"
-          : "bg-[#4F46E5] text-white shadow-[0_1px_2px_rgba(79,70,229,0.22)]"
-      } ${className}`}
+      className={`flex shrink-0 items-center justify-center rounded-lg bg-[#4F46E5] text-white shadow-[0_1px_2px_rgba(79,70,229,0.22)] ${className}`}
     >
       <svg viewBox="0 0 24 24" fill="none" className="h-4 w-4" stroke="currentColor" strokeWidth="2.1">
         <path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2" strokeLinecap="round" />
@@ -125,7 +121,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [sidebarCompact, setSidebarCompact] = useState<boolean>(false);
 
   const isTerminalRoute = pathname === "/kiosk" || pathname === "/entrance";
-  const isEntranceRoute = pathname === "/entrance";
   const isAuthRoute = pathname === "/login";
   const isWorkspaceRoute = !isTerminalRoute && !isAuthRoute;
 
@@ -175,16 +170,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const renderNavSection = (
     title: string,
     items: NavItem[],
-    compact: boolean,
-    darkTheme = false
+    compact: boolean
   ) => (
     <div>
       {!compact && (
-        <p
-          className={`px-2.5 mb-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] ${
-            darkTheme ? "text-slate-500" : "text-slate-400"
-          }`}
-        >
+        <p className="px-2.5 mb-1.5 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400">
           {title}
         </p>
       )}
@@ -192,16 +182,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         {items.filter(canSeeItem).map((item) => {
           const Icon = item.icon;
           const active = pathname === item.href || pathname.startsWith(`${item.href}/`);
-          const activeCls = darkTheme
-            ? "bg-indigo-500/15 text-indigo-300 font-medium border border-indigo-500/25"
-            : "bg-[#EEF2FF] text-[#4338CA] font-medium";
-          const idleCls = darkTheme
-            ? "text-slate-400 hover:bg-slate-800/70 hover:text-slate-100"
-            : "text-slate-600 hover:bg-slate-100/75 hover:text-slate-900";
-          const iconActiveCls = darkTheme ? "text-indigo-400" : "text-[#4F46E5]";
-          const iconIdleCls = darkTheme
-            ? "text-slate-500 group-hover:text-slate-300"
-            : "text-slate-400 group-hover:text-slate-600";
 
           return (
             <Link
@@ -210,10 +190,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               prefetch={true}
               title={compact ? item.name : undefined}
               className={`group flex items-center gap-2.5 rounded-lg px-2.5 py-2 text-[13px] transition-colors ${
-                active ? activeCls : idleCls
+                active
+                  ? "bg-[#EEF2FF] text-[#4338CA] font-medium"
+                  : "text-slate-600 hover:bg-slate-100/75 hover:text-slate-900"
               } ${compact ? "justify-center" : ""}`}
             >
-              <Icon className={`h-4 w-4 shrink-0 ${active ? iconActiveCls : iconIdleCls}`} />
+              <Icon
+                className={`h-4 w-4 shrink-0 ${
+                  active ? "text-[#4F46E5]" : "text-slate-400 group-hover:text-slate-600"
+                }`}
+              />
               {!compact && <span className="truncate">{item.name}</span>}
             </Link>
           );
@@ -222,27 +208,23 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     </div>
   );
 
-  const renderSidebarContent = (compact: boolean, darkTheme = false) => (
+  const renderSidebarContent = (compact: boolean) => (
     <div className="flex flex-1 flex-col justify-between overflow-y-auto px-3 py-4 gap-6">
       <div className="space-y-5">
-        {renderNavSection("Operations", OPERATIONS_ITEMS, compact, darkTheme)}
-        {renderNavSection("Administration", ADMIN_ITEMS, compact, darkTheme)}
-        {renderNavSection("Terminals", TERMINAL_ITEMS, compact, darkTheme)}
+        {renderNavSection("Operations", OPERATIONS_ITEMS, compact)}
+        {renderNavSection("Administration", ADMIN_ITEMS, compact)}
+        {renderNavSection("Terminals", TERMINAL_ITEMS, compact)}
       </div>
 
       {/* Bottom Profile Card */}
-      <div className={`pt-3 border-t ${darkTheme ? "border-[#1E293B]" : "border-[#EAECEF]"}`}>
+      <div className="pt-3 border-t border-[#EAECEF]">
         {compact ? (
           user ? (
             <button
               type="button"
               onClick={handleLogout}
               title={`Sign out (${user.username})`}
-              className={`mx-auto flex h-8 w-8 items-center justify-center rounded-lg border text-xs font-semibold transition-colors ${
-                darkTheme
-                  ? "border-slate-700 bg-slate-800 text-slate-200 hover:border-rose-500/40 hover:text-rose-400"
-                  : "border-[#E5E7EB] bg-[#FAFBFD] text-slate-700 hover:bg-rose-50 hover:text-rose-600"
-              }`}
+              className="mx-auto flex h-8 w-8 items-center justify-center rounded-lg border border-[#E5E7EB] bg-[#FAFBFD] text-xs font-semibold text-slate-700 hover:bg-rose-50 hover:text-rose-600 transition-colors"
             >
               {user.username.slice(0, 2).toUpperCase()}
             </button>
@@ -256,29 +238,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </Link>
           )
         ) : user ? (
-          <div
-            className={`rounded-xl border p-2.5 flex items-center justify-between gap-2 ${
-              darkTheme
-                ? "border-[#1E293B] bg-[#0B0F17]"
-                : "border-[#EAECEF] bg-[#FAFBFD]"
-            }`}
-          >
+          <div className="rounded-xl border border-[#EAECEF] bg-[#FAFBFD] p-2.5 flex items-center justify-between gap-2">
             <div className="flex items-center gap-2.5 min-w-0">
-              <div
-                className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-[11px] font-semibold uppercase ${
-                  darkTheme
-                    ? "bg-indigo-500/20 text-indigo-300"
-                    : "bg-[#EEF2FF] text-[#4338CA]"
-                }`}
-              >
+              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[#EEF2FF] text-[#4338CA] text-[11px] font-semibold uppercase">
                 {user.username.slice(0, 2)}
               </div>
               <div className="min-w-0">
-                <p
-                  className={`text-xs font-medium truncate ${
-                    darkTheme ? "text-slate-200" : "text-slate-900"
-                  }`}
-                >
+                <p className="text-xs font-medium truncate text-slate-900">
                   {user.username}
                 </p>
                 <p className="text-[11px] text-slate-500 truncate">{formatRoleLabel(user.role)}</p>
@@ -288,11 +254,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               type="button"
               onClick={handleLogout}
               title="Sign out"
-              className={`rounded-md p-1.5 transition-colors ${
-                darkTheme
-                  ? "text-slate-400 hover:bg-rose-500/15 hover:text-rose-400"
-                  : "text-slate-400 hover:bg-rose-50 hover:text-rose-600"
-              }`}
+              className="rounded-md p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600 transition-colors"
             >
               <LogOut className="h-3.5 w-3.5" />
             </button>
@@ -337,15 +299,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     );
   }
 
-  // Dark Obsidian Shell for Continuous Gate (/entrance) or Light Shell for Workspace / Kiosk
-  const darkShell = isEntranceRoute;
-
+  // Unified Ledger Noir Light shell across Workspace, Kiosk, and Gate Monitor
   return (
-    <div
-      className={`min-h-screen flex ${
-        darkShell ? "bg-[#0B0F17] text-slate-100" : "bg-[#F6F7F9] text-slate-900"
-      }`}
-    >
+    <div className="min-h-screen flex bg-[#F6F7F9] text-slate-900">
       {/* Persistent Left Rail on Workspace Routes (Desktop lg+) */}
       {isWorkspaceRoute && (
         <aside
@@ -393,7 +349,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </button>
           )}
 
-          {renderSidebarContent(sidebarCompact, false)}
+          {renderSidebarContent(sidebarCompact)}
         </aside>
       )}
 
@@ -401,28 +357,16 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       {drawerOpen && (
         <div className="fixed inset-0 z-50 flex">
           <div
-            className={`fixed inset-0 backdrop-blur-[2px] transition-opacity ${
-              darkShell ? "bg-black/65" : "bg-slate-900/25"
-            }`}
+            className="fixed inset-0 bg-slate-900/25 backdrop-blur-[2px] transition-opacity"
             onClick={() => setDrawerOpen(false)}
             aria-hidden="true"
           />
-          <aside
-            className={`relative z-10 flex w-64 max-w-[85vw] flex-col shadow-xl border-r ${
-              darkShell
-                ? "bg-[#121826] border-[#1E293B] text-slate-100"
-                : "bg-white border-[#EAECEF] text-slate-900"
-            }`}
-          >
-            <div
-              className={`flex h-14 items-center justify-between border-b px-4 ${
-                darkShell ? "border-[#1E293B]" : "border-[#EAECEF]"
-              }`}
-            >
+          <aside className="relative z-10 flex w-64 max-w-[85vw] flex-col shadow-xl border-r bg-white border-[#EAECEF] text-slate-900">
+            <div className="flex h-14 items-center justify-between border-b border-[#EAECEF] px-4">
               <div className="flex items-center gap-2.5">
-                <FaceoBrandMark dark={darkShell} />
+                <FaceoBrandMark />
                 <div>
-                  <p className={`text-sm font-semibold leading-none ${darkShell ? "text-white" : "text-slate-900"}`}>
+                  <p className="text-sm font-semibold leading-none text-slate-900">
                     Faceo
                   </p>
                   <p className="text-[11px] text-slate-400 mt-0.5">EIPC · Dire Dawa</p>
@@ -431,17 +375,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <button
                 type="button"
                 onClick={() => setDrawerOpen(false)}
-                className={`rounded-md p-1.5 transition-colors ${
-                  darkShell
-                    ? "text-slate-400 hover:bg-slate-800 hover:text-white"
-                    : "text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-                }`}
+                className="rounded-md p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition-colors"
                 aria-label="Close navigation drawer"
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
-            {renderSidebarContent(false, darkShell)}
+            {renderSidebarContent(false)}
           </aside>
         </div>
       )}
@@ -449,25 +389,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       {/* Main Content Area */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Global Slim Top Bar */}
-        <header
-          className={`sticky top-0 z-40 h-[52px] border-b ${
-            darkShell
-              ? "border-[#1E293B] bg-[#0B0F17]/95 backdrop-blur-sm"
-              : "border-[#EAECEF] bg-white/95 backdrop-blur-sm"
-          }`}
-        >
+        <header className="sticky top-0 z-40 h-[52px] border-b border-[#EAECEF] bg-white/95 backdrop-blur-sm">
           <div className="flex h-full items-center justify-between px-4 sm:px-6 gap-3">
             {/* Left: Menu trigger on mobile/terminals + Brand on terminals */}
             <div className="flex items-center gap-2.5 min-w-0">
               <button
                 type="button"
                 onClick={() => setDrawerOpen(true)}
-                className={`inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium transition-colors ${
+                className={`inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#E5E7EB] bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors ${
                   isWorkspaceRoute ? "lg:hidden" : ""
-                } ${
-                  darkShell
-                    ? "border-[#1E293B] bg-[#121826] text-slate-300 hover:bg-slate-800 hover:text-white"
-                    : "border-[#E5E7EB] bg-white text-slate-700 hover:bg-slate-50"
                 }`}
                 aria-label="Open navigation sidebar"
               >
@@ -477,12 +407,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
               {isTerminalRoute && (
                 <Link href="/dashboard" className="flex items-center gap-2 min-w-0">
-                  <FaceoBrandMark className="h-7 w-7" dark={darkShell} />
-                  <span
-                    className={`hidden sm:inline text-sm font-semibold tracking-tight ${
-                      darkShell ? "text-white" : "text-slate-900"
-                    }`}
-                  >
+                  <FaceoBrandMark className="h-7 w-7" />
+                  <span className="hidden sm:inline text-sm font-semibold tracking-tight text-slate-900">
                     Faceo
                   </span>
                 </Link>
@@ -501,11 +427,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             {isTerminalRoute && (
               <nav
                 aria-label="Terminal mode switcher"
-                className={`inline-flex items-center rounded-lg border p-0.5 ${
-                  darkShell
-                    ? "border-[#1E293B] bg-[#121826]"
-                    : "border-[#EAECEF] bg-[#F6F7F9]"
-                }`}
+                className="inline-flex items-center rounded-lg border border-[#EAECEF] bg-[#F6F7F9] p-0.5"
               >
                 {TERMINAL_ITEMS.map((item) => {
                   const Icon = item.icon;
@@ -517,22 +439,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
                       prefetch={true}
                       className={`flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-medium transition-colors ${
                         isActive
-                          ? darkShell
-                            ? "bg-[#1E293B] text-white"
-                            : "bg-white text-slate-900 shadow-[0_1px_2px_rgba(15,23,42,0.05)]"
-                          : darkShell
-                          ? "text-slate-400 hover:text-slate-200"
+                          ? "bg-white text-slate-900 shadow-[0_1px_2px_rgba(15,23,42,0.05)]"
                           : "text-slate-500 hover:text-slate-900"
                       }`}
                     >
                       <Icon
-                        className={`h-3.5 w-3.5 ${
-                          isActive
-                            ? darkShell
-                              ? "text-emerald-400"
-                              : "text-[#4F46E5]"
-                            : ""
-                        }`}
+                        className={`h-3.5 w-3.5 ${isActive ? "text-[#4F46E5]" : ""}`}
                       />
                       <span>{item.name}</span>
                     </Link>
@@ -544,19 +456,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             {/* Right: Dual EAT + Ethiopian Time + Quick Mode/Auth */}
             <div className="flex items-center gap-2.5 shrink-0">
               <div
-                className={`hidden sm:flex items-center gap-2 rounded-lg border px-2.5 py-1 text-[11px] font-mono tabular-nums ${
-                  darkShell
-                    ? "border-[#1E293B] bg-[#121826] text-slate-300"
-                    : "border-[#EAECEF] bg-[#FAFBFD] text-slate-600"
-                }`}
+                className="hidden sm:flex items-center gap-2 rounded-lg border border-[#EAECEF] bg-[#FAFBFD] px-2.5 py-1 text-[11px] font-mono text-slate-600 tabular-nums"
                 title="East Africa Time (UTC+3) and Ethiopian Local Clock"
               >
-                <Clock className={`h-3 w-3 shrink-0 ${darkShell ? "text-indigo-400" : "text-[#4F46E5]"}`} />
+                <Clock className="h-3 w-3 shrink-0 text-[#4F46E5]" />
                 <span>EAT {currentTime || "--:--:--"}</span>
                 {ethiopianTime && (
                   <>
-                    <span className={darkShell ? "text-slate-600" : "text-slate-300"}>|</span>
-                    <span className={darkShell ? "text-amber-400 font-medium" : "text-amber-700 font-medium"}>
+                    <span className="text-slate-300">|</span>
+                    <span className="text-amber-700 font-medium">
                       EC {ethiopianTime}
                     </span>
                   </>
@@ -566,11 +474,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               {isTerminalRoute && !user && (
                 <Link
                   href="/login"
-                  className={`inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium transition-colors ${
-                    darkShell
-                      ? "bg-[#4F46E5] text-white hover:bg-[#4338CA]"
-                      : "border border-[#E5E7EB] bg-white text-slate-700 hover:bg-slate-50"
-                  }`}
+                  className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#E5E7EB] bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors"
                 >
                   <Lock className="h-3 w-3" />
                   <span className="hidden sm:inline">Admin</span>
@@ -583,9 +487,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         {/* Page Viewport */}
         <main
           className={`flex-1 w-full ${
-            isEntranceRoute
-              ? "px-3 py-3 sm:px-5 sm:py-4"
-              : isTerminalRoute
+            isTerminalRoute
               ? "mx-auto max-w-[1280px] px-4 py-5 sm:px-6"
               : "mx-auto max-w-[1340px] px-4 py-6 sm:px-6 lg:px-8"
           }`}

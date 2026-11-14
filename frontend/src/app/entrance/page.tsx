@@ -2,6 +2,13 @@
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/Button";
+import { getInitials } from "@/lib/format";
+import {
+  FACE_MESH_NODES,
+  FACE_MESH_EDGES,
+  getNormalizedSpiderPos,
+  getSpiderKneePoint,
+} from "@/lib/faceMesh";
 import {
   api,
   ContinuousFaceResult,
@@ -493,6 +500,117 @@ export default function ContinuousEntrancePage() {
       ctx.lineTo(drawX + w, y + h - cornerLen);
       ctx.stroke();
 
+      // Articulated 8-leg spider-web scan overlay for every person detected in frame
+      const isActiveTrack =
+        actionStatus === "NONE" ||
+        actionStatus === "ACQUIRING_TRACK" ||
+        actionStatus === "UNCERTAIN_TRACK" ||
+        actionStatus === "UNCERTAIN_CANDIDATE" ||
+        actionStatus === "UNKNOWN_VISITOR";
+      const isConfirmedLock =
+        actionStatus === "CONFIRMED" ||
+        actionStatus === "ALREADY_CHECKED_IN" ||
+        actionStatus === "ALREADY_PUNCHED_IN_PASSAGE";
+
+      if (isActiveTrack || isConfirmedLock) {
+        const phase = performance.now() * 0.0028 + face.track_id * 1.35;
+        const normPos = getNormalizedSpiderPos(phase);
+        const sx = drawX + normPos.x * w;
+        const sy = y + normPos.y * h;
+
+        const meshNodes = FACE_MESH_NODES.map((pt) => ({
+          nx: drawX + pt.x * w,
+          ny: y + pt.y * h,
+        }));
+
+        // Horizontal optical scanline sweep across active tracked face
+        if (isActiveTrack) {
+          const sweepProgress = (phase * 0.42) % 1;
+          const sweepY = y + sweepProgress * h;
+          const grad = ctx.createLinearGradient(drawX, Math.max(y, sweepY - 14), drawX, sweepY);
+          grad.addColorStop(0, "rgba(129, 140, 248, 0)");
+          grad.addColorStop(1, actionStatus === "UNKNOWN_VISITOR" ? "rgba(244, 63, 94, 0.25)" : "rgba(129, 140, 248, 0.28)");
+          ctx.fillStyle = grad;
+          ctx.fillRect(drawX + 2, Math.max(y + 2, sweepY - 14), Math.max(0, w - 4), Math.min(14, sweepY - y));
+
+          ctx.strokeStyle = actionStatus === "UNKNOWN_VISITOR" ? "#FDA4AF" : "#E0E7FF";
+          ctx.lineWidth = 1.15;
+          ctx.globalAlpha = 0.85;
+          ctx.beginPath();
+          ctx.moveTo(drawX + 2, sweepY);
+          ctx.lineTo(drawX + w - 2, sweepY);
+          ctx.stroke();
+        }
+
+        // Interconnected 26-node web edges across the face
+        ctx.lineWidth = 0.8;
+        for (let i = 0; i < FACE_MESH_EDGES.length; i++) {
+          const [aIdx, bIdx] = FACE_MESH_EDGES[i];
+          const a = meshNodes[aIdx];
+          const b = meshNodes[bIdx];
+          const mx = (a.nx + b.nx) * 0.5;
+          const my = (a.ny + b.ny) * 0.5;
+          const prox = isActiveTrack
+            ? Math.max(0, 1 - Math.hypot(mx - sx, my - sy) / Math.max(42, w * 0.62))
+            : 0.42;
+          ctx.strokeStyle = isActiveTrack ? strokeColor : "#10B981";
+          ctx.globalAlpha = isActiveTrack ? 0.16 + prox * 0.6 : 0.34;
+          ctx.beginPath();
+          ctx.moveTo(a.nx, a.ny);
+          ctx.lineTo(b.nx, b.ny);
+          ctx.stroke();
+        }
+
+        // Anatomical facial landmark dots
+        for (let i = 0; i < meshNodes.length; i++) {
+          const pt = meshNodes[i];
+          const prox = isActiveTrack
+            ? Math.max(0, 1 - Math.hypot(pt.nx - sx, pt.ny - sy) / Math.max(42, w * 0.62))
+            : 0.5;
+          ctx.fillStyle = isConfirmedLock ? "#34D399" : "#FFFFFF";
+          ctx.globalAlpha = isActiveTrack ? 0.3 + prox * 0.7 : 0.78;
+          ctx.beginPath();
+          ctx.arc(pt.nx, pt.ny, 1.35 + prox * 1.25, 0, Math.PI * 2);
+          ctx.fill();
+        }
+
+        // 8-leg articulated crawling spider sensor across each scanning face
+        if (isActiveTrack) {
+          const sorted = meshNodes
+            .map((pt, idx) => ({ idx, d: Math.hypot(pt.nx - sx, pt.ny - sy) }))
+            .sort((a, b) => a.d - b.d);
+
+          ctx.strokeStyle = actionStatus === "UNKNOWN_VISITOR" ? "#FECDD3" : "#E0E7FF";
+          ctx.lineWidth = 1.05;
+          for (let leg = 0; leg < 8; leg++) {
+            const target = meshNodes[sorted[leg].idx];
+            const { kx, ky } = getSpiderKneePoint(sx, sy, target.nx, target.ny, leg, Math.max(6, w * 0.085));
+            ctx.globalAlpha = Math.max(0.28, 0.9 - sorted[leg].d / Math.max(52, w * 0.85));
+            ctx.beginPath();
+            ctx.moveTo(sx, sy);
+            ctx.lineTo(kx, ky);
+            ctx.lineTo(target.nx, target.ny);
+            ctx.stroke();
+          }
+
+          // Outer spider halo & optical core
+          const haloR = 5.5 + Math.sin(phase * 5) * 1.1;
+          ctx.globalAlpha = 0.75;
+          ctx.strokeStyle = strokeColor;
+          ctx.lineWidth = 1.1;
+          ctx.beginPath();
+          ctx.arc(sx, sy, haloR, 0, Math.PI * 2);
+          ctx.stroke();
+
+          ctx.globalAlpha = 0.98;
+          ctx.fillStyle = "#FFFFFF";
+          ctx.beginPath();
+          ctx.arc(sx, sy, 2.3, 0, Math.PI * 2);
+          ctx.fill();
+        }
+        ctx.globalAlpha = 1;
+      }
+
       // Top Tag Badge
       let name = tagText;
       let sub = `Track #${face.track_id} • ${face.motion_direction || "ACQUIRING"}`;
@@ -548,11 +666,26 @@ export default function ContinuousEntrancePage() {
     });
   }, [isMirrored]);
 
-  // Re-render overlays immediately when mirror orientation is toggled
+  // Animate live spider-mesh bounding overlays cleanly while faces are tracked
   useEffect(() => {
-    if (detectedFaces.length > 0) {
+    if (detectedFaces.length === 0) return;
+
+    const prefersReducedMotion =
+      typeof window !== "undefined" &&
+      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+
+    if (prefersReducedMotion) {
       drawOverlays(detectedFaces);
+      return;
     }
+
+    let rafId = 0;
+    const renderLoop = () => {
+      drawOverlays(detectedFaces);
+      rafId = requestAnimationFrame(renderLoop);
+    };
+    rafId = requestAnimationFrame(renderLoop);
+    return () => cancelAnimationFrame(rafId);
   }, [isMirrored, detectedFaces, drawOverlays]);
 
   const clearOverlays = () => {
@@ -802,9 +935,13 @@ export default function ContinuousEntrancePage() {
         gate_mode: gateMode,
       });
 
-      if (!isMountedRef.current || !isStreamingRef.current) return;
+      if (!isMountedRef.current) return;
       const tookMs = Math.round(performance.now() - startTime);
       setLatencyMs(tookMs);
+      setStreamError(null);
+      if (!isStreamingRef.current) {
+        streamDimsRef.current = { w: 640, h: 480 };
+      }
       setDetectedFaces(res.faces);
 
       if (overlayCanvasRef.current) {
@@ -881,31 +1018,31 @@ export default function ContinuousEntrancePage() {
   ).length;
 
   return (
-    <div className="space-y-4 text-slate-100">
+    <div className="space-y-4 text-slate-900">
       <canvas ref={canvasRef} className="hidden" />
 
-      {/* Dark Obsidian Operator Control Strip */}
-      <div className="rounded-xl border border-[#1E293B] bg-[#121826] px-4 py-3 space-y-2.5">
+      {/* Ledger Noir Light Operator Control Strip */}
+      <div className="rounded-xl border border-[#E5E7EB] bg-white px-4 py-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.03)] space-y-2.5">
         <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-3">
           <div className="flex flex-wrap items-center gap-3">
             <div>
               <div className="flex items-center gap-2">
-                <h1 className="text-base font-semibold tracking-tight text-white">
+                <h1 className="text-base font-semibold tracking-tight text-slate-900">
                   Gate Monitor
                 </h1>
                 {transportMode === "WEBSOCKET" && isWsConnected ? (
-                  <span className="inline-flex items-center gap-1.5 rounded-md border border-emerald-500/30 bg-emerald-500/15 px-2 py-0.5 text-[11px] font-medium text-emerald-400 tabular-nums">
-                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                  <span className="inline-flex items-center gap-1.5 rounded-md border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[11px] font-medium text-emerald-700 tabular-nums">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
                     <span>WS Live{rttMs !== null ? ` · ${rttMs}ms` : ""}</span>
                   </span>
                 ) : (
-                  <span className="inline-flex items-center gap-1.5 rounded-md border border-amber-500/30 bg-amber-500/15 px-2 py-0.5 text-[11px] font-medium text-amber-300 tabular-nums">
-                    <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
+                  <span className="inline-flex items-center gap-1.5 rounded-md border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700 tabular-nums">
+                    <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
                     <span>HTTP Poll{rttMs !== null ? ` · ${rttMs}ms` : ""}</span>
                   </span>
                 )}
               </div>
-              <p className="text-[11px] text-slate-400 mt-0.5">
+              <p className="text-xs text-slate-500 mt-0.5">
                 Multi-person optical entrance tracking and autonomous check-in/out stream.
               </p>
             </div>
@@ -913,22 +1050,22 @@ export default function ContinuousEntrancePage() {
 
           <div className="flex flex-wrap items-center gap-2">
             {/* Station Selector */}
-            <div className="flex items-center gap-1.5 rounded-lg border border-[#1E293B] bg-[#0B0F17] px-2.5 h-8 text-xs">
-              <Building2 className="h-3.5 w-3.5 text-indigo-400 shrink-0" />
+            <div className="flex items-center gap-1.5 rounded-lg border border-[#E5E7EB] bg-[#FAFBFD] px-2.5 h-8 text-xs">
+              <Building2 className="h-3.5 w-3.5 text-[#4F46E5] shrink-0" />
               <select
                 value={selectedStation}
                 onChange={(e) => setSelectedStation(e.target.value)}
                 aria-label="Gate Station"
-                className="font-medium text-slate-200 bg-transparent focus:outline-none"
+                className="font-medium text-slate-800 bg-transparent focus:outline-none"
               >
                 {stations.length > 0 ? (
                   stations.map((s) => (
-                    <option key={s.id} value={s.station_code} className="bg-[#121826] text-slate-100">
+                    <option key={s.id} value={s.station_code} className="bg-white text-slate-900">
                       {s.station_code} — {s.name}
                     </option>
                   ))
                 ) : (
-                  <option value="ST-GATE-01" className="bg-[#121826] text-slate-100">
+                  <option value="ST-GATE-01" className="bg-white text-slate-900">
                     ST-GATE-01 — Main Campus Gate
                   </option>
                 )}
@@ -936,14 +1073,14 @@ export default function ContinuousEntrancePage() {
             </div>
 
             {/* Direction Mode Segmented Control */}
-            <div className="inline-flex h-8 items-center rounded-lg border border-[#1E293B] bg-[#0B0F17] p-0.5 text-xs">
+            <div className="inline-flex h-8 items-center rounded-lg border border-[#E5E7EB] bg-[#FAFBFD] p-0.5 text-xs">
               <button
                 type="button"
                 onClick={() => handleModeChange("IN")}
                 className={`rounded-md px-2.5 py-1 font-medium transition-colors ${
                   gateMode === "IN"
-                    ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
-                    : "text-slate-400 hover:text-slate-200"
+                    ? "bg-emerald-600 text-white shadow-sm"
+                    : "text-slate-600 hover:text-slate-900"
                 }`}
               >
                 Entry
@@ -953,8 +1090,8 @@ export default function ContinuousEntrancePage() {
                 onClick={() => handleModeChange("AUTO_DETECT")}
                 className={`rounded-md px-2.5 py-1 font-medium transition-colors ${
                   gateMode === "AUTO_DETECT"
-                    ? "bg-[#4F46E5] text-white"
-                    : "text-slate-400 hover:text-slate-200"
+                    ? "bg-[#4F46E5] text-white shadow-sm"
+                    : "text-slate-600 hover:text-slate-900"
                 }`}
               >
                 Auto
@@ -964,8 +1101,8 @@ export default function ContinuousEntrancePage() {
                 onClick={() => handleModeChange("OUT")}
                 className={`rounded-md px-2.5 py-1 font-medium transition-colors ${
                   gateMode === "OUT"
-                    ? "bg-indigo-500/20 text-indigo-300 border border-indigo-500/30"
-                    : "text-slate-400 hover:text-slate-200"
+                    ? "bg-indigo-600 text-white shadow-sm"
+                    : "text-slate-600 hover:text-slate-900"
                 }`}
               >
                 Exit
@@ -979,7 +1116,7 @@ export default function ContinuousEntrancePage() {
                   const ctx = getAudioContext();
                   ctx?.resume().then(() => setIsAudioSuspended(false)).catch(() => {});
                 }}
-                className="flex h-8 items-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/15 px-2.5 text-xs font-medium text-amber-300 hover:bg-amber-500/25 transition-colors"
+                className="flex h-8 items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2.5 text-xs font-medium text-amber-700 hover:bg-amber-100 transition-colors"
               >
                 <VolumeX className="h-3.5 w-3.5" />
                 <span>Unlock Audio</span>
@@ -997,24 +1134,24 @@ export default function ContinuousEntrancePage() {
                 }
               }}
               title={soundEnabled ? "Mute Gate Chime" : "Enable Gate Chime"}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[#1E293B] bg-[#0B0F17] text-slate-300 hover:bg-slate-800 transition-colors"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[#E5E7EB] bg-[#FAFBFD] text-slate-600 hover:bg-slate-100 transition-colors"
             >
               {soundEnabled ? (
-                <Volume2 className="h-3.5 w-3.5 text-emerald-400" />
+                <Volume2 className="h-3.5 w-3.5 text-emerald-600" />
               ) : (
-                <VolumeX className="h-3.5 w-3.5 text-slate-500" />
+                <VolumeX className="h-3.5 w-3.5 text-slate-400" />
               )}
             </button>
 
             <button
               type="button"
               onClick={() => setIsSettingsOpen(true)}
-              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#1E293B] bg-[#0B0F17] px-2.5 text-xs font-medium text-slate-300 hover:bg-slate-800 hover:text-white transition-colors"
+              className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-[#E5E7EB] bg-[#FAFBFD] px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-100 hover:text-slate-900 transition-colors"
               title="Configure Gate Timing & Persistence"
             >
-              <Sliders className="h-3.5 w-3.5 text-slate-400" />
+              <Sliders className="h-3.5 w-3.5 text-slate-500" />
               <span className="hidden sm:inline">Tuning</span>
-              {!isAdmin && <Lock className="h-3 w-3 text-amber-400" />}
+              {!isAdmin && <Lock className="h-3 w-3 text-amber-600" />}
             </button>
 
             <button
@@ -1024,7 +1161,7 @@ export default function ContinuousEntrancePage() {
                 handleReconnectTransport();
               }}
               disabled={isTestingPing}
-              className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[#1E293B] bg-[#0B0F17] text-slate-300 hover:bg-slate-800 transition-colors disabled:opacity-50"
+              className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[#E5E7EB] bg-[#FAFBFD] text-slate-600 hover:bg-slate-100 transition-colors disabled:opacity-50"
               title="Refresh data & reconnect stream"
             >
               <RefreshCw className={`h-3.5 w-3.5 ${isTestingPing ? "animate-spin" : ""}`} />
@@ -1033,37 +1170,37 @@ export default function ContinuousEntrancePage() {
         </div>
 
         {/* Quiet Timing Strip */}
-        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[#1E293B] pt-2 text-[11px] text-slate-400">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-t border-[#EAECEF] pt-2.5 text-[11px] text-slate-500">
           <div className="flex flex-wrap items-center gap-4 font-mono tabular-nums">
             <button
               type="button"
               onClick={() => setIsSettingsOpen(true)}
-              className="inline-flex items-center gap-1.5 hover:text-slate-200 transition-colors"
+              className="inline-flex items-center gap-1.5 hover:text-slate-900 transition-colors"
             >
-              <Clock className="h-3 w-3 text-amber-400" />
-              <span>Checkout Debounce: <strong className="text-slate-200">{minCheckoutMins}m</strong></span>
+              <Clock className="h-3 w-3 text-amber-600" />
+              <span>Checkout Debounce: <strong className="text-slate-800">{minCheckoutMins}m</strong></span>
             </button>
             <button
               type="button"
               onClick={() => setIsSettingsOpen(true)}
-              className="inline-flex items-center gap-1.5 hover:text-slate-200 transition-colors"
+              className="inline-flex items-center gap-1.5 hover:text-slate-900 transition-colors"
             >
-              <Layers className="h-3 w-3 text-indigo-400" />
-              <span>Persistence: <strong className="text-slate-200">{minPersistenceFrames}f</strong></span>
+              <Layers className="h-3 w-3 text-[#4F46E5]" />
+              <span>Persistence: <strong className="text-slate-800">{minPersistenceFrames}f</strong></span>
             </button>
             <button
               type="button"
               onClick={() => setIsSettingsOpen(true)}
-              className="inline-flex items-center gap-1.5 hover:text-slate-200 transition-colors"
+              className="inline-flex items-center gap-1.5 hover:text-slate-900 transition-colors"
             >
-              <ShieldAlert className="h-3 w-3 text-slate-400" />
-              <span>Cooldown: <strong className="text-slate-200">{cooldownSec}s</strong></span>
+              <ShieldAlert className="h-3 w-3 text-slate-500" />
+              <span>Cooldown: <strong className="text-slate-800">{cooldownSec}s</strong></span>
             </button>
           </div>
           <button
             type="button"
             onClick={() => setShowSimTools(!showSimTools)}
-            className="text-slate-400 hover:text-white font-medium transition-colors"
+            className="text-[#4F46E5] hover:text-[#4338CA] font-medium transition-colors"
           >
             {showSimTools ? "Hide simulation" : "Simulation tools"}
           </button>
@@ -1074,37 +1211,37 @@ export default function ContinuousEntrancePage() {
         <div
           className={`px-3.5 py-2.5 rounded-lg border text-xs flex items-center justify-between ${
             simMessage.type === "success"
-              ? "bg-emerald-500/10 text-emerald-300 border-emerald-500/30"
-              : "bg-amber-500/10 text-amber-300 border-amber-500/30"
+              ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+              : "bg-amber-50 text-amber-800 border-amber-200"
           }`}
         >
           <div className="flex items-center gap-2">
             {simMessage.type === "success" ? (
-              <CheckCircle2 className="h-4 w-4 text-emerald-400 shrink-0" />
+              <CheckCircle2 className="h-4 w-4 text-emerald-600 shrink-0" />
             ) : (
-              <AlertCircle className="h-4 w-4 text-amber-400 shrink-0" />
+              <AlertCircle className="h-4 w-4 text-amber-600 shrink-0" />
             )}
             <span>{simMessage.text}</span>
           </div>
-          <button onClick={() => setSimMessage(null)} className="text-xs underline hover:opacity-80">
+          <button onClick={() => setSimMessage(null)} className="text-xs font-medium underline hover:opacity-80">
             Dismiss
           </button>
         </div>
       )}
 
       {streamError && !insecureContextInfo && (
-        <div className="p-3 rounded-lg border border-rose-500/30 bg-rose-500/10 text-rose-300 text-xs flex items-center gap-2">
-          <ShieldAlert className="h-4 w-4 text-rose-400 shrink-0" />
+        <div className="p-3 rounded-lg border border-rose-200 bg-rose-50 text-rose-800 text-xs flex items-center gap-2">
+          <ShieldAlert className="h-4 w-4 text-rose-600 shrink-0" />
           <span>{streamError}</span>
         </div>
       )}
 
-      {/* Main Dark Monitor Grid: 8 Col Surveillance Feed + 4 Col Live Sidebar */}
+      {/* Main Ledger Noir Light Grid: 8 Col Optical Scanner Frame + 4 Col Live Sidebar */}
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
-        {/* Left: Optical Stream + 4-Stat Telemetry Bar */}
+        {/* Left: Optical Stream (CameraCapture Sibling) + 4-Stat Telemetry Bar */}
         <div className="lg:col-span-8 space-y-3">
-          <div className="rounded-xl border border-[#1E293B] bg-[#06090F] overflow-hidden relative">
-            <div className="relative aspect-[16/10] sm:aspect-[4/3] w-full bg-[#06090F] flex items-center justify-center overflow-hidden">
+          <div className="rounded-2xl bg-[#0D1117] border border-[#E5E7EB] shadow-[0_1px_3px_rgba(15,23,42,0.06)] p-2.5">
+            <div className="relative aspect-[4/3] w-full overflow-hidden rounded-xl bg-[#070A0F] flex items-center justify-center">
               <video
                 ref={videoRef}
                 playsInline
@@ -1119,6 +1256,34 @@ export default function ContinuousEntrancePage() {
                 ref={overlayCanvasRef}
                 className="absolute inset-0 w-full h-full pointer-events-none z-10"
               />
+
+              {/* Wide Multi-Person Optical Perimeter Sweep when watching without locked tracks */}
+              {isStreaming && detectedFaces.length === 0 && (
+                <div className="pointer-events-none absolute left-[13.125%] right-[13.125%] top-[11.25%] bottom-[11.25%] z-10 overflow-hidden rounded-sm">
+                  <div className="animate-biometric-watch absolute inset-x-2 h-6">
+                    <div className="h-full w-full bg-gradient-to-b from-transparent to-indigo-400/15" />
+                    <div className="h-px w-full bg-gradient-to-r from-transparent via-white/70 to-transparent" />
+                  </div>
+                </div>
+              )}
+
+              {/* Image-3 L-Shaped Viewfinder Corner Brackets framing the multi-person aperture */}
+              {(isStreaming || detectedFaces.length > 0) && !insecureContextInfo && (
+                <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
+                  <svg className="h-full w-full" viewBox="0 0 640 480" fill="none">
+                    <g
+                      stroke={detectedFaces.length > 0 ? "#818CF8" : "rgba(255,255,255,0.6)"}
+                      strokeWidth="2.5"
+                      strokeLinecap="square"
+                    >
+                      <path d="M 84 90 L 84 54 L 120 54" />
+                      <path d="M 520 54 L 556 54 L 556 90" />
+                      <path d="M 84 390 L 84 426 L 120 426" />
+                      <path d="M 520 426 L 556 426 L 556 390" />
+                    </g>
+                  </svg>
+                </div>
+              )}
 
               {insecureContextInfo ? (
                 <div className="absolute inset-0 z-30 flex flex-col items-center justify-center bg-[#0B0F17]/95 p-6 text-center text-white backdrop-blur-sm">
@@ -1167,7 +1332,7 @@ export default function ContinuousEntrancePage() {
                     </Button>
                   </div>
                 </div>
-              ) : !isStreaming ? (
+              ) : !isStreaming && detectedFaces.length === 0 ? (
                 <div className="text-center p-6 space-y-3 z-0">
                   <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-[#121826] text-indigo-400 border border-[#1E293B]">
                     <Radio className="h-6 w-6" />
@@ -1176,8 +1341,8 @@ export default function ContinuousEntrancePage() {
                     <h3 className="text-sm font-semibold text-slate-200">
                       Gate Monitor Standby
                     </h3>
-                    <p className="text-xs text-slate-500 max-w-sm mt-1">
-                      Start the live optical stream or use simulation controls to test multi-face tracking.
+                    <p className="text-xs text-slate-400 max-w-sm mt-1">
+                      Start the live optical stream or trigger a preset in Simulation Tools below to test multi-person spider-mesh scanning.
                     </p>
                   </div>
                   <Button onClick={startCamera} size="sm" variant="primary">
@@ -1187,14 +1352,27 @@ export default function ContinuousEntrancePage() {
                 </div>
               ) : null}
 
-              {isStreaming && (
+              {(isStreaming || detectedFaces.length > 0) && !insecureContextInfo && (
                 <>
                   {/* Top-Left Stream Readout */}
                   <div className="absolute top-3 left-3 z-20 flex flex-wrap items-center gap-1.5">
-                    <span className="flex items-center gap-1.5 rounded-md bg-black/65 px-2 py-1 text-[11px] font-mono text-emerald-400 backdrop-blur-sm border border-white/10 tabular-nums">
-                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
-                      <span>LIVE · {fps} FPS</span>
-                    </span>
+                    {isStreaming ? (
+                      <span className="flex items-center gap-1.5 rounded-md bg-black/65 px-2 py-1 text-[11px] font-mono text-emerald-400 backdrop-blur-sm border border-white/10 tabular-nums">
+                        <span className="relative flex h-2 w-2">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75" />
+                          <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-400" />
+                        </span>
+                        <span>LIVE · {fps} FPS</span>
+                      </span>
+                    ) : (
+                      <span className="flex items-center gap-1.5 rounded-md bg-black/65 px-2 py-1 text-[11px] font-mono text-indigo-300 backdrop-blur-sm border border-indigo-400/25 tabular-nums">
+                        <span className="relative flex h-2 w-2">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-indigo-400 opacity-75" />
+                          <span className="relative inline-flex rounded-full h-2 w-2 bg-indigo-400" />
+                        </span>
+                        <span>SIMULATION · CROWD</span>
+                      </span>
+                    )}
                     <span className="rounded-md bg-black/65 px-2 py-1 text-[11px] font-mono text-slate-300 backdrop-blur-sm border border-white/10 tabular-nums">
                       {latencyMs}ms
                     </span>
@@ -1215,93 +1393,132 @@ export default function ContinuousEntrancePage() {
                       </span>
                     </span>
                   </div>
-
-                  {/* Bottom HUD Control Strip */}
-                  <div className="absolute bottom-3 inset-x-3 z-20 flex flex-wrap items-center justify-between gap-2 bg-[#0B0F17]/85 px-3 py-2 rounded-lg backdrop-blur-md border border-white/10">
-                    <div className="flex items-center gap-2 text-[11px] text-slate-300 font-mono">
-                      <span className="text-indigo-400 font-medium">{selectedStation}</span>
-                      <span className="text-slate-600">|</span>
-                      <span className="text-emerald-400">{gateMode}</span>
-                    </div>
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() => setIsMirrored(!isMirrored)}
-                        className="inline-flex h-7 items-center gap-1 rounded-md border border-white/15 bg-white/5 px-2 text-[11px] font-medium text-slate-200 hover:bg-white/15 transition-colors"
-                      >
-                        <FlipHorizontal className="h-3 w-3 text-slate-300" />
-                        <span>{isMirrored ? "Mirrored" : "Direct"}</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={handleOpenQuickEnroll}
-                        className="inline-flex h-7 items-center gap-1 rounded-md border border-white/15 bg-white/5 px-2 text-[11px] font-medium text-slate-200 hover:bg-white/15 transition-colors"
-                      >
-                        <UserPlus className="h-3 w-3 text-indigo-400" />
-                        <span>Enroll</span>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={stopCamera}
-                        className="inline-flex h-7 items-center gap-1 rounded-md bg-rose-600 hover:bg-rose-700 px-2.5 text-[11px] font-medium text-white transition-colors"
-                      >
-                        <Pause className="h-3 w-3" />
-                        <span>Stop</span>
-                      </button>
-                    </div>
-                  </div>
                 </>
               )}
             </div>
+
+            {/* Integrated Dark Optical Control Bar (matches CameraCapture) */}
+            <div className="pt-2.5 px-1 flex flex-wrap items-center justify-between gap-2">
+              <div className="flex items-center gap-2 text-[11px] font-mono">
+                <span className="text-indigo-400 font-medium">{selectedStation}</span>
+                <span className="text-slate-600">|</span>
+                <span className="text-emerald-400">{gateMode}</span>
+                <span className="text-slate-600 hidden sm:inline">|</span>
+                <span className="text-slate-400 hidden sm:inline">
+                  {isStreaming
+                    ? isMirrored
+                      ? "MIRRORED"
+                      : "DIRECT"
+                    : detectedFaces.length > 0
+                    ? "CROWD SIM"
+                    : "STANDBY"}
+                </span>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-1.5">
+                {isStreaming ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => setIsMirrored(!isMirrored)}
+                      className="inline-flex h-7 items-center gap-1 rounded-md border border-white/15 bg-white/5 px-2.5 text-[11px] font-medium text-slate-200 hover:bg-white/15 transition-colors"
+                    >
+                      <FlipHorizontal className="h-3 w-3 text-slate-300" />
+                      <span>{isMirrored ? "Mirrored" : "Direct"}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleOpenQuickEnroll}
+                      className="inline-flex h-7 items-center gap-1 rounded-md border border-white/15 bg-white/5 px-2.5 text-[11px] font-medium text-slate-200 hover:bg-white/15 transition-colors"
+                    >
+                      <UserPlus className="h-3 w-3 text-indigo-400" />
+                      <span>Enroll</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={stopCamera}
+                      className="inline-flex h-7 items-center gap-1 rounded-md bg-rose-600 hover:bg-rose-700 px-2.5 text-[11px] font-medium text-white transition-colors"
+                    >
+                      <Pause className="h-3 w-3" />
+                      <span>Stop</span>
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    {detectedFaces.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDetectedFaces([]);
+                          clearOverlays();
+                        }}
+                        className="inline-flex h-7 items-center gap-1 rounded-md border border-white/15 bg-white/5 px-2.5 text-[11px] font-medium text-slate-200 hover:bg-white/15 transition-colors"
+                      >
+                        <X className="h-3 w-3 text-slate-300" />
+                        <span>Clear Sim</span>
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={startCamera}
+                      className="inline-flex h-7 items-center gap-1.5 rounded-md bg-[#4F46E5] hover:bg-[#4338CA] px-3 text-[11px] font-medium text-white transition-colors"
+                    >
+                      <Play className="h-3 w-3" />
+                      <span>Start Stream</span>
+                    </button>
+                  </>
+                )}
+              </div>
+            </div>
           </div>
 
-          {/* Bottom 4-Stat Telemetry Bar (Image 2 Gate) */}
+          {/* Bottom 4-Stat Telemetry Bar */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-            <div className="rounded-xl border border-[#1E293B] bg-[#121826] p-3.5">
-              <p className="text-[10.5px] font-medium uppercase tracking-wider text-slate-400">
+            <div className="rounded-xl border border-[#E5E7EB] bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+              <p className="text-[10.5px] font-medium uppercase tracking-wider text-slate-500">
                 Total Scans
               </p>
-              <p className="mt-1 text-xl font-semibold text-white tabular-nums">
+              <p className="mt-1 text-xl font-semibold text-slate-900 tabular-nums">
                 {gateStatus?.today_total_passages ?? 0}
               </p>
             </div>
-            <div className="rounded-xl border border-[#1E293B] bg-[#121826] p-3.5">
-              <p className="text-[10.5px] font-medium uppercase tracking-wider text-emerald-400">
+            <div className="rounded-xl border border-[#E5E7EB] bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+              <p className="text-[10.5px] font-medium uppercase tracking-wider text-emerald-600">
                 Entries
               </p>
-              <p className="mt-1 text-xl font-semibold text-emerald-400 tabular-nums">
+              <p className="mt-1 text-xl font-semibold text-emerald-600 tabular-nums">
                 {gateStatus?.today_checkins ?? 0}
               </p>
             </div>
-            <div className="rounded-xl border border-[#1E293B] bg-[#121826] p-3.5">
-              <p className="text-[10.5px] font-medium uppercase tracking-wider text-indigo-400">
+            <div className="rounded-xl border border-[#E5E7EB] bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+              <p className="text-[10.5px] font-medium uppercase tracking-wider text-[#4F46E5]">
                 Exits
               </p>
-              <p className="mt-1 text-xl font-semibold text-indigo-400 tabular-nums">
+              <p className="mt-1 text-xl font-semibold text-[#4F46E5] tabular-nums">
                 {gateStatus?.today_checkouts ?? 0}
               </p>
             </div>
-            <div className="rounded-xl border border-[#1E293B] bg-[#121826] p-3.5">
-              <p className="text-[10.5px] font-medium uppercase tracking-wider text-rose-400">
+            <div className="rounded-xl border border-[#E5E7EB] bg-white p-3.5 shadow-[0_1px_2px_rgba(15,23,42,0.03)]">
+              <p className="text-[10.5px] font-medium uppercase tracking-wider text-rose-600">
                 Rejected Frame
               </p>
-              <p className="mt-1 text-xl font-semibold text-rose-400 tabular-nums">
+              <p className="mt-1 text-xl font-semibold text-rose-600 tabular-nums">
                 {rejectedCount}
               </p>
             </div>
           </div>
 
-          {/* Collapsible Dark Simulation Sandbox */}
+          {/* Collapsible Light Simulation Sandbox */}
           {showSimTools && (
-            <div className="rounded-xl border border-[#1E293B] bg-[#121826] overflow-hidden">
-              <div className="px-4 py-2.5 border-b border-[#1E293B] flex items-center justify-between">
+            <div className="rounded-xl border border-[#E5E7EB] bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)] overflow-hidden">
+              <div className="px-4 py-2.5 border-b border-[#EAECEF] flex items-center justify-between">
                 <div>
-                  <h3 className="text-xs font-semibold text-white">Crowd Simulation Sandbox</h3>
-                  <p className="text-[11px] text-slate-400">
-                    Test multi-face detection, persistence, and debounce without optical hardware.
+                  <h3 className="text-xs font-semibold text-slate-900">Crowd Simulation Sandbox</h3>
+                  <p className="text-[11px] text-slate-500">
+                    Test multi-face detection, spider-mesh tracking, and debounce without optical hardware.
                   </p>
                 </div>
-                <span className="rounded border border-[#1E293B] bg-[#0B0F17] px-2 py-0.5 text-[10px] font-mono text-slate-400">
+                <span className="rounded border border-[#E5E7EB] bg-[#FAFBFD] px-2 py-0.5 text-[10px] font-mono text-slate-500">
                   MOCK
                 </span>
               </div>
@@ -1310,36 +1527,36 @@ export default function ContinuousEntrancePage() {
                   type="button"
                   disabled={isProcessing}
                   onClick={() => runSimulation(["EIPC-EMP-001", "EIPC-EMP-002"], "2 Staff Entering Together")}
-                  className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-[#1E293B] bg-[#0B0F17] px-2.5 text-[11px] font-medium text-slate-200 hover:bg-slate-800 disabled:opacity-50"
+                  className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-[#E5E7EB] bg-[#FAFBFD] px-2.5 text-[11px] font-medium text-slate-700 hover:bg-slate-100 hover:border-slate-300 disabled:opacity-50 transition-colors"
                 >
-                  <Users className="h-3 w-3 text-emerald-400" />
+                  <Users className="h-3 w-3 text-emerald-600" />
                   <span>Abebe + Hanna</span>
                 </button>
                 <button
                   type="button"
                   disabled={isProcessing}
                   onClick={() => runSimulation(["EIPC-EMP-003"], "Solo Staff Fast Passage")}
-                  className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-[#1E293B] bg-[#0B0F17] px-2.5 text-[11px] font-medium text-slate-200 hover:bg-slate-800 disabled:opacity-50"
+                  className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-[#E5E7EB] bg-[#FAFBFD] px-2.5 text-[11px] font-medium text-slate-700 hover:bg-slate-100 hover:border-slate-300 disabled:opacity-50 transition-colors"
                 >
-                  <UserCheck className="h-3 w-3 text-indigo-400" />
+                  <UserCheck className="h-3 w-3 text-[#4F46E5]" />
                   <span>Chaltu Girma</span>
                 </button>
                 <button
                   type="button"
                   disabled={isProcessing}
                   onClick={() => runSimulation(["EIPC-EMP-004", "UNKNOWN_VISITOR"], "Staff + Unknown Visitor")}
-                  className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-[#1E293B] bg-[#0B0F17] px-2.5 text-[11px] font-medium text-slate-200 hover:bg-slate-800 disabled:opacity-50"
+                  className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-[#E5E7EB] bg-[#FAFBFD] px-2.5 text-[11px] font-medium text-slate-700 hover:bg-slate-100 hover:border-slate-300 disabled:opacity-50 transition-colors"
                 >
-                  <UserX className="h-3 w-3 text-rose-400" />
+                  <UserX className="h-3 w-3 text-rose-600" />
                   <span>Staff + Visitor</span>
                 </button>
                 <button
                   type="button"
                   disabled={isProcessing}
                   onClick={() => runSimulation(["EIPC-EMP-001", "EIPC-EMP-002", "EIPC-EMP-003"], "3 Staff Crowd")}
-                  className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-[#1E293B] bg-[#0B0F17] px-2.5 text-[11px] font-medium text-slate-200 hover:bg-slate-800 disabled:opacity-50"
+                  className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-[#E5E7EB] bg-[#FAFBFD] px-2.5 text-[11px] font-medium text-slate-700 hover:bg-slate-100 hover:border-slate-300 disabled:opacity-50 transition-colors"
                 >
-                  <Layers className="h-3 w-3 text-amber-400" />
+                  <Layers className="h-3 w-3 text-amber-600" />
                   <span>3-Person Crowd</span>
                 </button>
               </div>
@@ -1350,13 +1567,13 @@ export default function ContinuousEntrancePage() {
         {/* Right: Active Detections + Last 25 Passages */}
         <div className="lg:col-span-4 space-y-4">
           {/* Active Frame Detections */}
-          <div className="rounded-xl border border-[#1E293B] bg-[#121826] overflow-hidden">
-            <div className="px-4 py-3 border-b border-[#1E293B] flex items-center justify-between">
-              <h2 className="text-xs font-semibold text-white flex items-center gap-1.5">
-                <Activity className="h-3.5 w-3.5 text-emerald-400" />
+          <div className="rounded-xl border border-[#E5E7EB] bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)] overflow-hidden">
+            <div className="px-4 py-3 border-b border-[#EAECEF] flex items-center justify-between">
+              <h2 className="text-xs font-semibold text-slate-900 flex items-center gap-1.5">
+                <Activity className="h-3.5 w-3.5 text-emerald-600" />
                 <span>Active Frame Detections</span>
               </h2>
-              <span className="rounded-md border border-[#1E293B] bg-[#0B0F17] px-2 py-0.5 text-[10px] font-mono text-slate-300 tabular-nums">
+              <span className="rounded-md border border-[#E5E7EB] bg-[#FAFBFD] px-2 py-0.5 text-[10px] font-mono text-slate-600 tabular-nums">
                 {detectedFaces.length} Active
               </span>
             </div>
@@ -1365,24 +1582,24 @@ export default function ContinuousEntrancePage() {
                 <div className="text-center py-6 text-slate-500 text-xs">
                   {isStreaming
                     ? "Monitoring camera view for incoming faces..."
-                    : "Stream offline. Start stream to inspect active detections."}
+                    : "Stream offline. Start stream or run simulation to inspect active detections."}
                 </div>
               ) : (
                 <div className="space-y-2">
                   {detectedFaces.map((face) => (
                     <div
                       key={face.track_id}
-                      className="p-2.5 rounded-lg border border-[#1E293B] bg-[#0B0F17] flex items-center justify-between gap-2 text-xs"
+                      className="p-2.5 rounded-lg border border-[#EAECEF] bg-[#FAFBFD] flex items-center justify-between gap-2 text-xs"
                     >
                       <div className="min-w-0">
                         <div className="flex items-center gap-1.5">
-                          <span className="font-medium text-slate-100 truncate">
+                          <span className="font-medium text-slate-900 truncate">
                             {face.employee ? face.employee.full_name : "Unrecognized Visitor"}
                           </span>
                         </div>
-                        <div className="text-[11px] text-slate-400 font-mono tabular-nums mt-0.5">
+                        <div className="text-[11px] text-slate-500 font-mono tabular-nums mt-0.5">
                           {Math.round(face.recognition_score * 100)}% ·{" "}
-                          <span className={face.liveness_passed ? "text-emerald-400" : "text-rose-400"}>
+                          <span className={face.liveness_passed ? "text-emerald-600 font-medium" : "text-rose-600 font-medium"}>
                             {face.liveness_passed ? "LIVE" : "SPOOF"}
                           </span>
                         </div>
@@ -1390,7 +1607,7 @@ export default function ContinuousEntrancePage() {
 
                       <div className="shrink-0 flex items-center gap-1.5">
                         {face.action_status === "CONFIRMED" ? (
-                          <span className="rounded bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 text-[10px] font-medium text-emerald-300">
+                          <span className="rounded bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
                             {face.attendance_action}
                           </span>
                         ) : face.action_status === "REJECTED" ||
@@ -1398,38 +1615,38 @@ export default function ContinuousEntrancePage() {
                           face.action_status === "SPOOF_BLOCKED" ||
                           face.action_status === "CONSENT_BLOCKED" ||
                           face.status === "CONSENT_NOT_VERIFIED" ? (
-                          <span className="rounded bg-rose-500/15 border border-rose-500/30 px-2 py-0.5 text-[10px] font-medium text-rose-300">
+                          <span className="rounded bg-rose-50 border border-rose-200 px-2 py-0.5 text-[10px] font-medium text-rose-700">
                             {face.action_status?.replace(/_/g, " ") || "BLOCKED"}
                           </span>
                         ) : face.action_status === "COOLDOWN_ACTIVE" ||
                           face.action_status === "ALREADY_PUNCHED_IN_PASSAGE" ||
                           face.action_status === "UNCERTAIN_TRACK" ||
                           face.action_status === "NO_OPEN_SESSION" ? (
-                          <span className="rounded bg-amber-500/15 border border-amber-500/30 px-2 py-0.5 text-[10px] font-medium text-amber-300">
+                          <span className="rounded bg-amber-50 border border-amber-200 px-2 py-0.5 text-[10px] font-medium text-amber-700">
                             {face.action_status === "NO_OPEN_SESSION" ? "NO SESSION" : "WAIT"}
                           </span>
                         ) : face.action_status === "ACQUIRING_TRACK" ? (
-                          <span className="rounded bg-indigo-500/15 border border-indigo-500/30 px-2 py-0.5 text-[10px] font-medium text-indigo-300 tabular-nums">
+                          <span className="rounded bg-[#EEF2FF] border border-indigo-200 px-2 py-0.5 text-[10px] font-medium text-[#4338CA] tabular-nums">
                             {face.frames_seen || 1}/{gateStatus?.min_persistence_frames || 3}f
                           </span>
                         ) : face.action_status === "ALREADY_CHECKED_IN" ||
                           (face.matched && face.action_status !== "NONE") ? (
-                          <span className="rounded bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 text-[10px] font-medium text-emerald-300">
+                          <span className="rounded bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
                             VERIFIED
                           </span>
                         ) : face.action_status === "NONE" ? (
-                          <span className="rounded bg-slate-800 border border-slate-700 px-2 py-0.5 text-[10px] font-medium text-slate-300">
+                          <span className="rounded bg-slate-100 border border-slate-200 px-2 py-0.5 text-[10px] font-medium text-slate-700">
                             DETECTING
                           </span>
                         ) : (
                           <div className="flex items-center gap-1">
-                            <span className="rounded bg-rose-500/15 border border-rose-500/30 px-2 py-0.5 text-[10px] font-medium text-rose-300">
+                            <span className="rounded bg-rose-50 border border-rose-200 px-2 py-0.5 text-[10px] font-medium text-rose-700">
                               UNKNOWN
                             </span>
                             <button
                               type="button"
                               onClick={handleOpenQuickEnroll}
-                              className="rounded border border-indigo-500/40 bg-indigo-500/15 px-2 py-0.5 text-[10px] font-medium text-indigo-300 hover:bg-indigo-500/25"
+                              className="rounded border border-indigo-200 bg-[#EEF2FF] px-2 py-0.5 text-[10px] font-medium text-[#4338CA] hover:bg-indigo-100"
                             >
                               Enroll
                             </button>
@@ -1444,15 +1661,15 @@ export default function ContinuousEntrancePage() {
           </div>
 
           {/* Last 25 Passages Ticker */}
-          <div className="rounded-xl border border-[#1E293B] bg-[#121826] overflow-hidden">
-            <div className="px-4 py-3 border-b border-[#1E293B] flex items-center justify-between">
-              <h2 className="text-xs font-semibold text-white flex items-center gap-1.5">
-                <Clock className="h-3.5 w-3.5 text-indigo-400" />
+          <div className="rounded-xl border border-[#E5E7EB] bg-white shadow-[0_1px_2px_rgba(15,23,42,0.03)] overflow-hidden">
+            <div className="px-4 py-3 border-b border-[#EAECEF] flex items-center justify-between">
+              <h2 className="text-xs font-semibold text-slate-900 flex items-center gap-1.5">
+                <Clock className="h-3.5 w-3.5 text-[#4F46E5]" />
                 <span>Recent Passages (Last 25)</span>
               </h2>
-              <span className="text-[10px] font-mono text-slate-400">LIVE FEED</span>
+              <span className="text-[10px] font-mono text-slate-500">LIVE FEED</span>
             </div>
-            <div className="dark-scroll divide-y divide-[#1E293B] max-h-[400px] overflow-y-auto">
+            <div className="divide-y divide-[#EAECEF] max-h-[400px] overflow-y-auto">
               {recentPassages.length === 0 ? (
                 <div className="text-center py-8 text-slate-500 text-xs">
                   No gate passages recorded yet today.
@@ -1461,19 +1678,15 @@ export default function ContinuousEntrancePage() {
                 recentPassages.map((p, idx) => (
                   <div
                     key={idx}
-                    className="px-3.5 py-2.5 hover:bg-white/[0.02] flex items-center justify-between gap-2 text-xs transition-colors"
+                    className="px-3.5 py-2.5 hover:bg-[#FAFBFD] flex items-center justify-between gap-2 text-xs transition-colors"
                   >
                     <div className="flex items-center gap-2.5 min-w-0">
-                      <div className="h-7 w-7 rounded-full bg-[#0B0F17] text-slate-200 font-semibold flex items-center justify-center text-[10px] shrink-0 border border-[#1E293B]">
-                        {p.employee_name
-                          .split(" ")
-                          .map((n) => n[0])
-                          .slice(0, 2)
-                          .join("")}
+                      <div className="h-7 w-7 rounded-full bg-[#EEF2FF] text-[#4338CA] font-semibold flex items-center justify-center text-[10px] shrink-0 border border-indigo-100">
+                        {getInitials(p.employee_name)}
                       </div>
                       <div className="min-w-0">
-                        <p className="font-medium text-slate-100 truncate">{p.employee_name}</p>
-                        <p className="text-[10.5px] font-mono text-slate-400 truncate">
+                        <p className="font-medium text-slate-900 truncate">{p.employee_name}</p>
+                        <p className="text-[10.5px] font-mono text-slate-500 truncate">
                           {p.employee_number} · {p.department || "Staff"}
                         </p>
                       </div>
@@ -1484,19 +1697,19 @@ export default function ContinuousEntrancePage() {
                         <span
                           className={`rounded px-1.5 py-0.5 text-[9.5px] font-medium ${
                             p.event_type === "CHECK_IN"
-                              ? "bg-emerald-500/15 text-emerald-300 border border-emerald-500/25"
-                              : "bg-indigo-500/15 text-indigo-300 border border-indigo-500/25"
+                              ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
+                              : "bg-[#EEF2FF] text-[#4338CA] border border-indigo-200"
                           }`}
                         >
                           {p.event_type === "CHECK_IN" ? "IN" : "OUT"}
                         </span>
                         {p.is_late && (
-                          <span className="rounded bg-amber-500/15 text-amber-300 border border-amber-500/25 px-1.5 py-0.5 text-[9.5px] font-medium">
+                          <span className="rounded bg-amber-50 text-amber-700 border border-amber-200 px-1.5 py-0.5 text-[9.5px] font-medium">
                             LATE
                           </span>
                         )}
                       </div>
-                      <p className="text-[10px] font-mono text-slate-500 tabular-nums">
+                      <p className="text-[10px] font-mono text-slate-400 tabular-nums">
                         {p.timestamp_eat}
                       </p>
                     </div>
@@ -1508,27 +1721,27 @@ export default function ContinuousEntrancePage() {
         </div>
       </div>
 
-      {/* Dark Quick Face Enrollment Modal */}
+      {/* Quick Gate Face Enrollment Modal */}
       {showEnrollModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-[2px]">
-          <div className="w-full max-w-md rounded-xl border border-[#1E293B] bg-[#121826] p-5 shadow-2xl space-y-4 text-slate-100">
-            <div className="flex items-center justify-between border-b border-[#1E293B] pb-3">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4 backdrop-blur-[2px]">
+          <div className="w-full max-w-md rounded-xl border border-[#E5E7EB] bg-white p-5 shadow-xl space-y-4 text-slate-900">
+            <div className="flex items-center justify-between border-b border-[#EAECEF] pb-3">
               <div>
-                <h3 className="font-semibold text-white text-sm">Quick Gate Face Enrollment</h3>
-                <p className="text-[11px] text-slate-400 mt-0.5">
+                <h3 className="font-semibold text-slate-900 text-sm">Quick Gate Face Enrollment</h3>
+                <p className="text-[11px] text-slate-500 mt-0.5">
                   Link captured snapshot to enable continuous gate recognition.
                 </p>
               </div>
               <button
                 onClick={() => setShowEnrollModal(false)}
-                className="rounded-md p-1 text-slate-400 hover:bg-slate-800 hover:text-white"
+                className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
               >
                 <X className="h-4 w-4" />
               </button>
             </div>
 
             {enrollSnapshotB64 && (
-              <div className="relative aspect-[4/3] w-full rounded-lg overflow-hidden border border-[#1E293B] bg-[#06090F]">
+              <div className="relative aspect-[4/3] w-full rounded-lg overflow-hidden border border-[#E5E7EB] bg-[#070A0F]">
                 <img
                   src={enrollSnapshotB64}
                   alt="Captured face snapshot"
@@ -1538,11 +1751,11 @@ export default function ContinuousEntrancePage() {
             )}
 
             <div className="space-y-1.5">
-              <label className="text-xs font-medium text-slate-300">Employee Profile</label>
+              <label className="text-xs font-medium text-slate-700">Employee Profile</label>
               <select
                 value={enrollTargetEmpId}
                 onChange={(e) => setEnrollTargetEmpId(e.target.value ? Number(e.target.value) : "")}
-                className="h-9 w-full rounded-lg border border-[#1E293B] bg-[#0B0F17] px-2.5 text-xs text-slate-100 focus:border-indigo-500 focus:outline-none"
+                className="h-9 w-full rounded-lg border border-[#E5E7EB] bg-[#FAFBFD] px-2.5 text-xs text-slate-900 focus:border-[#4F46E5] focus:outline-none"
               >
                 <option value="">— Select Employee Name &amp; ID —</option>
                 {employees.map((emp) => (
@@ -1554,18 +1767,17 @@ export default function ContinuousEntrancePage() {
             </div>
 
             {enrollError && (
-              <div className="p-2.5 rounded-lg border border-rose-500/30 bg-rose-500/10 text-rose-300 text-xs">
+              <div className="p-2.5 rounded-lg border border-rose-200 bg-rose-50 text-rose-700 text-xs">
                 {enrollError}
               </div>
             )}
 
-            <div className="flex items-center justify-end gap-2 pt-3 border-t border-[#1E293B]">
+            <div className="flex items-center justify-end gap-2 pt-3 border-t border-[#EAECEF]">
               <Button
                 variant="outline"
                 size="sm"
                 onClick={() => setShowEnrollModal(false)}
                 disabled={isSubmittingEnroll}
-                className="border-[#1E293B] bg-transparent text-slate-300 hover:bg-slate-800 hover:text-white"
               >
                 Cancel
               </Button>
@@ -1583,31 +1795,31 @@ export default function ContinuousEntrancePage() {
         </div>
       )}
 
-      {/* Dark Gate Tuning Modal */}
+      {/* Continuous Gate Tuning Modal */}
       {isSettingsOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-[2px]">
-          <div className="w-full max-w-lg rounded-xl border border-[#1E293B] bg-[#121826] p-5 shadow-2xl space-y-4 text-slate-100">
-            <div className="flex items-center justify-between border-b border-[#1E293B] pb-3">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/45 p-4 backdrop-blur-[2px]">
+          <div className="w-full max-w-lg rounded-xl border border-[#E5E7EB] bg-white p-5 shadow-xl space-y-4 text-slate-900">
+            <div className="flex items-center justify-between border-b border-[#EAECEF] pb-3">
               <div>
-                <h3 className="text-sm font-semibold text-white">Continuous Gate Tuning</h3>
-                <p className="text-[11px] text-slate-400 mt-0.5">
+                <h3 className="text-sm font-semibold text-slate-900">Continuous Gate Tuning</h3>
+                <p className="text-[11px] text-slate-500 mt-0.5">
                   Timing debounce and persistence frame parameters.
                 </p>
               </div>
               <div className="flex items-center gap-2">
                 {isAdmin ? (
-                  <span className="rounded bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 text-[10px] font-medium text-emerald-300">
+                  <span className="rounded bg-emerald-50 border border-emerald-200 px-2 py-0.5 text-[10px] font-medium text-emerald-700">
                     Admin Active
                   </span>
                 ) : (
-                  <span className="inline-flex items-center gap-1 rounded bg-amber-500/15 border border-amber-500/30 px-2 py-0.5 text-[10px] font-medium text-amber-300">
+                  <span className="inline-flex items-center gap-1 rounded bg-amber-50 border border-amber-200 px-2 py-0.5 text-[10px] font-medium text-amber-700">
                     <Lock className="h-2.5 w-2.5" />
                     Admin Locked
                   </span>
                 )}
                 <button
                   onClick={() => setIsSettingsOpen(false)}
-                  className="rounded-md p-1 text-slate-400 hover:bg-slate-800 hover:text-white"
+                  className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
                 >
                   <X className="h-4 w-4" />
                 </button>
@@ -1615,20 +1827,20 @@ export default function ContinuousEntrancePage() {
             </div>
 
             {!isAdmin && (
-              <div className="rounded-lg bg-amber-500/10 border border-amber-500/25 p-3 text-xs text-amber-200 space-y-1">
+              <div className="rounded-lg bg-amber-50 border border-amber-200 p-3 text-xs text-amber-900 space-y-1">
                 <div className="font-medium flex items-center gap-1.5">
-                  <Lock className="h-3.5 w-3.5 text-amber-400 shrink-0" />
+                  <Lock className="h-3.5 w-3.5 text-amber-600 shrink-0" />
                   <span>Administrator Step-Up Required</span>
                 </div>
-                <p className="text-[11px] text-amber-200/80 leading-relaxed">
+                <p className="text-[11px] text-amber-800/90 leading-relaxed">
                   Direction controls can be toggled freely, while cooldown and tracking persistence changes require System Administrator authorization.
                 </p>
               </div>
             )}
 
             {tuningSaveError && (
-              <div className="rounded-lg bg-rose-500/10 border border-rose-500/30 p-2.5 text-xs text-rose-300 flex items-center gap-1.5">
-                <AlertCircle className="h-4 w-4 text-rose-400 shrink-0" />
+              <div className="rounded-lg bg-rose-50 border border-rose-200 p-2.5 text-xs text-rose-700 flex items-center gap-1.5">
+                <AlertCircle className="h-4 w-4 text-rose-600 shrink-0" />
                 <span>{tuningSaveError}</span>
               </div>
             )}
@@ -1636,10 +1848,10 @@ export default function ContinuousEntrancePage() {
             <div className="space-y-4 text-xs">
               <div>
                 <div className="flex items-center justify-between mb-1">
-                  <label className="text-[11px] font-medium text-slate-300">
+                  <label className="text-[11px] font-medium text-slate-700">
                     Passage Cooldown (Seconds)
                   </label>
-                  <span className="font-mono text-indigo-300 font-medium tabular-nums">
+                  <span className="font-mono text-[#4F46E5] font-medium tabular-nums">
                     {cooldownSec}s
                   </span>
                 </div>
@@ -1657,10 +1869,10 @@ export default function ContinuousEntrancePage() {
 
               <div>
                 <div className="flex items-center justify-between mb-1">
-                  <label className="text-[11px] font-medium text-slate-300">
+                  <label className="text-[11px] font-medium text-slate-700">
                     Accidental Checkout Debounce (Minutes)
                   </label>
-                  <span className="font-mono text-indigo-300 font-medium tabular-nums">
+                  <span className="font-mono text-[#4F46E5] font-medium tabular-nums">
                     {minCheckoutMins}m
                   </span>
                 </div>
@@ -1678,10 +1890,10 @@ export default function ContinuousEntrancePage() {
 
               <div>
                 <div className="flex items-center justify-between mb-1">
-                  <label className="text-[11px] font-medium text-slate-300">
+                  <label className="text-[11px] font-medium text-slate-700">
                     Minimum Tracking Persistence (Frames)
                   </label>
-                  <span className="font-mono text-indigo-300 font-medium tabular-nums">
+                  <span className="font-mono text-[#4F46E5] font-medium tabular-nums">
                     {minPersistenceFrames} frames
                   </span>
                 </div>
@@ -1698,8 +1910,8 @@ export default function ContinuousEntrancePage() {
               </div>
 
               {!isAdmin && (
-                <div className="rounded-lg border border-[#1E293B] bg-[#0B0F17] p-3 space-y-1.5">
-                  <label className="text-[11px] font-medium text-slate-300 block">
+                <div className="rounded-lg border border-[#E5E7EB] bg-[#FAFBFD] p-3 space-y-1.5">
+                  <label className="text-[11px] font-medium text-slate-700 block">
                     Admin Step-Up Password
                   </label>
                   <input
@@ -1707,20 +1919,19 @@ export default function ContinuousEntrancePage() {
                     value={adminPasswordInput}
                     onChange={(e) => setAdminPasswordInput(e.target.value)}
                     placeholder="Enter administrator password"
-                    className="h-8 w-full rounded-lg border border-[#1E293B] bg-[#121826] px-2.5 text-xs text-slate-100 focus:border-indigo-500 focus:outline-none"
+                    className="h-8 w-full rounded-lg border border-[#E5E7EB] bg-white px-2.5 text-xs text-slate-900 focus:border-[#4F46E5] focus:outline-none"
                   />
                 </div>
               )}
             </div>
 
-            <div className="flex justify-end gap-2 pt-3 border-t border-[#1E293B]">
+            <div className="flex justify-end gap-2 pt-3 border-t border-[#EAECEF]">
               <Button
                 type="button"
                 variant="outline"
                 size="sm"
                 onClick={() => setIsSettingsOpen(false)}
                 disabled={isSavingTuning}
-                className="border-[#1E293B] bg-transparent text-slate-300 hover:bg-slate-800 hover:text-white"
               >
                 Cancel
               </Button>

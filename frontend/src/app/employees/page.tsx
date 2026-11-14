@@ -750,9 +750,18 @@ export default function EmployeesPage() {
 
               <CameraCapture
                 onCapture={handleCaptureForEnrollment}
+                isProcessing={isSubmittingEnroll}
                 guideText="Center face inside the corner brackets"
                 captureButtonText="Capture Enrollment Photo"
-                scanState={enrollImageB64 ? "matched" : enrollError ? "error" : "idle"}
+                scanState={
+                  isSubmittingEnroll
+                    ? "scanning"
+                    : enrollImageB64
+                    ? "matched"
+                    : enrollError
+                    ? "error"
+                    : "idle"
+                }
               />
 
               {enrollImageB64 && !enrollSuccess && !enrollError && (

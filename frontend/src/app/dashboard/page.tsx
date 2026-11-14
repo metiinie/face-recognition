@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
 import { AuthGuard } from "@/components/AuthGuard";
 import { api, AttendanceSessionRecord } from "@/lib/api";
+import { getInitials } from "@/lib/format";
 import { getEntranceSocket } from "@/lib/socket";
 import {
   RefreshCw,
@@ -483,12 +484,7 @@ export default function DashboardPage() {
               </thead>
               <tbody className="divide-y divide-[#EAECEF]">
                 {liveSessions.map((s) => {
-                  const initials = s.employee_name
-                    .split(" ")
-                    .map((n) => n[0])
-                    .slice(0, 2)
-                    .join("")
-                    .toUpperCase();
+                  const initials = getInitials(s.employee_name);
                   return (
                     <tr key={s.id} className="hover:bg-[#FAFBFD] transition-colors">
                       <td className="py-3 px-5">
