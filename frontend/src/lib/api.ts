@@ -8,9 +8,16 @@ const API_BASE = "";
 export interface UserProfile {
   id: number;
   username: string;
-  role: "SYSTEM_ADMIN" | "HR_OFFICER" | "DEPT_HEAD" | "KIOSK_OPERATOR";
+  role: "ADMIN" | "SYSTEM_ADMIN" | "HR_OFFICER" | "AUDITOR" | "DEPT_HEAD" | "KIOSK_OPERATOR";
   fullName?: string;
+  full_name?: string;
   departmentId?: number;
+}
+
+export type UserRole = UserProfile["role"];
+
+export function isAdminRole(role?: string | null): boolean {
+  return role === "ADMIN" || role === "SYSTEM_ADMIN";
 }
 
 export interface BiometricEvaluationMetrics {

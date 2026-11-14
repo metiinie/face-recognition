@@ -2,12 +2,12 @@
 
 import React, { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
-import { getStoredToken, getStoredUser, handleUnauthorized } from "@/lib/api";
+import { getStoredToken, getStoredUser, handleUnauthorized, isAdminRole, UserRole } from "@/lib/api";
 import { RefreshCw, ShieldAlert } from "lucide-react";
 
 interface AuthGuardProps {
   children: React.ReactNode;
-  allowedRoles?: Array<"SYSTEM_ADMIN" | "HR_OFFICER" | "DEPT_HEAD" | "KIOSK_OPERATOR">;
+  allowedRoles?: UserRole[];
 }
 
 export function AuthGuard({ children, allowedRoles }: AuthGuardProps) {
@@ -24,9 +24,13 @@ export function AuthGuard({ children, allowedRoles }: AuthGuardProps) {
       return;
     }
 
-    if (allowedRoles && allowedRoles.length > 0 && !allowedRoles.includes(user.role)) {
-      setRoleForbidden(true);
-      return;
+    if (allowedRoles && allowedRoles.length > 0) {
+      const adminAllowed = allowedRoles.some((r) => isAdminRole(r));
+      const allowed = allowedRoles.includes(user.role) || (adminAllowed && isAdminRole(user.role));
+      if (!allowed) {
+        setRoleForbidden(true);
+        return;
+      }
     }
 
     setAuthorized(true);

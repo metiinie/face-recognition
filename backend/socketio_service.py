@@ -123,23 +123,33 @@ def register_socket_events(sio: SocketIO):
         )
 
         # If any attendance punches were committed in this frame, broadcast immediately
-        summary_actions = res.get("summary_actions", [])
-        if summary_actions:
-            passage_payload = {
-                "station_code": station.station_code,
-                "actions": summary_actions,
-                "timestamp": res.get("timestamp"),
-            }
-            # Broadcast to everyone watching this station
-            sio.emit("passage_event", passage_payload, room=f"station_{station.station_code}")
-            # Broadcast to dashboard
-            sio.emit("attendance_live_event", {
-                "type": "CONTINUOUS_ENTRANCE_PUNCH",
-                "station_code": station.station_code,
-                "actions": summary_actions,
-            })
+        broadcast_entrance_punches(station.station_code, res, sio_instance=sio)
 
         return res
+
+
+def broadcast_entrance_punches(station_code: str, res: dict, sio_instance=None):
+    """Broadcast committed continuous entrance punches to station viewers and live dashboards."""
+    summary_actions = (res or {}).get("summary_actions") or []
+    if not summary_actions:
+        return
+    emitter = sio_instance or socketio
+    passage_payload = {
+        "station_code": station_code,
+        "actions": summary_actions,
+        "timestamp": res.get("timestamp"),
+    }
+    try:
+        # Broadcast to everyone watching this station
+        emitter.emit("passage_event", passage_payload, room=f"station_{station_code}")
+        # Broadcast to dashboard
+        emitter.emit("attendance_live_event", {
+            "type": "CONTINUOUS_ENTRANCE_PUNCH",
+            "station_code": station_code,
+            "actions": summary_actions,
+        })
+    except Exception as e:
+        logger.warning(f"Failed to broadcast entrance punches over WebSocket: {e}")
 
 
 def broadcast_attendance_event(event_type: str, data: dict):

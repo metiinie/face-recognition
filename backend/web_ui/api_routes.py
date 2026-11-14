@@ -96,6 +96,24 @@ from backend.continuous_entrance.service import (
 api_bp = Blueprint("api", __name__, url_prefix="/api")
 
 
+def _safe_emit_attendance(event_type: str, data: dict) -> None:
+    """Emit a live attendance WebSocket event without breaking HTTP responses."""
+    try:
+        from backend.socketio_service import broadcast_attendance_event
+        broadcast_attendance_event(event_type, data)
+    except Exception:
+        pass
+
+
+def _safe_emit_entrance_punches(station_code: str, res: dict) -> None:
+    """Emit station passage_event and dashboard live update for HTTP entrance endpoints."""
+    try:
+        from backend.socketio_service import broadcast_entrance_punches
+        broadcast_entrance_punches(station_code, res)
+    except Exception:
+        pass
+
+
 def _extract_station_credentials(data: dict) -> tuple[str | int | None, str | None]:
     station_id_or_code = (
         data.get("station_code")
@@ -187,6 +205,7 @@ def api_login():
             "id": user.id,
             "username": user.username,
             "full_name": user.full_name,
+            "fullName": user.full_name,
             "role": user.role.name if user.role else None,
         }
     })
@@ -411,6 +430,7 @@ def api_station_confirm():
 
     local_recorded = utc_to_local(datetime.fromisoformat(result["occurred_at_utc"]))
     result["occurred_at_local"] = local_recorded.strftime("%Y-%m-%d %H:%M:%S")
+    _safe_emit_attendance("KIOSK_CONFIRM", {"station_code": station.station_code, "attendance": result})
     return jsonify({
         "recorded": True,
         "message": f"{result['event_type']} confirmed for {result['employee_name']} at {result['occurred_at_local']} (EAT).",
@@ -819,6 +839,7 @@ def api_manual_entry():
     )
     if err:
         return jsonify({"error": err}), 400
+    _safe_emit_attendance("MANUAL_HR_ENTRY", {"station_id": data.get("station_id"), "attendance": res})
     return jsonify({"status": "MANUAL_ENTRY_RECORDED", "attendance": res}), 201
 
 
@@ -845,6 +866,7 @@ def api_correct_attendance():
     if err:
         return jsonify({"error": err}), 400
 
+    _safe_emit_attendance("ATTENDANCE_CORRECTED", {"session_id": correction.session_id, "correction_id": correction.id})
     return jsonify({
         "status": "CORRECTED",
         "correction_id": correction.id,
@@ -1461,6 +1483,7 @@ def api_attendance_confirm():
         return jsonify({"error": err_msg, "error_code": err_code}), 400
 
     now_local = utc_to_local(datetime.fromisoformat(result["occurred_at_utc"]))
+    _safe_emit_attendance("KIOSK_CONFIRM", {"station_code": station.station_code, "attendance": result})
     return jsonify({
         "success": True,
         "message": f"{result['event_type'].replace('_', ' ')} recorded successfully for {result['employee_name']}.",
@@ -1477,7 +1500,8 @@ def api_attendance_confirm():
 @login_required
 def api_attendance_summary():
     """Return dashboard summary stats with live dynamic hourly and departmental breakdowns."""
-    summary = get_hr_dashboard_summary(target_date=date.today())
+    today_eat = utc_to_local(utc_now()).date()
+    summary = get_hr_dashboard_summary(target_date=today_eat)
     total_emp = Employee.query.filter_by(status="ACTIVE").count()
 
     # Dynamic hourly breakdown (06:00 to 18:00)
@@ -1681,6 +1705,7 @@ def api_v2_process_entrance_frame():
         frame_payload=data,
         override_gate_mode=gate_mode,
     )
+    _safe_emit_entrance_punches(station.station_code, res)
     return jsonify(res), 200
 
 
@@ -1832,6 +1857,7 @@ def api_v2_entrance_simulate():
     }
     manager = ContinuousEntranceManager.get_instance()
     res = manager.process_frame(station, payload, override_gate_mode=gate_mode)
+    _safe_emit_entrance_punches(station.station_code, res)
     return jsonify(res), 200
 
 

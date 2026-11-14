@@ -110,6 +110,8 @@ export default function DashboardPage() {
 
     if (socket.connected) {
       setIsLiveWs(true);
+    } else {
+      socket.connect();
     }
 
     const handleLiveEvent = () => {

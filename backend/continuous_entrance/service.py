@@ -24,6 +24,7 @@ from backend.database.models import (
     ReviewCase,
     utc_now,
     utc_to_local,
+    local_to_utc,
 )
 from backend.face_engine.recognizer import recognize_multi_face_frame
 from backend.face_enrollment.service import decrypt_embedding
@@ -618,12 +619,37 @@ class ContinuousEntranceManager:
         recent = self._recent_passages.get(code, [])
         tracker = self.get_tracker(code)
 
-        today_start = utc_now().replace(hour=0, minute=0, second=0, microsecond=0)
-        today_events = AttendanceEvent.query.filter(
-            AttendanceEvent.station_id == station.id,
-            AttendanceEvent.occurred_at >= today_start,
-            AttendanceEvent.capture_method == "CONTINUOUS_ENTRANCE",
-        ).all()
+        today_local_date = utc_to_local(utc_now()).date()
+        today_start = local_to_utc(datetime.combine(today_local_date, datetime.min.time()))
+        today_events = (
+            AttendanceEvent.query.filter(
+                AttendanceEvent.station_id == station.id,
+                AttendanceEvent.occurred_at >= today_start,
+                AttendanceEvent.capture_method == "CONTINUOUS_ENTRANCE",
+            )
+            .order_by(AttendanceEvent.occurred_at.desc())
+            .all()
+        )
+
+        if not recent and today_events:
+            recent = [
+                {
+                    "id": ev.id,
+                    "timestamp_eat": utc_to_local(ev.occurred_at).strftime("%H:%M:%S") if ev.occurred_at else "--:--:--",
+                    "employee_number": ev.employee.employee_number if ev.employee else "",
+                    "employee_name": ev.employee.full_name if ev.employee else "Staff Member",
+                    "department": (
+                        ev.employee.department.name
+                        if ev.employee and ev.employee.department
+                        else ""
+                    ),
+                    "event_type": ev.event_type,
+                    "match_score": round(ev.recognition_score, 4) if ev.recognition_score is not None else 1.0,
+                    "station_code": station.station_code,
+                    "is_late": bool(ev.session and ev.session.arrival_status == "LATE" and ev.event_type == "CHECK_IN"),
+                }
+                for ev in today_events[:25]
+            ]
 
         check_ins = sum(1 for e in today_events if e.event_type == "CHECK_IN")
         check_outs = sum(1 for e in today_events if e.event_type == "CHECK_OUT")

@@ -21,7 +21,7 @@ import {
   X,
   ArrowLeft,
 } from "lucide-react";
-import { getStoredUser, removeStoredToken, UserProfile } from "@/lib/api";
+import { getStoredUser, isAdminRole, removeStoredToken, UserProfile } from "@/lib/api";
 
 interface NavItem {
   name: string;
@@ -99,10 +99,13 @@ function getEthiopianClockDisplay(now: Date): string {
 
 function formatRoleLabel(role?: UserProfile["role"]): string {
   switch (role) {
+    case "ADMIN":
     case "SYSTEM_ADMIN":
       return "Admin";
     case "HR_OFFICER":
       return "HR Officer";
+    case "AUDITOR":
+      return "Auditor";
     case "DEPT_HEAD":
       return "Dept Head";
     case "KIOSK_OPERATOR":
@@ -164,7 +167,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   const canSeeItem = (item: NavItem) => {
     if (!item.adminOnly) return true;
-    return !user || user.role === "SYSTEM_ADMIN";
+    return !user || isAdminRole(user.role);
   };
 
   const renderNavSection = (
@@ -245,7 +248,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               </div>
               <div className="min-w-0">
                 <p className="text-xs font-medium truncate text-slate-900">
-                  {user.username}
+                  {user.fullName || user.full_name || user.username}
                 </p>
                 <p className="text-[11px] text-slate-500 truncate">{formatRoleLabel(user.role)}</p>
               </div>

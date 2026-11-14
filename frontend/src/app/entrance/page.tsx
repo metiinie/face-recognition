@@ -18,6 +18,7 @@ import {
   StationRecord,
   EmployeeRecord,
   getStoredUser,
+  isAdminRole,
   UserProfile,
 } from "@/lib/api";
 import { getEntranceSocket } from "@/lib/socket";
@@ -94,12 +95,12 @@ export default function ContinuousEntrancePage() {
   useEffect(() => {
     const user = getStoredUser();
     setCurrentUser(user);
-    if (user?.role === "SYSTEM_ADMIN") {
+    if (isAdminRole(user?.role)) {
       setAdminUnlocked(true);
     }
   }, []);
 
-  const isAdmin = currentUser?.role === "SYSTEM_ADMIN" || adminUnlocked;
+  const isAdmin = isAdminRole(currentUser?.role) || adminUnlocked;
 
   // Quick Face Enrollment Modal State
   const [showEnrollModal, setShowEnrollModal] = useState<boolean>(false);
