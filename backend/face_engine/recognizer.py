@@ -242,6 +242,57 @@ def detect_faces_onnx(pil_img: Image.Image, conf_thresh: float = 0.50, iou_thres
     except Exception:
         return []
 
+
+def detect_primary_face_bbox(image_b64: str) -> dict | None:
+    """
+    Lightweight neural face localization endpoint helper.
+    Decodes base64 frame and returns tight normalized bounding box for the primary face
+    using UltraFace ONNX (with YuNet fallback).
+    """
+    if not image_b64 or not isinstance(image_b64, str) or len(image_b64) < 64:
+        return None
+    try:
+        raw_b64 = image_b64.split(",", 1)[-1].strip()
+        img_bytes = base64.b64decode(raw_b64)
+        img = Image.open(io.BytesIO(img_bytes)).convert("RGB")
+        orig_w, orig_h = img.size
+        if orig_w < 16 or orig_h < 16:
+            return None
+
+        onnx_faces = detect_faces_onnx(img, conf_thresh=0.45)
+        detector_used = "onnx"
+        if not onnx_faces and cv2 is not None:
+            try:
+                rgb_tmp = np.asarray(img, dtype=np.uint8)
+                bgr_tmp = cv2.cvtColor(rgb_tmp, cv2.COLOR_RGB2BGR)
+                det = _get_yunet_detector(bgr_tmp.shape[1], bgr_tmp.shape[0])
+                if det is not None:
+                    _, y_faces = det.detect(bgr_tmp)
+                    if y_faces is not None and len(y_faces) > 0:
+                        onnx_faces = [
+                            {"box": (int(yf[0]), int(yf[1]), int(yf[2]), int(yf[3])), "score": float(yf[-1])}
+                            for yf in y_faces if yf[2] > 12 and yf[3] > 12
+                        ]
+                        detector_used = "yunet"
+            except Exception:
+                pass
+
+        if not onnx_faces:
+            return None
+
+        # Choose the highest-area primary face
+        primary = max(onnx_faces, key=lambda f: f["box"][2] * f["box"][3])
+        bx, by, bw, bh = primary["box"]
+        return {
+            "x": round(max(0.0, float(bx)) / orig_w, 4),
+            "y": round(max(0.0, float(by)) / orig_h, 4),
+            "w": round(max(1.0, float(bw)) / orig_w, 4),
+            "h": round(max(1.0, float(bh)) / orig_h, 4),
+            "detector": detector_used,
+        }
+    except Exception:
+        return None
+
 from flask import current_app, has_app_context
 from backend.database.models import Employee, FaceTemplate
 
@@ -615,18 +666,22 @@ def _extract_embedding_from_pil(img: Image.Image) -> tuple[list[float], dict]:
             face_roi = np.asarray(aligned_pil.convert("L"), dtype=np.float64)
     elif len(clusters) == 1 and len(y_idx) >= 80:
         faces_count = 1
-        y_min, y_max = np.percentile(y_idx, [2, 98])
-        x_min, x_max = np.percentile(x_idx, [2, 98])
-        h = y_max - y_min
-        w = x_max - x_min
+        y_min, y_max = np.percentile(y_idx, [10, 90])
+        x_min, x_max = np.percentile(x_idx, [10, 90])
+        h_raw = max(16.0, float(y_max - y_min))
+        w_raw = max(14.0, float(x_max - x_min))
+        h = min(h_raw, img_rgb.height * 0.46)
+        w = min(w_raw, img_rgb.width * 0.34)
+        cx_box = float(x_min + x_max) / 2.0
+        cy_box = float(y_min + y_max) / 2.0
         face_bbox = {
-            "x": round(float(max(0.0, x_min)) / max(1, img_rgb.width), 4),
-            "y": round(float(max(0.0, y_min)) / max(1, img_rgb.height), 4),
-            "w": round(float(max(1.0, w)) / max(1, img_rgb.width), 4),
-            "h": round(float(max(1.0, h)) / max(1, img_rgb.height), 4),
+            "x": round(max(0.0, cx_box - w / 2.0) / max(1, img_rgb.width), 4),
+            "y": round(max(0.0, cy_box - h / 2.0) / max(1, img_rgb.height), 4),
+            "w": round(max(1.0, w) / max(1, img_rgb.width), 4),
+            "h": round(max(1.0, h) / max(1, img_rgb.height), 4),
         }
-        cy = (y_min + y_max) / 2.0
-        cx = (x_min + x_max) / 2.0
+        cy = cy_box
+        cx = cx_box
         side = max(h, w) * 1.25
         x1 = max(0, int(cx - side / 2))
         y1 = max(0, int(cy - side / 2))

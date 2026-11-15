@@ -40,7 +40,11 @@ from backend.employees.service import (
     set_employee_status,
     compute_candidate_lifecycle,
 )
-from backend.face_engine.recognizer import recognize_face_candidate, compute_biometric_evaluation_metrics
+from backend.face_engine.recognizer import (
+    recognize_face_candidate,
+    detect_primary_face_bbox,
+    compute_biometric_evaluation_metrics,
+)
 from backend.face_enrollment.service import (
     decrypt_embedding,
     enroll_employee_face,
@@ -1752,6 +1756,17 @@ def api_face_retention_cleanup():
     user = get_current_user()
     res = apply_biometric_retention_policy(retention_days=days, actor=user.username if user else "ADMIN")
     return jsonify({"status": "CLEANUP_DONE", "message": f"Purged historical templates older than {days} days.", "result": res})
+
+
+@api_bp.route("/face/detect", methods=["POST"])
+def api_face_detect():
+    """Fast neural face bounding-box localization (UltraFace ONNX / YuNet) for live viewfinder tracking."""
+    data = request.get_json(silent=True) or {}
+    bbox = detect_primary_face_bbox(data.get("image_base64", ""))
+    return jsonify({
+        "detected": bbox is not None,
+        "face_bbox": bbox,
+    }), 200
 
 
 @api_bp.route("/face/recognize", methods=["POST"])

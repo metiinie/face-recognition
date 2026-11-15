@@ -13,6 +13,7 @@ import {
   FlipHorizontal2,
 } from "lucide-react";
 import { Button } from "./ui/Button";
+import { api } from "@/lib/api";
 import {
   FACE_MESH_NODES,
   FACE_MESH_EDGES,
@@ -22,7 +23,7 @@ import {
   backendBboxToViewBox,
 } from "@/lib/faceMesh";
 
-const DEFAULT_FACE_BOX = { x: 224, y: 120, w: 192, h: 240 };
+const DEFAULT_FACE_BOX = { x: 252, y: 156, w: 136, h: 168 };
 const SPIDER_LEG_COUNT = 8;
 
 interface FaceRect {
@@ -95,11 +96,18 @@ export function CameraCapture({
   const scanBeamRef = useRef<SVGRectElement | null>(null);
   const scanLineRef = useRef<SVGLineElement | null>(null);
   const faceHudGroupRef = useRef<SVGGElement | null>(null);
+  const faceHudRectRef = useRef<SVGRectElement | null>(null);
   const faceHudTitleRef = useRef<SVGTextElement | null>(null);
-  const faceHudSubRef = useRef<SVGTextElement | null>(null);
   const crawlerPhaseRef = useRef<number>(0);
   const targetBoxRef = useRef<FaceRect | null>(null);
   const renderBoxRef = useRef<FaceRect>({ ...DEFAULT_FACE_BOX });
+  const neuralAnchorRef = useRef<{
+    box: FaceRect;
+    clientCenterX: number | null;
+    clientCenterY: number | null;
+    ts: number;
+  } | null>(null);
+  const neuralMissRef = useRef<number>(0);
   const faceDetectedRef = useRef<boolean>(false);
   const missedFramesRef = useRef<number>(0);
 
@@ -168,7 +176,7 @@ export function CameraCapture({
         stream.getTracks().forEach((t) => {
           try {
             t.stop();
-          } catch {}
+          } catch { }
         });
         return;
       }
@@ -177,7 +185,7 @@ export function CameraCapture({
         videoRef.current.srcObject = stream;
         videoRef.current.onloadedmetadata = () => {
           if (isMountedRef.current) {
-            videoRef.current?.play().catch(() => {});
+            videoRef.current?.play().catch(() => { });
             setStreamActive(true);
           }
         };
@@ -206,7 +214,7 @@ export function CameraCapture({
       stream.getTracks().forEach((track) => {
         try {
           track.stop();
-        } catch {}
+        } catch { }
       });
       videoRef.current.srcObject = null;
       setStreamActive(false);
@@ -250,14 +258,112 @@ export function CameraCapture({
       video?.videoHeight || 480
     );
     const hadTarget = targetBoxRef.current !== null;
-    targetBoxRef.current = { x: mapped.x, y: mapped.y, w: mapped.w, h: mapped.h };
+    const rect = { x: mapped.x, y: mapped.y, w: mapped.w, h: mapped.h };
+    targetBoxRef.current = rect;
+    neuralAnchorRef.current = {
+      box: rect,
+      clientCenterX: null,
+      clientCenterY: null,
+      ts: performance.now(),
+    };
     if (!hadTarget) {
-      renderBoxRef.current = { ...targetBoxRef.current };
+      renderBoxRef.current = { ...rect };
     }
     missedFramesRef.current = 0;
+    neuralMissRef.current = 0;
     faceDetectedRef.current = true;
     setFaceDetected(true);
   }, [faceBbox, mirrored]);
+
+  // Background ~350ms UltraFace ONNX detector for exact tight head bounding box regardless of background/skin tone
+  useEffect(() => {
+    if (!streamActive) {
+      neuralAnchorRef.current = null;
+      neuralMissRef.current = 0;
+      return;
+    }
+
+    let cancelled = false;
+    let inFlight = false;
+    const tinyCanvas = document.createElement("canvas");
+    tinyCanvas.width = 240;
+    tinyCanvas.height = 180;
+
+    const runNeuralDetect = async () => {
+      if (cancelled || inFlight || !videoRef.current) return;
+      const video = videoRef.current;
+      if (video.readyState < 2 || !video.videoWidth || !video.videoHeight) return;
+
+      const tCtx = tinyCanvas.getContext("2d");
+      if (!tCtx) return;
+
+      // Slice-crop identically to CSS object-cover + SVG 640x480 viewBox
+      const vw = video.videoWidth;
+      const vh = video.videoHeight;
+      const targetAspect = 640 / 480;
+      const srcAspect = vw / vh;
+      let sx = 0;
+      let sy = 0;
+      let sw = vw;
+      let sh = vh;
+      if (srcAspect > targetAspect) {
+        sw = vh * targetAspect;
+        sx = (vw - sw) * 0.5;
+      } else if (srcAspect < targetAspect) {
+        sh = vw / targetAspect;
+        sy = (vh - sh) * 0.5;
+      }
+      tCtx.drawImage(video, sx, sy, sw, sh, 0, 0, 240, 180);
+      const tinyB64 = tinyCanvas.toDataURL("image/jpeg", 0.65);
+
+      inFlight = true;
+      try {
+        const res = await api.detectFaceBbox(tinyB64);
+        if (cancelled) return;
+        if (res.detected && res.face_bbox) {
+          // Since tinyCanvas is already slice-cropped to 4:3, map directly in 640x480 space
+          const mapped = backendBboxToViewBox(res.face_bbox, mirrored, 640, 480);
+          const rect = { x: mapped.x, y: mapped.y, w: mapped.w, h: mapped.h };
+          neuralAnchorRef.current = {
+            box: rect,
+            clientCenterX: null,
+            clientCenterY: null,
+            ts: performance.now(),
+          };
+          const hadTarget = targetBoxRef.current !== null;
+          targetBoxRef.current = rect;
+          if (!hadTarget) {
+            renderBoxRef.current = { ...rect };
+          }
+          neuralMissRef.current = 0;
+          missedFramesRef.current = 0;
+          if (!faceDetectedRef.current) {
+            faceDetectedRef.current = true;
+            setFaceDetected(true);
+          }
+        } else {
+          neuralMissRef.current += 1;
+          if (neuralMissRef.current >= 3) {
+            neuralAnchorRef.current = null;
+          }
+        }
+      } catch {
+        // Ignore transient network hiccups; client probe continues smoothly
+      } finally {
+        inFlight = false;
+      }
+    };
+
+    void runNeuralDetect();
+    const timer = setInterval(() => {
+      void runNeuralDetect();
+    }, 360);
+
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [streamActive, mirrored]);
 
   useEffect(() => {
     if (!streamActive) {
@@ -280,23 +386,55 @@ export function CameraCapture({
           mirrored
         );
         if (cancelled) return;
+
+        const anchor = neuralAnchorRef.current;
+        const anchorFresh = anchor !== null && performance.now() - anchor.ts < 1200;
+
         if (detected) {
-          const hadTarget = targetBoxRef.current !== null;
-          targetBoxRef.current = {
-            x: detected.x,
-            y: detected.y,
-            w: detected.w,
-            h: detected.h,
-          };
-          if (!hadTarget) {
-            renderBoxRef.current = { ...targetBoxRef.current };
+          const detCenterX = detected.x + detected.w * 0.5;
+          const detCenterY = detected.y + detected.h * 0.5;
+
+          if (anchorFresh && anchor) {
+            // Keep UltraFace tight dimensions and track immediate local head delta smoothly
+            if (anchor.clientCenterX === null || anchor.clientCenterY === null) {
+              anchor.clientCenterX = detCenterX;
+              anchor.clientCenterY = detCenterY;
+              targetBoxRef.current = { ...anchor.box };
+            } else {
+              const dx = Math.max(-24, Math.min(24, detCenterX - anchor.clientCenterX));
+              const dy = Math.max(-18, Math.min(18, detCenterY - anchor.clientCenterY));
+              targetBoxRef.current = {
+                x: Math.max(8, Math.min(640 - anchor.box.w - 8, anchor.box.x + dx)),
+                y: Math.max(8, Math.min(480 - anchor.box.h - 8, anchor.box.y + dy)),
+                w: anchor.box.w,
+                h: anchor.box.h,
+              };
+            }
+          } else {
+            const hadTarget = targetBoxRef.current !== null;
+            targetBoxRef.current = {
+              x: detected.x,
+              y: detected.y,
+              w: detected.w,
+              h: detected.h,
+            };
+            if (!hadTarget) {
+              renderBoxRef.current = { ...targetBoxRef.current };
+            }
           }
+
           missedFramesRef.current = 0;
           if (!faceDetectedRef.current) {
             faceDetectedRef.current = true;
             setFaceDetected(true);
           }
         } else {
+          if (anchorFresh && anchor) {
+            // Neural detector still sees the face cleanly even if heuristic missed
+            targetBoxRef.current = { ...anchor.box };
+            missedFramesRef.current = 0;
+            return;
+          }
           missedFramesRef.current += 1;
           if (missedFramesRef.current >= 3 && faceDetectedRef.current && effectiveScanState === "idle") {
             targetBoxRef.current = null;
@@ -337,17 +475,17 @@ export function CameraCapture({
     effectiveScanState === "matched"
       ? "#10B981"
       : effectiveScanState === "error"
-      ? "#F43F5E"
-      : effectiveScanState === "scanning"
-      ? "#818CF8"
-      : "rgba(255, 255, 255, 0.90)";
+        ? "#F43F5E"
+        : effectiveScanState === "scanning"
+          ? "#818CF8"
+          : "rgba(255, 255, 255, 0.90)";
 
   const landmarkColor =
     effectiveScanState === "matched"
       ? "#34D399"
       : effectiveScanState === "error"
-      ? "#FDA4AF"
-      : "#FFFFFF";
+        ? "#FDA4AF"
+        : "#FFFFFF";
 
   const isScanning = effectiveScanState === "scanning";
   const isMatched = effectiveScanState === "matched";
@@ -357,17 +495,20 @@ export function CameraCapture({
   const spiderActive = hasTrackedFace && (isScanning || isAutoWatching || streamActive);
   const showWebMesh = hasTrackedFace && (spiderActive || isMatched || isError);
 
-  const stageTitleText =
-    processStageLabel ||
-    (isMatched
-      ? "VERIFIED · IDENTITY CONFIRMED"
-      : isError
-      ? "HALTED · CHECK FACE ALIGNMENT"
-      : isScanning
-      ? "SCANNING · LIVENESS & EMBEDDING"
-      : "FACE LOCKED · MESH TRACKING");
+  const stageTitleText = (() => {
+    const raw =
+      processStageLabel ||
+      (isMatched
+        ? "VERIFIED · MATCH"
+        : isError
+          ? "ALIGN FACE"
+          : isScanning
+            ? "SCANNING FACE..."
+            : "FACE LOCKED");
+    return raw.length > 26 ? `${raw.slice(0, 25)}…` : raw;
+  })();
 
-  // 60fps ref-driven smooth face localization, dynamic L-brackets, scanline, and spider crawler
+  // 60fps ref-driven smooth face localization, tight L-brackets, inset scanline, and proportional spider crawler
   useEffect(() => {
     if (!hasTrackedFace) return;
 
@@ -384,7 +525,7 @@ export function CameraCapture({
 
       const target = targetBoxRef.current ?? DEFAULT_FACE_BOX;
       const cur = renderBoxRef.current;
-      const lerp = prefersReducedMotion ? 1 : Math.min(1, dt * 14);
+      const lerp = prefersReducedMotion ? 1 : Math.min(1, dt * 15);
       cur.x += (target.x - cur.x) * lerp;
       cur.y += (target.y - cur.y) * lerp;
       cur.w += (target.w - cur.w) * lerp;
@@ -394,14 +535,15 @@ export function CameraCapture({
       const by = cur.y;
       const bw = cur.w;
       const bh = cur.h;
+      const scale = Math.max(0.65, Math.min(1.1, bw / 145));
 
-      // Update dynamic L-brackets around the detected face
-      const pad = isScanning ? 12 : 18;
+      // Tight L-brackets hugging only the detected face contour
+      const pad = isScanning ? 2 : 4;
       const left = Math.max(8, bx - pad);
       const top = Math.max(8, by - pad);
       const right = Math.min(632, bx + bw + pad);
       const bottom = Math.min(472, by + bh + pad);
-      const arm = Math.max(18, Math.min(34, (right - left) * 0.16));
+      const arm = Math.max(12, Math.min(20, (right - left) * 0.14));
 
       bracketTLRef.current?.setAttribute(
         "d",
@@ -423,36 +565,42 @@ export function CameraCapture({
       const midX = (left + right) * 0.5;
       const midY = (top + bottom) * 0.5;
       if (tickTopRef.current) {
-        tickTopRef.current.setAttribute("x1", (midX - 8).toFixed(1));
-        tickTopRef.current.setAttribute("x2", (midX + 8).toFixed(1));
+        tickTopRef.current.setAttribute("x1", (midX - 5).toFixed(1));
+        tickTopRef.current.setAttribute("x2", (midX + 5).toFixed(1));
         tickTopRef.current.setAttribute("y1", top.toFixed(1));
         tickTopRef.current.setAttribute("y2", top.toFixed(1));
       }
       if (tickBottomRef.current) {
-        tickBottomRef.current.setAttribute("x1", (midX - 8).toFixed(1));
-        tickBottomRef.current.setAttribute("x2", (midX + 8).toFixed(1));
+        tickBottomRef.current.setAttribute("x1", (midX - 5).toFixed(1));
+        tickBottomRef.current.setAttribute("x2", (midX + 5).toFixed(1));
         tickBottomRef.current.setAttribute("y1", bottom.toFixed(1));
         tickBottomRef.current.setAttribute("y2", bottom.toFixed(1));
       }
       if (tickLeftRef.current) {
         tickLeftRef.current.setAttribute("x1", left.toFixed(1));
         tickLeftRef.current.setAttribute("x2", left.toFixed(1));
-        tickLeftRef.current.setAttribute("y1", (midY - 8).toFixed(1));
-        tickLeftRef.current.setAttribute("y2", (midY + 8).toFixed(1));
+        tickLeftRef.current.setAttribute("y1", (midY - 5).toFixed(1));
+        tickLeftRef.current.setAttribute("y2", (midY + 5).toFixed(1));
       }
       if (tickRightRef.current) {
         tickRightRef.current.setAttribute("x1", right.toFixed(1));
         tickRightRef.current.setAttribute("x2", right.toFixed(1));
-        tickRightRef.current.setAttribute("y1", (midY - 8).toFixed(1));
-        tickRightRef.current.setAttribute("y2", (midY + 8).toFixed(1));
+        tickRightRef.current.setAttribute("y1", (midY - 5).toFixed(1));
+        tickRightRef.current.setAttribute("y2", (midY + 5).toFixed(1));
       }
 
-      // Position floating process HUD pill directly over (or under) the detected face
+      // Compact floating process pill neatly anchored above forehead (never overlapping top/bottom viewport pills)
+      const pillW = Math.min(188, Math.max(114, stageTitleText.length * 5.6 + 26));
+      const pillH = 20;
+      if (faceHudRectRef.current) {
+        faceHudRectRef.current.setAttribute("width", pillW.toFixed(1));
+      }
       if (faceHudGroupRef.current) {
-        const hudW = 246;
-        const hudH = 34;
-        const hudX = Math.max(10, Math.min(640 - hudW - 10, bx + bw * 0.5 - hudW * 0.5));
-        const hudY = top >= hudH + 12 ? top - hudH - 8 : Math.min(470 - hudH, bottom + 8);
+        const hudX = Math.max(10, Math.min(640 - pillW - 10, bx + bw * 0.5 - pillW * 0.5));
+        const hudY =
+          top >= 68
+            ? top - pillH - 6
+            : Math.min(416 - pillH, bottom + 6);
         faceHudGroupRef.current.setAttribute(
           "transform",
           `translate(${hudX.toFixed(1)}, ${hudY.toFixed(1)})`
@@ -461,29 +609,26 @@ export function CameraCapture({
       if (faceHudTitleRef.current) {
         faceHudTitleRef.current.textContent = stageTitleText;
       }
-      if (faceHudSubRef.current) {
-        faceHudSubRef.current.textContent =
-          processStageSubtext ||
-          `FACE LOCK (${Math.round(bx)}, ${Math.round(by)}) · ${Math.round(bw)}×${Math.round(bh)}px`;
-      }
 
-      // Optical scanline sweep strictly inside the detected face box
+      // Inset optical scanline sweep cleanly confined within the face width
       if (scanBeamRef.current && scanLineRef.current) {
-        const sweepFreq = isScanning ? 0.85 : 0.45;
+        const sweepFreq = isScanning ? 0.9 : 0.48;
         const sweepT = ((now / 1000) * sweepFreq) % 1;
-        const beamY = by + sweepT * Math.max(20, bh - 4);
-        const beamH = Math.min(28, bh * 0.16);
-        scanBeamRef.current.setAttribute("x", bx.toFixed(1));
-        scanBeamRef.current.setAttribute("y", Math.max(by, beamY - beamH).toFixed(1));
-        scanBeamRef.current.setAttribute("width", bw.toFixed(1));
+        const insetX = bx + bw * 0.08;
+        const insetW = Math.max(24, bw * 0.84);
+        const beamY = by + 4 + sweepT * Math.max(16, bh - 8);
+        const beamH = Math.min(18, bh * 0.12);
+        scanBeamRef.current.setAttribute("x", insetX.toFixed(1));
+        scanBeamRef.current.setAttribute("y", Math.max(by + 2, beamY - beamH).toFixed(1));
+        scanBeamRef.current.setAttribute("width", insetW.toFixed(1));
         scanBeamRef.current.setAttribute("height", beamH.toFixed(1));
-        scanLineRef.current.setAttribute("x1", bx.toFixed(1));
-        scanLineRef.current.setAttribute("x2", (bx + bw).toFixed(1));
+        scanLineRef.current.setAttribute("x1", insetX.toFixed(1));
+        scanLineRef.current.setAttribute("x2", (insetX + insetW).toFixed(1));
         scanLineRef.current.setAttribute("y1", beamY.toFixed(1));
         scanLineRef.current.setAttribute("y2", beamY.toFixed(1));
       }
 
-      // Advance spider phase and project 26 landmarks onto dynamic face rect
+      // Advance spider phase and project 26 landmarks tightly across the detected face
       const phaseSpeed = prefersReducedMotion ? 0 : isScanning ? 3.2 : 1.55;
       crawlerPhaseRef.current += dt * phaseSpeed;
       const phase = crawlerPhaseRef.current;
@@ -497,10 +642,11 @@ export function CameraCapture({
       if (spiderRingRef.current) {
         spiderRingRef.current.setAttribute("cx", sx.toFixed(1));
         spiderRingRef.current.setAttribute("cy", sy.toFixed(1));
-        const ringR = (isScanning ? 8.5 : 6.8) + Math.sin(phase * 5) * 1.4;
+        const ringR = (isScanning ? 5.2 : 4.2) * scale + Math.sin(phase * 5) * 0.8;
         spiderRingRef.current.setAttribute("r", ringR.toFixed(1));
       }
 
+      const proxRadius = Math.max(58, bw * 0.56);
       const projectedNodes: Array<{ cx: number; cy: number; anchor: boolean }> = [];
       const distances: Array<{ idx: number; d: number }> = [];
       for (let i = 0; i < FACE_MESH_NODES.length; i++) {
@@ -513,34 +659,36 @@ export function CameraCapture({
         const d = Math.hypot(cx - sx, cy - sy);
         distances.push({ idx: i, d });
 
-        const prox = Math.max(0, 1 - d / Math.max(95, bw * 0.58));
+        const prox = Math.max(0, 1 - d / proxRadius);
         const circleEl = nodeCircleRefs.current[i];
         if (circleEl) {
           circleEl.setAttribute("cx", cx.toFixed(1));
           circleEl.setAttribute("cy", cy.toFixed(1));
-          const baseR = anchor ? 2.7 : 1.9;
-          circleEl.setAttribute("r", (baseR + prox * (isScanning ? 2.0 : 1.3)).toFixed(2));
+          const baseR = (anchor ? 1.85 : 1.3) * scale;
+          circleEl.setAttribute("r", (baseR + prox * (isScanning ? 1.25 : 0.8) * scale).toFixed(2));
           circleEl.setAttribute(
             "fill-opacity",
-            ((isScanning ? 0.34 : 0.24) + prox * (isScanning ? 0.66 : 0.62)).toFixed(2)
+            ((isScanning ? 0.34 : 0.24) + prox * (isScanning ? 0.62 : 0.55)).toFixed(2)
           );
         }
       }
 
       distances.sort((a, b) => a.d - b.d);
+      const legReachMax = Math.max(68, bw * 0.68);
+      const maxKneeBend = Math.min(8, bw * 0.055);
       for (let legIdx = 0; legIdx < SPIDER_LEG_COUNT; legIdx++) {
         const pathEl = legPathRefs.current[legIdx];
         const targetNode = distances[legIdx];
         if (!pathEl || !targetNode) continue;
         const pt = projectedNodes[targetNode.idx];
-        const { kx, ky } = getSpiderKneePoint(sx, sy, pt.cx, pt.cy, legIdx, 15);
+        const { kx, ky } = getSpiderKneePoint(sx, sy, pt.cx, pt.cy, legIdx, maxKneeBend);
         pathEl.setAttribute(
           "d",
           `M ${sx.toFixed(1)} ${sy.toFixed(1)} L ${kx.toFixed(1)} ${ky.toFixed(1)} L ${pt.cx.toFixed(1)} ${pt.cy.toFixed(1)}`
         );
         const legOpacity = Math.max(
-          0.26,
-          (1 - targetNode.d / Math.max(120, bw * 0.72)) * (isScanning ? 0.96 : 0.72)
+          0.22,
+          (1 - targetNode.d / legReachMax) * (isScanning ? 0.88 : 0.65)
         );
         pathEl.setAttribute("stroke-opacity", legOpacity.toFixed(2));
       }
@@ -558,11 +706,11 @@ export function CameraCapture({
         const mx = (a.cx + b.cx) * 0.5;
         const my = (a.cy + b.cy) * 0.5;
         const midDist = Math.hypot(mx - sx, my - sy);
-        const edgeProx = Math.max(0, 1 - midDist / Math.max(100, bw * 0.62));
-        const baseOpacity = isScanning ? 0.16 : 0.1;
-        const edgeOpacity = baseOpacity + edgeProx * (isScanning ? 0.72 : 0.48);
+        const edgeProx = Math.max(0, 1 - midDist / proxRadius);
+        const baseOpacity = isScanning ? 0.14 : 0.09;
+        const edgeOpacity = baseOpacity + edgeProx * (isScanning ? 0.5 : 0.35);
         edgeEl.setAttribute("stroke-opacity", edgeOpacity.toFixed(2));
-        edgeEl.setAttribute("stroke-width", (0.75 + edgeProx * 0.95).toFixed(2));
+        edgeEl.setAttribute("stroke-width", (0.55 + edgeProx * 0.65).toFixed(2));
       }
     };
 
@@ -578,7 +726,7 @@ export function CameraCapture({
 
     rafId = requestAnimationFrame(step);
     return () => cancelAnimationFrame(rafId);
-  }, [hasTrackedFace, isScanning, stageTitleText, processStageSubtext]);
+  }, [hasTrackedFace, isScanning, stageTitleText]);
 
   return (
     <div className={`relative flex flex-col items-center overflow-hidden rounded-2xl bg-[#0D1117] border border-[#1E293B] p-2.5 ${className}`}>
@@ -613,7 +761,7 @@ export function CameraCapture({
             <defs>
               <linearGradient id="cameraOnFaceScanGrad" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stopColor={isScanning ? "#818CF8" : "#94A3B8"} stopOpacity="0" />
-                <stop offset="100%" stopColor={isScanning ? "#818CF8" : "#E2E8F0"} stopOpacity="0.28" />
+                <stop offset="100%" stopColor={isScanning ? "#818CF8" : "#E2E8F0"} stopOpacity="0.24" />
               </linearGradient>
             </defs>
 
@@ -627,126 +775,117 @@ export function CameraCapture({
               </g>
             )}
 
-            {/* Dynamic Face-Tracked Brackets, On-Face Scan Sweep, HUD & Spider Mesh */}
+            {/* Dynamic Face-Tracked Brackets, On-Face Scan Sweep, Compact Pill & Spider Mesh */}
             {hasTrackedFace && (
               <g>
-                {/* Optical Scanline Beam strictly bounded to detected face */}
+                {/* Inset Optical Scanline Beam strictly inside face width */}
                 {(isScanning || isAutoWatching) && (
                   <g>
                     <rect
                       ref={scanBeamRef}
-                      x={DEFAULT_FACE_BOX.x}
+                      x={DEFAULT_FACE_BOX.x + 12}
                       y={DEFAULT_FACE_BOX.y}
-                      width={DEFAULT_FACE_BOX.w}
-                      height={24}
+                      width={DEFAULT_FACE_BOX.w - 24}
+                      height={16}
                       fill="url(#cameraOnFaceScanGrad)"
                     />
                     <line
                       ref={scanLineRef}
-                      x1={DEFAULT_FACE_BOX.x}
-                      x2={DEFAULT_FACE_BOX.x + DEFAULT_FACE_BOX.w}
+                      x1={DEFAULT_FACE_BOX.x + 12}
+                      x2={DEFAULT_FACE_BOX.x + DEFAULT_FACE_BOX.w - 12}
                       y1={DEFAULT_FACE_BOX.y}
                       y2={DEFAULT_FACE_BOX.y}
                       stroke={isScanning ? "#A5B4FC" : "#E2E8F0"}
-                      strokeWidth={isScanning ? "1.8" : "1.1"}
-                      strokeOpacity="0.9"
+                      strokeWidth={isScanning ? "1.35" : "0.95"}
+                      strokeOpacity="0.85"
                     />
                   </g>
                 )}
 
-                {/* 4 Dynamic L-Shaped Brackets tightly hugging the user's actual face */}
+                {/* 4 Tight L-Shaped Brackets hugging only the user's face */}
                 <g>
                   <path
                     ref={bracketTLRef}
-                    d="M 206 130 L 206 102 L 234 102"
+                    d="M 248 172 L 248 152 L 268 152"
                     stroke={bracketStroke}
-                    strokeWidth={isScanning ? "2.8" : "2.5"}
+                    strokeWidth={isScanning ? "2.1" : "1.8"}
                     strokeLinecap="square"
                   />
                   <path
                     ref={bracketTRRef}
-                    d="M 406 102 L 434 102 L 434 130"
+                    d="M 372 152 L 392 152 L 392 172"
                     stroke={bracketStroke}
-                    strokeWidth={isScanning ? "2.8" : "2.5"}
+                    strokeWidth={isScanning ? "2.1" : "1.8"}
                     strokeLinecap="square"
                   />
                   <path
                     ref={bracketBLRef}
-                    d="M 206 350 L 206 378 L 234 378"
+                    d="M 248 308 L 248 328 L 268 328"
                     stroke={bracketStroke}
-                    strokeWidth={isScanning ? "2.8" : "2.5"}
+                    strokeWidth={isScanning ? "2.1" : "1.8"}
                     strokeLinecap="square"
                   />
                   <path
                     ref={bracketBRRef}
-                    d="M 406 378 L 434 378 L 434 350"
+                    d="M 372 328 L 392 328 L 392 308"
                     stroke={bracketStroke}
-                    strokeWidth={isScanning ? "2.8" : "2.5"}
+                    strokeWidth={isScanning ? "2.1" : "1.8"}
                     strokeLinecap="square"
                   />
 
                   {isScanning && (
-                    <g stroke="#A5B4FC" strokeWidth="1.5" strokeOpacity="0.7">
-                      <line ref={tickTopRef} x1="312" y1="102" x2="328" y2="102" />
-                      <line ref={tickBottomRef} x1="312" y1="378" x2="328" y2="378" />
-                      <line ref={tickLeftRef} x1="206" y1="232" x2="206" y2="248" />
-                      <line ref={tickRightRef} x1="434" y1="232" x2="434" y2="248" />
+                    <g stroke="#A5B4FC" strokeWidth="1.2" strokeOpacity="0.6">
+                      <line ref={tickTopRef} x1="315" y1="152" x2="325" y2="152" />
+                      <line ref={tickBottomRef} x1="315" y1="328" x2="325" y2="328" />
+                      <line ref={tickLeftRef} x1="248" y1="235" x2="248" y2="245" />
+                      <line ref={tickRightRef} x1="392" y1="235" x2="392" y2="245" />
                     </g>
                   )}
                 </g>
 
-                {/* On-Face Floating Process Status HUD anchored directly to detected face */}
-                <g ref={faceHudGroupRef} transform="translate(197, 56)">
+                {/* Compact Floating Single-Line Process Pill above forehead */}
+                <g ref={faceHudGroupRef} transform="translate(244, 126)">
                   <rect
+                    ref={faceHudRectRef}
                     x="0"
                     y="0"
-                    width="246"
-                    height="34"
-                    rx="6"
-                    fill="rgba(7, 10, 15, 0.84)"
+                    width="152"
+                    height="20"
+                    rx="10"
+                    fill="rgba(7, 10, 15, 0.80)"
                     stroke={bracketStroke}
-                    strokeOpacity="0.55"
-                    strokeWidth="1"
+                    strokeOpacity="0.45"
+                    strokeWidth="0.9"
                   />
                   <circle
-                    cx="13"
-                    cy="12"
-                    r="3.2"
+                    cx="11"
+                    cy="10"
+                    r="2.6"
                     fill={
                       isMatched
                         ? "#10B981"
                         : isError
-                        ? "#F43F5E"
-                        : isScanning
-                        ? "#818CF8"
-                        : "#38BDF8"
+                          ? "#F43F5E"
+                          : isScanning
+                            ? "#818CF8"
+                            : "#38BDF8"
                     }
                   />
                   <text
                     ref={faceHudTitleRef}
-                    x="22"
-                    y="15"
+                    x="19"
+                    y="13"
                     fill="#F8FAFC"
-                    fontSize="9.5"
-                    fontWeight="700"
+                    fontSize="8.5"
+                    fontWeight="600"
+                    letterSpacing="0.03em"
                     fontFamily="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace"
                   >
                     {stageTitleText}
                   </text>
-                  <text
-                    ref={faceHudSubRef}
-                    x="10"
-                    y="27.5"
-                    fill="#94A3B8"
-                    fontSize="8.5"
-                    fontWeight="500"
-                    fontFamily="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace"
-                  >
-                    {processStageSubtext || "BIOMETRIC COORDINATE LOCK ACTIVE"}
-                  </text>
                 </g>
 
-                {/* Full-Face Geodesic Spider-Web Mesh & Crawling 8-Leg Scanner */}
+                {/* Fine Geodesic Spider-Web Mesh & Crawling 8-Leg Scanner */}
                 {showWebMesh && (
                   <g>
                     {FACE_MESH_EDGES.map(([aIdx, bIdx], eIdx) => {
@@ -763,8 +902,8 @@ export function CameraCapture({
                           x2={DEFAULT_FACE_BOX.x + b.x * DEFAULT_FACE_BOX.w}
                           y2={DEFAULT_FACE_BOX.y + b.y * DEFAULT_FACE_BOX.h}
                           stroke={isScanning ? "#A5B4FC" : landmarkColor}
-                          strokeWidth="0.9"
-                          strokeOpacity={isMatched ? "0.45" : isError ? "0.24" : "0.18"}
+                          strokeWidth="0.65"
+                          strokeOpacity={isMatched ? "0.42" : isError ? "0.22" : "0.14"}
                         />
                       );
                     })}
@@ -778,10 +917,10 @@ export function CameraCapture({
                           }}
                           d="M 320 240 L 320 240"
                           stroke={isScanning ? "#E0E7FF" : "#CBD5E1"}
-                          strokeWidth={isScanning ? "1.35" : "1.1"}
+                          strokeWidth={isScanning ? "0.95" : "0.8"}
                           strokeLinecap="round"
                           strokeLinejoin="round"
-                          strokeOpacity="0.7"
+                          strokeOpacity="0.65"
                           fill="none"
                         />
                       ))}
@@ -794,9 +933,9 @@ export function CameraCapture({
                         }}
                         cx={DEFAULT_FACE_BOX.x + pt.x * DEFAULT_FACE_BOX.w}
                         cy={DEFAULT_FACE_BOX.y + pt.y * DEFAULT_FACE_BOX.h}
-                        r={pt.anchor ? 2.7 : 2.0}
+                        r={pt.anchor ? 1.85 : 1.3}
                         fill={landmarkColor}
-                        fillOpacity={isMatched ? 0.95 : isError ? 0.45 : 0.65}
+                        fillOpacity={isMatched ? 0.9 : isError ? 0.45 : 0.6}
                       />
                     ))}
 
@@ -806,17 +945,17 @@ export function CameraCapture({
                           ref={spiderRingRef}
                           cx="320"
                           cy="240"
-                          r="7.5"
+                          r="4.6"
                           stroke={isScanning ? "#818CF8" : "#E2E8F0"}
-                          strokeWidth="1.25"
-                          strokeOpacity={isScanning ? "0.9" : "0.65"}
+                          strokeWidth="1.0"
+                          strokeOpacity={isScanning ? "0.85" : "0.6"}
                           fill={isScanning ? "rgba(129, 140, 248, 0.14)" : "rgba(255, 255, 255, 0.08)"}
                         />
                         <circle
                           ref={spiderCoreRef}
                           cx="320"
                           cy="240"
-                          r={isScanning ? "3.2" : "2.6"}
+                          r={isScanning ? "2.1" : "1.8"}
                           fill="#FFFFFF"
                         />
                       </g>
@@ -842,17 +981,16 @@ export function CameraCapture({
           </div>
 
           <div
-            className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11px] font-medium backdrop-blur-sm border transition-colors ${
-              isScanning
+            className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11px] font-medium backdrop-blur-sm border transition-colors ${isScanning
                 ? "border-indigo-400/40 bg-indigo-950/75 text-indigo-100"
                 : effectiveScanState === "matched"
-                ? "border-emerald-400/40 bg-emerald-950/70 text-emerald-100"
-                : effectiveScanState === "error"
-                ? "border-rose-400/40 bg-rose-950/70 text-rose-100"
-                : hasTrackedFace
-                ? "border-sky-400/40 bg-sky-950/70 text-sky-100"
-                : "border-white/10 bg-black/55 text-slate-200"
-            }`}
+                  ? "border-emerald-400/40 bg-emerald-950/70 text-emerald-100"
+                  : effectiveScanState === "error"
+                    ? "border-rose-400/40 bg-rose-950/70 text-rose-100"
+                    : hasTrackedFace
+                      ? "border-sky-400/40 bg-sky-950/70 text-sky-100"
+                      : "border-white/10 bg-black/55 text-slate-200"
+              }`}
           >
             {effectiveScanState === "matched" ? (
               <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
@@ -870,14 +1008,14 @@ export function CameraCapture({
               {effectiveScanState === "matched"
                 ? "Verified"
                 : effectiveScanState === "error"
-                ? "Check Alignment"
-                : isScanning
-                ? "Scanning Face"
-                : hasTrackedFace
-                ? isAutoWatching
-                  ? "Face Locked · Auto"
-                  : "Face Locked"
-                : "Waiting for Face"}
+                  ? "Check Alignment"
+                  : isScanning
+                    ? "Scanning Face"
+                    : hasTrackedFace
+                      ? isAutoWatching
+                        ? "Face Locked · Auto"
+                        : "Face Locked"
+                      : "Waiting for Face"}
             </span>
           </div>
         </div>
@@ -886,13 +1024,15 @@ export function CameraCapture({
         <div className="absolute bottom-3 inset-x-3 flex justify-center pointer-events-none">
           <div className="relative overflow-hidden rounded-md bg-black/65 px-3.5 py-1 text-xs font-medium text-slate-100 backdrop-blur-sm border border-white/10">
             <span>
-              {isScanning
-                ? "Scanning geometry and liveness on detected face..."
-                : !hasTrackedFace && streamActive
-                ? "No face detected · Step into camera view anywhere"
-                : isAutoWatching
-                ? "Face localized · Auto-scan locked on subject"
-                : guideText}
+              {processStageSubtext
+                ? processStageSubtext
+                : isScanning
+                  ? "Scanning geometry and liveness on detected face..."
+                  : !hasTrackedFace && streamActive
+                    ? "No face detected · Step into camera view anywhere"
+                    : isAutoWatching
+                      ? "Face localized · Auto-scan locked on subject"
+                      : guideText}
             </span>
             {isScanning && (
               <div className="absolute inset-x-0 bottom-0 h-[2px] overflow-hidden bg-white/10">
@@ -976,11 +1116,10 @@ export function CameraCapture({
           <button
             type="button"
             onClick={() => setAutoScanActive(!autoScanActive)}
-            className={`inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium transition-colors ${
-              autoScanActive
+            className={`inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-xs font-medium transition-colors ${autoScanActive
                 ? "border-indigo-500/40 bg-indigo-500/15 text-indigo-300"
                 : "border-slate-700/80 bg-slate-900/70 text-slate-400 hover:text-slate-200"
-            }`}
+              }`}
           >
             <Zap className="h-3.5 w-3.5" />
             <span>{autoScanActive ? "Auto On" : "Auto Off"}</span>
@@ -991,11 +1130,10 @@ export function CameraCapture({
               type="button"
               onClick={() => setMirrored((m) => !m)}
               title="Toggle mirror orientation"
-              className={`inline-flex h-8 w-8 items-center justify-center rounded-lg border transition-colors ${
-                mirrored
+              className={`inline-flex h-8 w-8 items-center justify-center rounded-lg border transition-colors ${mirrored
                   ? "border-slate-700 bg-slate-800/80 text-slate-200"
                   : "border-slate-800 bg-slate-900/60 text-slate-400 hover:text-slate-200"
-              }`}
+                }`}
             >
               <FlipHorizontal2 className="h-3.5 w-3.5" />
             </button>

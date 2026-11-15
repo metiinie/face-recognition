@@ -739,6 +739,15 @@ export const api = {
     });
   },
 
+  async detectFaceBbox(
+    image_base64: string
+  ): Promise<{ detected: boolean; face_bbox: { x: number; y: number; w: number; h: number } | null }> {
+    return request("/api/face/detect", {
+      method: "POST",
+      body: JSON.stringify({ image_base64 }),
+    });
+  },
+
   async recognizeFace(payload: {
     image_base64?: string;
     station_id?: string;

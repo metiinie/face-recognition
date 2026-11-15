@@ -149,10 +149,10 @@ function clampViewBoxRect(
   confidence: number,
   source: DetectedFaceBox["source"]
 ): DetectedFaceBox {
-  const cw = Math.max(88, Math.min(440, w));
-  const ch = Math.max(110, Math.min(440, h));
-  const cx = Math.max(12, Math.min(640 - cw - 12, x));
-  const cy = Math.max(12, Math.min(480 - ch - 12, y));
+  const cw = Math.max(92, Math.min(210, w));
+  const ch = Math.max(112, Math.min(255, h));
+  const cx = Math.max(10, Math.min(640 - cw - 10, x));
+  const cy = Math.max(10, Math.min(480 - ch - 10, y));
   return {
     x: cx,
     y: cy,
@@ -280,38 +280,57 @@ export async function detectFaceInVideoFrame(
     }
   }
 
-  // Path B: Universal YCbCr chrominance + internal facial contrast cluster detector (80x60 sample)
+  // Path B: Facial-Core Chrominance + Feature-Gradient Window Locator (80x60 sample)
   const imgData = ctx.getImageData(0, 0, W, H).data;
   const COLS = 20;
   const ROWS = 15;
   const CELL = 8; // 8px per cell in 160x120
   const cellHits = new Uint16Array(COLS * ROWS);
+  const cellGradSum = new Float32Array(COLS * ROWS);
   const cellSumX = new Float32Array(COLS * ROWS);
   const cellSumY = new Float32Array(COLS * ROWS);
+  const cellSumXSq = new Float32Array(COLS * ROWS);
+  const cellSumYSq = new Float32Array(COLS * ROWS);
   const cellLumSum = new Float32Array(COLS * ROWS);
   const cellLumSqSum = new Float32Array(COLS * ROWS);
 
   let totalSkinPts = 0;
-  for (let py = 0; py < H; py += 2) {
+  for (let py = 2; py < H - 2; py += 2) {
     const rowOffset = py * W;
     const cellR = (py / CELL) | 0;
-    for (let px = 0; px < W; px += 2) {
+    for (let px = 2; px < W - 2; px += 2) {
       const idx = (rowOffset + px) * 4;
       const r = imgData[idx];
       const g = imgData[idx + 1];
       const b = imgData[idx + 2];
 
+      const maxCh = r > g ? (r > b ? r : b) : g > b ? g : b;
+      const minCh = r < g ? (r < b ? r : b) : g < b ? g : b;
+      if (maxCh < 28) continue;
+      const sat = (maxCh - minCh) / maxCh;
+      if (sat < 0.14) continue;
+
       const yLum = 0.299 * r + 0.587 * g + 0.114 * b;
-      if (yLum < 24 || yLum > 246) continue;
+      if (yLum < 22 || yLum > 242) continue;
 
       const cb = 128 - 0.168736 * r - 0.331264 * g + 0.5 * b;
       const cr = 128 + 0.5 * r - 0.418688 * g - 0.081312 * b;
-      if (cb >= 74 && cb <= 138 && cr >= 129 && cr <= 180 && r >= b) {
+      if (cb >= 78 && cb <= 132 && cr >= 133 && cr <= 178 && cr - cb >= 16 && r > b) {
+        // Compute local facial edge gradient (eyes, brows, nostrils, lips vs flat wall)
+        const leftIdx = (rowOffset + (px - 2)) * 4;
+        const upIdx = ((py - 2) * W + px) * 4;
+        const leftLum = 0.299 * imgData[leftIdx] + 0.587 * imgData[leftIdx + 1] + 0.114 * imgData[leftIdx + 2];
+        const upLum = 0.299 * imgData[upIdx] + 0.587 * imgData[upIdx + 1] + 0.114 * imgData[upIdx + 2];
+        const grad = Math.abs(yLum - leftLum) + Math.abs(yLum - upLum);
+
         const cellC = (px / CELL) | 0;
         const cIdx = cellR * COLS + cellC;
         cellHits[cIdx] += 1;
+        cellGradSum[cIdx] += grad;
         cellSumX[cIdx] += px;
         cellSumY[cIdx] += py;
+        cellSumXSq[cIdx] += px * px;
+        cellSumYSq[cIdx] += py * py;
         cellLumSum[cIdx] += yLum;
         cellLumSqSum[cIdx] += yLum * yLum;
         totalSkinPts += 1;
@@ -319,108 +338,96 @@ export async function detectFaceInVideoFrame(
     }
   }
 
-  if (totalSkinPts < 42) {
+  if (totalSkinPts < 28) {
     return null;
   }
 
-  // BFS connected dense skin cells (threshold >= 3 hits out of 16 samples in 8x8 cell)
-  const visited = new Uint8Array(COLS * ROWS);
-  let bestClusterCells: number[] = [];
-  let bestClusterScore = 0;
+  // Score each 8x8 cell combining skin density + facial edge gradient (flat walls score near 0)
+  const cellScore = new Float32Array(COLS * ROWS);
+  for (let i = 0; i < COLS * ROWS; i++) {
+    const h = cellHits[i];
+    if (h >= 2) {
+      const avgGrad = cellGradSum[i] / h;
+      const lumMean = cellLumSum[i] / h;
+      const lumVar = Math.max(0, cellLumSqSum[i] / h - lumMean * lumMean);
+      // Require either internal texture contrast or clear facial gradient
+      const featureWeight = lumVar > 22 || avgGrad > 5.5 ? 1 + Math.min(3.5, avgGrad * 0.14) : 0.2;
+      cellScore[i] = h * featureWeight;
+    }
+  }
 
-  for (let r = 0; r < ROWS; r++) {
-    for (let c = 0; c < COLS; c++) {
-      const start = r * COLS + c;
-      if (visited[start] || cellHits[start] < 3) continue;
-
-      const queue = [start];
-      visited[start] = 1;
-      const cluster: number[] = [];
-      let clusterHits = 0;
-
-      while (queue.length > 0) {
-        const cur = queue.pop()!;
-        cluster.push(cur);
-        clusterHits += cellHits[cur];
-        const cr = (cur / COLS) | 0;
-        const cc = cur % COLS;
-
-        for (let dr = -1; dr <= 1; dr++) {
-          for (let dc = -1; dc <= 1; dc++) {
-            if (dr === 0 && dc === 0) continue;
-            const nr = cr + dr;
-            const nc = cc + dc;
-            if (nr < 0 || nr >= ROWS || nc < 0 || nc >= COLS) continue;
-            const nIdx = nr * COLS + nc;
-            if (!visited[nIdx] && cellHits[nIdx] >= 3) {
-              visited[nIdx] = 1;
-              queue.push(nIdx);
-            }
-          }
+  // Locate peak 5x6 anatomical face window (~160x192 viewBox px) instead of merging full-room blobs
+  const WIN_W = 5;
+  const WIN_H = 6;
+  let bestWinScore = 0;
+  let bestR0 = 0;
+  let bestC0 = 0;
+  for (let r0 = 0; r0 <= ROWS - WIN_H; r0++) {
+    for (let c0 = 0; c0 <= COLS - WIN_W; c0++) {
+      let winScore = 0;
+      let winHits = 0;
+      for (let r = r0; r < r0 + WIN_H; r++) {
+        for (let c = c0; c < c0 + WIN_W; c++) {
+          const i = r * COLS + c;
+          winScore += cellScore[i];
+          winHits += cellHits[i];
         }
       }
-
-      if (cluster.length >= 4 && clusterHits > bestClusterScore) {
-        bestClusterScore = clusterHits;
-        bestClusterCells = cluster;
+      if (winHits >= 26 && winScore > bestWinScore) {
+        bestWinScore = winScore;
+        bestR0 = r0;
+        bestC0 = c0;
       }
     }
   }
 
-  if (bestClusterCells.length < 4 || bestClusterScore < 34) {
+  if (bestWinScore <= 0) {
     return null;
   }
 
-  // Compute centroid & tight bounding extent of the primary cluster, rejecting flat low-contrast walls
+  // Compute tight centroid & spread inside the winning facial core window
   let hits = 0;
   let sumX = 0;
   let sumY = 0;
+  let sumXSq = 0;
+  let sumYSq = 0;
   let lumSum = 0;
   let lumSqSum = 0;
-  let minPx = W;
-  let maxPx = 0;
-  let minPy = H;
-  let maxPy = 0;
 
-  for (const cIdx of bestClusterCells) {
-    const hCount = cellHits[cIdx];
-    hits += hCount;
-    sumX += cellSumX[cIdx];
-    sumY += cellSumY[cIdx];
-    lumSum += cellLumSum[cIdx];
-    lumSqSum += cellLumSqSum[cIdx];
-    const cr = (cIdx / COLS) | 0;
-    const cc = cIdx % COLS;
-    const px0 = cc * CELL;
-    const py0 = cr * CELL;
-    if (px0 < minPx) minPx = px0;
-    if (px0 + CELL > maxPx) maxPx = px0 + CELL;
-    if (py0 < minPy) minPy = py0;
-    if (py0 + CELL > maxPy) maxPy = py0 + CELL;
+  for (let r = bestR0; r < bestR0 + WIN_H; r++) {
+    for (let c = bestC0; c < bestC0 + WIN_W; c++) {
+      const i = r * COLS + c;
+      const h = cellHits[i];
+      if (h === 0) continue;
+      hits += h;
+      sumX += cellSumX[i];
+      sumY += cellSumY[i];
+      sumXSq += cellSumXSq[i];
+      sumYSq += cellSumYSq[i];
+      lumSum += cellLumSum[i];
+      lumSqSum += cellLumSqSum[i];
+    }
+  }
+
+  if (hits < 26) {
+    return null;
   }
 
   const meanLum = lumSum / hits;
   const lumVariance = Math.max(0, lumSqSum / hits - meanLum * meanLum);
-  // Real faces contain eye/brow/mouth contrast (std dev >= ~9 luminance units)
-  if (lumVariance < 75) {
+  if (lumVariance < 55) {
     return null;
   }
 
   const cx = sumX / hits;
   const cy = sumY / hits;
-  const clusterW = maxPx - minPx;
-  const clusterH = maxPy - minPy;
+  const stdX = Math.sqrt(Math.max(16, sumXSq / hits - cx * cx));
+  const stdY = Math.sqrt(Math.max(20, sumYSq / hits - cy * cy));
 
-  // Reject degenerate frame-filling illumination blobs
-  if (clusterW >= W * 0.9 && clusterH >= H * 0.9) {
-    return null;
-  }
-
-  // Scale to 640x480 viewBox; keep head-proportioned box focused on upper cluster centroid if neck included
-  const rawW = Math.max(120, Math.min(340, clusterW * 4 * 0.96));
-  const rawH = Math.max(145, Math.min(390, Math.min(clusterH * 4, rawW * 1.26)));
+  const rawW = Math.max(108, Math.min(168, stdX * 3.5 * 4));
+  const rawH = Math.max(132, Math.min(205, Math.max(rawW * 1.22, stdY * 3.6 * 4)));
   const rawX = cx * 4 - rawW * 0.5;
-  const rawY = Math.max(minPy * 4, cy * 4 - rawH * 0.52);
+  const rawY = cy * 4 - rawH * 0.48;
   const displayX = mirrored ? 640 - rawX - rawW : rawX;
 
   return clampViewBoxRect(displayX, rawY, rawW, rawH, 0.85, "skin_cluster");
