@@ -529,6 +529,33 @@ export function handleUnauthorized(currentPath?: string): void {
   window.location.href = targetUrl;
 }
 
+export class ApiError extends Error {
+  status: number;
+  code?: string;
+  detail?: string;
+  isServerError: boolean;
+  isNetworkError: boolean;
+
+  constructor(
+    message: string,
+    opts: {
+      status?: number;
+      code?: string;
+      detail?: string;
+      isServerError?: boolean;
+      isNetworkError?: boolean;
+    } = {}
+  ) {
+    super(message);
+    this.name = "ApiError";
+    this.status = opts.status ?? 0;
+    this.code = opts.code;
+    this.detail = opts.detail;
+    this.isServerError = Boolean(opts.isServerError ?? this.status >= 500);
+    this.isNetworkError = Boolean(opts.isNetworkError);
+  }
+}
+
 async function request<T>(endpoint: string, options: RequestInit = {}): Promise<T> {
   const token = getStoredToken();
 
@@ -541,10 +568,19 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
     headers["Authorization"] = `Bearer ${token}`;
   }
 
-  const res = await fetch(`${API_BASE}${endpoint}`, {
-    ...options,
-    headers,
-  });
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${endpoint}`, {
+      ...options,
+      headers,
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new ApiError(
+      `Cannot connect to attendance backend (${msg}). Ensure the Flask API server is running on port 5000.`,
+      { status: 0, code: "NETWORK_UNREACHABLE", isServerError: true, isNetworkError: true }
+    );
+  }
 
   if (res.status === 401 && endpoint !== "/api/auth/login") {
     // Clear invalid / expired session tokens and redirect to login preserving destination
@@ -556,18 +592,40 @@ async function request<T>(endpoint: string, options: RequestInit = {}): Promise<
     } catch {
       // ignore
     }
-    throw new Error(errMessage);
+    throw new ApiError(errMessage, {
+      status: 401,
+      code: "UNAUTHORIZED",
+      isServerError: false,
+    });
   }
 
   if (!res.ok) {
     let errMessage = `HTTP error ${res.status}`;
+    let errCode: string | undefined;
+    let errDetail: string | undefined;
     try {
-      const errJson = await res.json();
-      errMessage = errJson.error || errJson.message || errMessage;
+      const rawText = await res.text();
+      if (rawText) {
+        try {
+          const errJson = JSON.parse(rawText);
+          errMessage = errJson.error || errJson.message || errMessage;
+          errCode = typeof errJson.code === "string" ? errJson.code : undefined;
+          errDetail = typeof errJson.detail === "string" ? errJson.detail : undefined;
+        } catch {
+          if (res.status >= 500) {
+            errMessage = `Server or API proxy error (HTTP ${res.status}). Check that the Flask backend is running on port 5000.`;
+          }
+        }
+      }
     } catch {
       // ignore
     }
-    throw new Error(errMessage);
+    throw new ApiError(errMessage, {
+      status: res.status,
+      code: errCode,
+      detail: errDetail,
+      isServerError: res.status >= 500,
+    });
   }
 
   return res.json();

@@ -3,9 +3,29 @@ Database package initialization and transaction management utilities.
 """
 from contextlib import contextmanager
 from flask_sqlalchemy import SQLAlchemy
-from sqlalchemy import inspect, text
+from sqlalchemy import event, inspect, text
+from sqlalchemy.engine import Engine
 
 db = SQLAlchemy()
+
+
+@event.listens_for(Engine, "connect")
+def _configure_sqlite_pragmas(dbapi_connection, connection_record):
+    """Enable WAL mode and busy_timeout for file-backed SQLite connections to prevent lock errors."""
+    module_name = getattr(type(dbapi_connection), "__module__", "")
+    if "sqlite3" not in module_name:
+        return
+    try:
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA busy_timeout = 15000")
+        db_list = cursor.execute("PRAGMA database_list").fetchall()
+        is_file_db = any(len(row) >= 3 and row[1] == "main" and bool(row[2]) for row in db_list)
+        if is_file_db:
+            cursor.execute("PRAGMA journal_mode = WAL")
+            cursor.execute("PRAGMA synchronous = NORMAL")
+        cursor.close()
+    except Exception:
+        pass
 
 
 def ensure_schema_columns() -> None:

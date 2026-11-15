@@ -459,13 +459,15 @@ export default function BiometricsLabPage() {
                 <div className="flex items-center justify-between gap-3 rounded-lg bg-[#F6F7F9] px-3.5 py-2.5 border border-[#EAECEF]">
                   <span className="text-slate-600 font-medium">Active Database Model:</span>
                   <Badge variant="brand" className="font-mono text-[10px]">
-                    {modelReport?.active_model || "EIPC-Vision-Embedder 1.0.0"}
+                    {modelReport?.active_model_name
+                      ? `${modelReport.active_model_name} ${modelReport.active_model_version || ""}`.trim()
+                      : modelReport?.active_model || "EIPC-Vision-Embedder 1.0.0"}
                   </Badge>
                 </div>
                 <div className="flex items-center justify-between gap-3 rounded-lg bg-[#F6F7F9] px-3.5 py-2.5 border border-[#EAECEF]">
                   <span className="text-slate-600 font-medium">Outdated / Legacy Templates:</span>
                   <span className="font-mono font-semibold text-amber-700 tabular-nums">
-                    {modelReport?.outdated_count ?? 0} templates
+                    {modelReport?.outdated_active_templates ?? modelReport?.outdated_count ?? 0} templates
                   </span>
                 </div>
               </div>

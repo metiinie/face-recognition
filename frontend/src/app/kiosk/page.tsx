@@ -958,7 +958,7 @@ export default function KioskPage() {
             </Card>
           )}
 
-          {/* State 4: Rejection / Unrecognized Face */}
+          {/* State 4: Rejection / Unrecognized Face OR Service/Network Error */}
           {!isProcessing && feedbackError && !recognition?.matched && (
             <Card className="p-6 space-y-4 border-rose-200">
               <div className="flex items-start justify-between gap-3">
@@ -967,10 +967,16 @@ export default function KioskPage() {
                     <XCircle className="h-5 w-5" />
                   </div>
                   <div>
-                    <h3 className="text-sm font-semibold text-slate-900">Verification Unmatched</h3>
-                    {recognition?.rejection_code && (
+                    <h3 className="text-sm font-semibold text-slate-900">
+                      {recognition ? "Verification Unmatched" : "Scanner Service Error"}
+                    </h3>
+                    {recognition?.rejection_code ? (
                       <span className="font-mono text-[10px] text-rose-600">
                         {recognition.rejection_code}
+                      </span>
+                    ) : (
+                      <span className="font-mono text-[10px] text-amber-700">
+                        SERVER_OR_NETWORK_ERROR
                       </span>
                     )}
                   </div>
@@ -1012,7 +1018,7 @@ export default function KioskPage() {
                 <Button variant="secondary" size="sm" className="flex-1" onClick={handleReset}>
                   Try Again
                 </Button>
-                {lastCapturedImage && (
+                {recognition && lastCapturedImage && (
                   <Button
                     variant="outline"
                     size="sm"

@@ -301,12 +301,15 @@ export function CameraCapture({
 
     let cancelled = false;
     let inFlight = false;
+    let consecutiveFailures = 0;
+    let pausedUntilTs = 0;
     const tinyCanvas = document.createElement("canvas");
     tinyCanvas.width = 240;
     tinyCanvas.height = 180;
 
     const runNeuralDetect = async () => {
-      if (cancelled || inFlight || !videoRef.current) return;
+      if (cancelled || inFlight || isProcessing || !videoRef.current) return;
+      if (performance.now() < pausedUntilTs) return;
       const video = videoRef.current;
       if (video.readyState < 2 || !video.videoWidth || !video.videoHeight) return;
 
@@ -336,6 +339,8 @@ export function CameraCapture({
       try {
         const res = await api.detectFaceBbox(tinyB64);
         if (cancelled) return;
+        consecutiveFailures = 0;
+        pausedUntilTs = 0;
         if (res.detected && res.face_bbox) {
           // Since tinyCanvas is already slice-cropped to 4:3, map directly in 640x480 space
           const mapped = backendBboxToViewBox(res.face_bbox, mirrored, 640, 480);
@@ -360,7 +365,11 @@ export function CameraCapture({
           }
         }
       } catch {
-        // Ignore transient network hiccups; client probe continues smoothly
+        // Back off on repeated backend/network errors so client overlay stays smooth without flooding
+        consecutiveFailures += 1;
+        if (consecutiveFailures >= 3) {
+          pausedUntilTs = performance.now() + Math.min(5000, consecutiveFailures * 750);
+        }
       } finally {
         inFlight = false;
       }
@@ -369,13 +378,13 @@ export function CameraCapture({
     void runNeuralDetect();
     const timer = setInterval(() => {
       void runNeuralDetect();
-    }, 140);
+    }, 250);
 
     return () => {
       cancelled = true;
       clearInterval(timer);
     };
-  }, [streamActive, mirrored, updateTargetBoxWithDeadband]);
+  }, [streamActive, isProcessing, mirrored, updateTargetBoxWithDeadband]);
 
   useEffect(() => {
     if (!streamActive) {

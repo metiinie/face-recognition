@@ -1769,6 +1769,27 @@ def api_face_detect():
     }), 200
 
 
+@api_bp.errorhandler(Exception)
+def handle_api_exception(exc):
+    """Return structured JSON for unexpected errors inside /api/* routes instead of Werkzeug HTML."""
+    from werkzeug.exceptions import HTTPException
+    if isinstance(exc, HTTPException):
+        return jsonify({
+            "error": exc.description or exc.name,
+            "code": (exc.name or "HTTP_ERROR").upper().replace(" ", "_"),
+        }), exc.code
+    try:
+        db.session.rollback()
+    except Exception:
+        pass
+    current_app.logger.exception("Unhandled exception on API route %s", request.path)
+    return jsonify({
+        "error": "Internal server error while processing biometric or attendance request.",
+        "detail": str(exc),
+        "code": "INTERNAL_SERVER_ERROR",
+    }), 500
+
+
 @api_bp.route("/face/recognize", methods=["POST"])
 def api_face_recognize():
     """Unified endpoint for face recognition and live liveness check."""
@@ -1780,11 +1801,13 @@ def api_face_recognize():
         return jsonify({"error": st_err or "Station unavailable", "code": "STATION_UNAUTHORIZED"}), 403
 
     rec_result = recognize_face_candidate(data, decrypt_embedding)
-    print(
-        f"[FACE_RECOGNIZE] matched={rec_result['matched']} status={rec_result['status']} "
-        f"score={rec_result.get('recognition_score')} "
-        f"rejection={rec_result.get('rejection_code')}: {rec_result.get('message')}",
-        flush=True
+    current_app.logger.info(
+        "[FACE_RECOGNIZE] matched=%s status=%s score=%s rejection=%s: %s",
+        rec_result["matched"],
+        rec_result["status"],
+        rec_result.get("recognition_score"),
+        rec_result.get("rejection_code"),
+        rec_result.get("message"),
     )
 
     elapsed_ms = round((time.perf_counter() - t_start) * 1000, 1)
