@@ -127,7 +127,7 @@ export default function KioskPage() {
             }
           }
         }
-      } catch {}
+      } catch { }
 
       return () => {
         window.removeEventListener("online", handleOnline);
@@ -176,8 +176,8 @@ export default function KioskPage() {
     try {
       const res = await api.recognizeFace(payload);
       const elapsed = performance.now() - startedAt;
-      if (elapsed < 720) {
-        await new Promise((r) => setTimeout(r, 720 - elapsed));
+      if (elapsed < 180) {
+        await new Promise((r) => setTimeout(r, 180 - elapsed));
       }
 
       setRecognition(res);
@@ -281,7 +281,7 @@ export default function KioskPage() {
             timestamp: new Date().toISOString(),
           });
           return;
-        } catch {}
+        } catch { }
       }
       setPunchError(err.message || "Failed to record attendance event.");
     } finally {
@@ -395,11 +395,10 @@ export default function KioskPage() {
               setTouchlessAutoPunch(!touchlessAutoPunch);
               setAutoConfirmCountdown(null);
             }}
-            className={`inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium border transition-colors ${
-              touchlessAutoPunch
+            className={`inline-flex h-8 items-center gap-1.5 rounded-lg px-2.5 text-xs font-medium border transition-colors ${touchlessAutoPunch
                 ? "bg-[#EEF2FF] text-[#4338CA] border-indigo-200"
                 : "bg-white text-slate-600 border-[#E5E7EB] hover:bg-slate-50"
-            }`}
+              }`}
             title="Toggle hands-free automatic attendance confirmation"
           >
             <Hand className="h-3.5 w-3.5" />
@@ -473,7 +472,7 @@ export default function KioskPage() {
           <CameraCapture
             onCapture={handleCapture}
             isProcessing={isProcessing}
-            autoScanIntervalMs={1600}
+            autoScanIntervalMs={1150}
             guideText="Position your face anywhere in frame for live tracking"
             captureButtonText="Manual Shot"
             faceBbox={recognition?.face_bbox || null}
@@ -481,28 +480,28 @@ export default function KioskPage() {
               isProcessing
                 ? "STAGE 3/5 · LIVENESS & EMBEDDING MATCH"
                 : recognition?.matched && recognition.employee
-                ? `VERIFIED · ${recognition.employee.first_name.toUpperCase()} ${recognition.employee.last_name.toUpperCase()}`
-                : feedbackError
-                ? "PROCESS HALTED · CHECK QUALITY / POSITION"
-                : null
+                  ? `VERIFIED · ${recognition.employee.first_name.toUpperCase()} ${recognition.employee.last_name.toUpperCase()}`
+                  : feedbackError
+                    ? "PROCESS HALTED · CHECK QUALITY / POSITION"
+                    : null
             }
             processStageSubtext={
               isProcessing
                 ? "Analyzing 128-D face geometry & anti-spoof..."
                 : recognition?.matched && recognition.employee
-                ? `${recognition.employee.employee_number} · Match ${Math.round((recognition.match_score ?? 0) * 100)}%`
-                : feedbackError
-                ? feedbackError.slice(0, 46)
-                : null
+                  ? `${recognition.employee.employee_number} · Match ${Math.round((recognition.match_score ?? 0) * 100)}%`
+                  : feedbackError
+                    ? feedbackError.slice(0, 46)
+                    : null
             }
             scanState={
               isProcessing
                 ? "scanning"
                 : recognition?.matched
-                ? "matched"
-                : feedbackError
-                ? "error"
-                : "idle"
+                  ? "matched"
+                  : feedbackError
+                    ? "error"
+                    : "idle"
             }
           />
 
@@ -621,16 +620,16 @@ export default function KioskPage() {
             ];
             const sequenceSteps = recognition?.scan_sequence?.length
               ? recognition.scan_sequence.map((st) =>
-                  st.step === 5 && attendanceOutcome
-                    ? {
-                        ...st,
-                        status: "PASSED",
-                        detail: `${attendanceOutcome.event_type} logged at ${new Date(
-                          attendanceOutcome.timestamp
-                        ).toLocaleTimeString()} EAT`,
-                      }
-                    : st
-                )
+                st.step === 5 && attendanceOutcome
+                  ? {
+                    ...st,
+                    status: "PASSED",
+                    detail: `${attendanceOutcome.event_type} logged at ${new Date(
+                      attendanceOutcome.timestamp
+                    ).toLocaleTimeString()} EAT`,
+                  }
+                  : st
+              )
               : defaultSteps;
 
             return (
@@ -644,22 +643,22 @@ export default function KioskPage() {
                       attendanceOutcome || recognition?.matched
                         ? "success"
                         : feedbackError
-                        ? "danger"
-                        : isProcessing
-                        ? "brand"
-                        : "outline"
+                          ? "danger"
+                          : isProcessing
+                            ? "brand"
+                            : "outline"
                     }
                     className="text-[10px]"
                   >
                     {attendanceOutcome
                       ? "LOGGED"
                       : recognition?.matched
-                      ? "IDENTIFIED"
-                      : feedbackError
-                      ? "BLOCKED"
-                      : isProcessing
-                      ? "SCANNING"
-                      : "STANDBY"}
+                        ? "IDENTIFIED"
+                        : feedbackError
+                          ? "BLOCKED"
+                          : isProcessing
+                            ? "SCANNING"
+                            : "STANDBY"}
                   </Badge>
                 </div>
                 <div className="grid grid-cols-5 gap-1.5">
@@ -668,10 +667,10 @@ export default function KioskPage() {
                       st.status === "PASSED"
                         ? "border-emerald-200 bg-emerald-50 text-emerald-800"
                         : st.status === "FAILED"
-                        ? "border-rose-200 bg-rose-50 text-rose-700"
-                        : st.status === "RUNNING"
-                        ? "border-indigo-200 bg-[#EEF2FF] text-[#4338CA]"
-                        : "border-[#EAECEF] bg-[#FAFBFD] text-slate-400";
+                          ? "border-rose-200 bg-rose-50 text-rose-700"
+                          : st.status === "RUNNING"
+                            ? "border-indigo-200 bg-[#EEF2FF] text-[#4338CA]"
+                            : "border-[#EAECEF] bg-[#FAFBFD] text-slate-400";
                     return (
                       <div
                         key={st.stage}

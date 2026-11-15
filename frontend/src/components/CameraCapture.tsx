@@ -251,7 +251,7 @@ export function CameraCapture({
   const updateTargetBoxWithDeadband = useCallback((next: FaceRect) => {
     const prev = targetBoxRef.current;
     if (!prev) {
-      targetBoxRef.current = next;
+      targetBoxRef.current = { ...next };
       renderBoxRef.current = { ...next };
       return;
     }
@@ -261,19 +261,15 @@ export function CameraCapture({
     const nextCy = next.y + next.h * 0.5;
     const centerDist = Math.hypot(nextCx - prevCx, nextCy - prevCy);
     const sizeDelta = Math.abs(next.w - prev.w) + Math.abs(next.h - prev.h);
-    if (centerDist < 11 && sizeDelta < 14) {
+    if (centerDist < 2.8 && sizeDelta < 4.5) {
       return;
     }
-    targetBoxRef.current = {
-      x: prev.x * 0.6 + next.x * 0.4,
-      y: prev.y * 0.6 + next.y * 0.4,
-      w: prev.w * 0.6 + next.w * 0.4,
-      h: prev.h * 0.6 + next.h * 0.4,
-    };
+    targetBoxRef.current = { ...next };
   }, []);
 
   useEffect(() => {
     if (!faceBbox) return;
+    if (streamActive && faceDetectedRef.current) return;
     const video = videoRef.current;
     const mapped = backendBboxToViewBox(
       faceBbox,
@@ -293,7 +289,7 @@ export function CameraCapture({
     neuralMissRef.current = 0;
     faceDetectedRef.current = true;
     setFaceDetected(true);
-  }, [faceBbox, mirrored, updateTargetBoxWithDeadband]);
+  }, [faceBbox, mirrored, streamActive, updateTargetBoxWithDeadband]);
 
   // Background ~350ms UltraFace ONNX detector for exact tight head bounding box regardless of background/skin tone
   useEffect(() => {
@@ -373,7 +369,7 @@ export function CameraCapture({
     void runNeuralDetect();
     const timer = setInterval(() => {
       void runNeuralDetect();
-    }, 360);
+    }, 140);
 
     return () => {
       cancelled = true;
@@ -404,21 +400,21 @@ export function CameraCapture({
         if (cancelled) return;
 
         const anchor = neuralAnchorRef.current;
-        const anchorFresh = anchor !== null && performance.now() - anchor.ts < 1200;
+        const anchorFresh = anchor !== null && performance.now() - anchor.ts < 450;
 
         if (detected) {
           const detCenterX = detected.x + detected.w * 0.5;
           const detCenterY = detected.y + detected.h * 0.5;
 
           if (anchorFresh && anchor) {
-            // Keep UltraFace tight dimensions and apply deadband-gated delta tracking
+            // Keep UltraFace tight dimensions and track unconstrained movement deltas between neural ticks
             if (anchor.clientCenterX === null || anchor.clientCenterY === null) {
               anchor.clientCenterX = detCenterX;
               anchor.clientCenterY = detCenterY;
               updateTargetBoxWithDeadband({ ...anchor.box });
             } else {
-              const dx = Math.max(-24, Math.min(24, detCenterX - anchor.clientCenterX));
-              const dy = Math.max(-18, Math.min(18, detCenterY - anchor.clientCenterY));
+              const dx = detCenterX - anchor.clientCenterX;
+              const dy = detCenterY - anchor.clientCenterY;
               updateTargetBoxWithDeadband({
                 x: Math.max(8, Math.min(640 - anchor.box.w - 8, anchor.box.x + dx)),
                 y: Math.max(8, Math.min(480 - anchor.box.h - 8, anchor.box.y + dy)),
@@ -448,7 +444,7 @@ export function CameraCapture({
             return;
           }
           missedFramesRef.current += 1;
-          if (missedFramesRef.current >= 3 && faceDetectedRef.current && effectiveScanState === "idle") {
+          if (missedFramesRef.current >= 4 && faceDetectedRef.current) {
             targetBoxRef.current = null;
             faceDetectedRef.current = false;
             setFaceDetected(false);
@@ -462,13 +458,13 @@ export function CameraCapture({
     void probe();
     const timer = setInterval(() => {
       void probe();
-    }, 85);
+    }, 65);
 
     return () => {
       cancelled = true;
       clearInterval(timer);
     };
-  }, [streamActive, mirrored, effectiveScanState, updateTargetBoxWithDeadband]);
+  }, [streamActive, mirrored, updateTargetBoxWithDeadband]);
 
   useEffect(() => {
     if (!autoScanActive || !streamActive || isProcessing) return;
@@ -482,6 +478,17 @@ export function CameraCapture({
 
     return () => clearInterval(timer);
   }, [autoScanActive, streamActive, isProcessing, autoScanIntervalMs, captureFrame]);
+
+  useEffect(() => {
+    if (!autoScanActive || !streamActive || isProcessing || !faceDetected) return;
+    if (effectiveScanState !== "idle") return;
+    const initialTimer = setTimeout(() => {
+      if (faceDetectedRef.current) {
+        captureFrame();
+      }
+    }, 380);
+    return () => clearTimeout(initialTimer);
+  }, [autoScanActive, streamActive, isProcessing, faceDetected, effectiveScanState, captureFrame]);
 
   const bracketStroke =
     effectiveScanState === "matched"
@@ -503,7 +510,7 @@ export function CameraCapture({
   const isMatched = effectiveScanState === "matched";
   const isError = effectiveScanState === "error";
   const isAutoWatching = autoScanActive && streamActive && effectiveScanState === "idle";
-  const hasTrackedFace = faceDetected || Boolean(faceBbox);
+  const hasTrackedFace = streamActive ? faceDetected : Boolean(faceBbox);
   const spiderActive = hasTrackedFace && (isScanning || isAutoWatching || streamActive);
   const showWebMesh = hasTrackedFace && (spiderActive || isMatched || isError);
 
@@ -537,7 +544,7 @@ export function CameraCapture({
 
       const target = targetBoxRef.current ?? DEFAULT_FACE_BOX;
       const cur = renderBoxRef.current;
-      const lerp = prefersReducedMotion ? 1 : Math.min(1, dt * 6.5);
+      const lerp = prefersReducedMotion ? 1 : Math.min(1, dt * 11.5);
       cur.x += (target.x - cur.x) * lerp;
       cur.y += (target.y - cur.y) * lerp;
       cur.w += (target.w - cur.w) * lerp;

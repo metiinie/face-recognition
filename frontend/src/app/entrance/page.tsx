@@ -222,7 +222,7 @@ export default function ContinuousEntrancePage() {
       if (ctx && ctx.state === "suspended") {
         ctx.resume().then(() => {
           setIsAudioSuspended(false);
-        }).catch(() => {});
+        }).catch(() => { });
       } else if (ctx && ctx.state === "running") {
         setIsAudioSuspended(false);
       }
@@ -251,7 +251,7 @@ export default function ContinuousEntrancePage() {
         setIsAudioSuspended(true);
         ctx.resume().then(() => {
           setIsAudioSuspended(false);
-        }).catch(() => {});
+        }).catch(() => { });
         return;
       }
       setIsAudioSuspended(false);
@@ -311,9 +311,9 @@ export default function ContinuousEntrancePage() {
         isStreamingRef.current = true;
         setIsStreaming(true);
         videoRef.current.onloadedmetadata = () => {
-          videoRef.current?.play().catch(() => {});
+          videoRef.current?.play().catch(() => { });
         };
-        videoRef.current.play().catch(() => {});
+        videoRef.current.play().catch(() => { });
       }
     } catch (err: any) {
       if (err.message === "INSECURE_CONTEXT") {
@@ -337,7 +337,7 @@ export default function ContinuousEntrancePage() {
     if (videoRef.current && videoRef.current.srcObject) {
       const stream = videoRef.current.srcObject as MediaStream;
       stream.getTracks().forEach((track) => {
-        try { track.stop(); } catch {}
+        try { track.stop(); } catch { }
       });
       videoRef.current.srcObject = null;
     }
@@ -467,14 +467,14 @@ export default function ContinuousEntrancePage() {
           const nextCy = item.targetY + item.targetH * 0.5;
           const centerDist = Math.hypot(nextCx - prevCx, nextCy - prevCy);
           const sizeDelta = Math.abs(item.targetW - prev.w) + Math.abs(item.targetH - prev.h);
-          if (centerDist < 10 && sizeDelta < 12) {
+          if (centerDist < 2.5 && sizeDelta < 4) {
             smoothed = prev;
           } else {
             smoothed = {
-              x: prev.x + (item.targetX - prev.x) * 0.16,
-              y: prev.y + (item.targetY - prev.y) * 0.16,
-              w: prev.w + (item.targetW - prev.w) * 0.16,
-              h: prev.h + (item.targetH - prev.h) * 0.16,
+              x: prev.x + (item.targetX - prev.x) * 0.32,
+              y: prev.y + (item.targetY - prev.y) * 0.32,
+              w: prev.w + (item.targetW - prev.w) * 0.32,
+              h: prev.h + (item.targetH - prev.h) * 0.32,
             };
           }
         } else {
@@ -1232,33 +1232,30 @@ export default function ContinuousEntrancePage() {
               <button
                 type="button"
                 onClick={() => handleModeChange("IN")}
-                className={`rounded-md px-2.5 py-1 font-medium transition-colors ${
-                  gateMode === "IN"
+                className={`rounded-md px-2.5 py-1 font-medium transition-colors ${gateMode === "IN"
                     ? "bg-emerald-600 text-white shadow-sm"
                     : "text-slate-600 hover:text-slate-900"
-                }`}
+                  }`}
               >
                 Entry
               </button>
               <button
                 type="button"
                 onClick={() => handleModeChange("AUTO_DETECT")}
-                className={`rounded-md px-2.5 py-1 font-medium transition-colors ${
-                  gateMode === "AUTO_DETECT"
+                className={`rounded-md px-2.5 py-1 font-medium transition-colors ${gateMode === "AUTO_DETECT"
                     ? "bg-[#4F46E5] text-white shadow-sm"
                     : "text-slate-600 hover:text-slate-900"
-                }`}
+                  }`}
               >
                 Auto
               </button>
               <button
                 type="button"
                 onClick={() => handleModeChange("OUT")}
-                className={`rounded-md px-2.5 py-1 font-medium transition-colors ${
-                  gateMode === "OUT"
+                className={`rounded-md px-2.5 py-1 font-medium transition-colors ${gateMode === "OUT"
                     ? "bg-indigo-600 text-white shadow-sm"
                     : "text-slate-600 hover:text-slate-900"
-                }`}
+                  }`}
               >
                 Exit
               </button>
@@ -1269,7 +1266,7 @@ export default function ContinuousEntrancePage() {
                 type="button"
                 onClick={() => {
                   const ctx = getAudioContext();
-                  ctx?.resume().then(() => setIsAudioSuspended(false)).catch(() => {});
+                  ctx?.resume().then(() => setIsAudioSuspended(false)).catch(() => { });
                 }}
                 className="flex h-8 items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-2.5 text-xs font-medium text-amber-700 hover:bg-amber-100 transition-colors"
               >
@@ -1285,7 +1282,7 @@ export default function ContinuousEntrancePage() {
                 setSoundEnabled(next);
                 if (next) {
                   const ctx = getAudioContext();
-                  ctx?.resume().then(() => setIsAudioSuspended(false)).catch(() => {});
+                  ctx?.resume().then(() => setIsAudioSuspended(false)).catch(() => { });
                 }
               }}
               title={soundEnabled ? "Mute Gate Chime" : "Enable Gate Chime"}
@@ -1364,11 +1361,10 @@ export default function ContinuousEntrancePage() {
 
       {simMessage && (
         <div
-          className={`px-3.5 py-2.5 rounded-lg border text-xs flex items-center justify-between ${
-            simMessage.type === "success"
+          className={`px-3.5 py-2.5 rounded-lg border text-xs flex items-center justify-between ${simMessage.type === "success"
               ? "bg-emerald-50 text-emerald-800 border-emerald-200"
               : "bg-amber-50 text-amber-800 border-amber-200"
-          }`}
+            }`}
         >
           <div className="flex items-center gap-2">
             {simMessage.type === "success" ? (
@@ -1402,9 +1398,8 @@ export default function ContinuousEntrancePage() {
                 playsInline
                 muted
                 autoPlay
-                className={`w-full h-full object-cover transition-transform duration-150 ${
-                  isMirrored ? "-scale-x-100" : ""
-                } ${isStreaming ? "block" : "opacity-0 pointer-events-none absolute inset-0"}`}
+                className={`w-full h-full object-cover transition-transform duration-150 ${isMirrored ? "-scale-x-100" : ""
+                  } ${isStreaming ? "block" : "opacity-0 pointer-events-none absolute inset-0"}`}
               />
 
               <canvas
@@ -1527,11 +1522,10 @@ export default function ContinuousEntrancePage() {
                   {/* Top-Right Active Faces Pill */}
                   <div className="absolute top-3 right-3 z-20">
                     <span
-                      className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11px] font-medium backdrop-blur-sm border tabular-nums ${
-                        detectedFaces.length > 0
+                      className={`inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-[11px] font-medium backdrop-blur-sm border tabular-nums ${detectedFaces.length > 0
                           ? "bg-emerald-500/20 border-emerald-500/40 text-emerald-300"
                           : "bg-black/65 border-white/10 text-slate-300"
-                      }`}
+                        }`}
                     >
                       <Users className="h-3.5 w-3.5" />
                       <span>
@@ -1556,8 +1550,8 @@ export default function ContinuousEntrancePage() {
                       ? "MIRRORED"
                       : "DIRECT"
                     : detectedFaces.length > 0
-                    ? "CROWD SIM"
-                    : "STANDBY"}
+                      ? "CROWD SIM"
+                      : "STANDBY"}
                 </span>
               </div>
 
@@ -1750,10 +1744,10 @@ export default function ContinuousEntrancePage() {
                 state: hasConfirmed
                   ? "PASSED"
                   : detectedFaces.some((f) => f.action_status === "CONSENT_BLOCKED")
-                  ? "FAILED"
-                  : hasMatched
-                  ? "ACTIVE"
-                  : "IDLE",
+                    ? "FAILED"
+                    : hasMatched
+                      ? "ACTIVE"
+                      : "IDLE",
               },
               {
                 n: "05",
@@ -1778,10 +1772,10 @@ export default function ContinuousEntrancePage() {
                       gs.state === "PASSED"
                         ? "border-emerald-200 bg-emerald-50 text-emerald-800"
                         : gs.state === "FAILED"
-                        ? "border-rose-200 bg-rose-50 text-rose-700"
-                        : gs.state === "ACTIVE"
-                        ? "border-indigo-200 bg-[#EEF2FF] text-[#4338CA]"
-                        : "border-[#EAECEF] bg-[#FAFBFD] text-slate-400";
+                          ? "border-rose-200 bg-rose-50 text-rose-700"
+                          : gs.state === "ACTIVE"
+                            ? "border-indigo-200 bg-[#EEF2FF] text-[#4338CA]"
+                            : "border-[#EAECEF] bg-[#FAFBFD] text-slate-400";
                     return (
                       <div key={gs.n} className={`rounded-md border px-1 py-1.5 text-center ${cls}`}>
                         <div className="font-mono text-[10px] font-semibold">{gs.n}</div>
@@ -1923,11 +1917,10 @@ export default function ContinuousEntrancePage() {
                     <div className="text-right shrink-0 space-y-0.5">
                       <div className="flex items-center gap-1 justify-end">
                         <span
-                          className={`rounded px-1.5 py-0.5 text-[9.5px] font-medium ${
-                            p.event_type === "CHECK_IN"
+                          className={`rounded px-1.5 py-0.5 text-[9.5px] font-medium ${p.event_type === "CHECK_IN"
                               ? "bg-emerald-50 text-emerald-700 border border-emerald-200"
                               : "bg-[#EEF2FF] text-[#4338CA] border border-indigo-200"
-                          }`}
+                            }`}
                         >
                           {p.event_type === "CHECK_IN" ? "IN" : "OUT"}
                         </span>
@@ -2174,8 +2167,8 @@ export default function ContinuousEntrancePage() {
                 {isAdmin
                   ? "Save Tuning"
                   : adminPasswordInput.trim()
-                  ? "Authorize & Save"
-                  : "Password Required"}
+                    ? "Authorize & Save"
+                    : "Password Required"}
               </Button>
             </div>
           </div>
