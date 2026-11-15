@@ -61,13 +61,12 @@ export const FACE_MESH_EDGES: readonly [number, number][] = [
 ];
 
 /**
- * Smooth multi-frequency Lissajous path traversing all facial zones
- * (forehead, eyes, temples, nose, cheeks, mouth, chin) in normalized [0..1] coords.
+ * Compute continuous multi-harmonic Lissajous crawler coordinates in [0..1 x 0..1]
+ * normalized face space so the spider visits eyes, nose, cheeks, forehead, and jaw.
  */
 export function getNormalizedSpiderPos(phaseRad: number): { x: number; y: number } {
-  const envelope = 0.72 + 0.28 * Math.cos(phaseRad * 0.65);
-  const nx = 0.5 + Math.sin(phaseRad * 1.85) * 0.34 * envelope;
-  const ny = 0.51 + Math.sin(phaseRad * 1.12 + 0.55) * 0.38;
+  const nx = 0.5 + Math.sin(phaseRad * 1.15) * 0.25 + Math.cos(phaseRad * 2.45) * 0.1;
+  const ny = 0.5 + Math.cos(phaseRad * 0.9) * 0.28 + Math.sin(phaseRad * 1.95) * 0.1;
   return { x: nx, y: ny };
 }
 
@@ -91,7 +90,7 @@ export function getSpiderKneePoint(
   const mx = (sx + tx) * 0.5;
   const my = (sy + ty) * 0.5;
   const side = legIndex % 2 === 0 ? 1 : -1;
-  const bend = Math.min(maxBend, dist * 0.28) * side;
+  const bend = Math.min(maxBend, dist * 0.24) * side;
   return {
     kx: mx + (-dy / dist) * bend,
     ky: my + (dx / dist) * bend,

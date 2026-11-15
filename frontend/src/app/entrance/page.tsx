@@ -459,14 +459,27 @@ export default function ContinuousEntrancePage() {
       renderItems.forEach((item) => {
         activeKeys.add(item.key);
         const prev = smoothedBoxesRef.current[item.key];
-        const smoothed = prev
-          ? {
-              x: prev.x + (item.targetX - prev.x) * 0.28,
-              y: prev.y + (item.targetY - prev.y) * 0.28,
-              w: prev.w + (item.targetW - prev.w) * 0.28,
-              h: prev.h + (item.targetH - prev.h) * 0.28,
-            }
-          : { x: item.targetX, y: item.targetY, w: item.targetW, h: item.targetH };
+        let smoothed: { x: number; y: number; w: number; h: number };
+        if (prev) {
+          const prevCx = prev.x + prev.w * 0.5;
+          const prevCy = prev.y + prev.h * 0.5;
+          const nextCx = item.targetX + item.targetW * 0.5;
+          const nextCy = item.targetY + item.targetH * 0.5;
+          const centerDist = Math.hypot(nextCx - prevCx, nextCy - prevCy);
+          const sizeDelta = Math.abs(item.targetW - prev.w) + Math.abs(item.targetH - prev.h);
+          if (centerDist < 10 && sizeDelta < 12) {
+            smoothed = prev;
+          } else {
+            smoothed = {
+              x: prev.x + (item.targetX - prev.x) * 0.16,
+              y: prev.y + (item.targetY - prev.y) * 0.16,
+              w: prev.w + (item.targetW - prev.w) * 0.16,
+              h: prev.h + (item.targetH - prev.h) * 0.16,
+            };
+          }
+        } else {
+          smoothed = { x: item.targetX, y: item.targetY, w: item.targetW, h: item.targetH };
+        }
         nextSmoothed[item.key] = smoothed;
 
         const drawX = Math.round(smoothed.x);
@@ -558,9 +571,9 @@ export default function ContinuousEntrancePage() {
         ctx.fillStyle = fillColor;
         ctx.fillRect(drawX, y, w, h);
 
-        // Sharp L-shaped corner markers
-        const cornerLen = Math.min(18, Math.max(10, Math.round(w * 0.16)));
-        ctx.lineWidth = 2.5;
+        // Sharp bold L-shaped corner markers
+        const cornerLen = Math.min(20, Math.max(12, Math.round(w * 0.17)));
+        ctx.lineWidth = 3.2;
         ctx.strokeStyle = strokeColor;
         ctx.beginPath();
         ctx.moveTo(drawX, y + cornerLen);
@@ -599,7 +612,7 @@ export default function ContinuousEntrancePage() {
 
         if (isActiveTrack || isConfirmedLock) {
           const trackSeed = face ? face.track_id * 1.35 : 0.4;
-          const phase = performance.now() * 0.0028 + trackSeed;
+          const phase = performance.now() * 0.0022 + trackSeed;
           const normPos = getNormalizedSpiderPos(phase);
           const sx = drawX + normPos.x * w;
           const sy = y + normPos.y * h;
@@ -609,30 +622,30 @@ export default function ContinuousEntrancePage() {
             ny: y + pt.y * h,
           }));
 
-          // Horizontal optical scanline sweep across active tracked face
+          // Calm bidirectional optical scanline sweep across active tracked face
           if (isActiveTrack) {
-            const sweepProgress = (phase * 0.42) % 1;
-            const sweepY = y + sweepProgress * h;
+            const sweepProgress = 0.5 - 0.5 * Math.cos(phase * 0.8);
+            const sweepY = y + 3 + sweepProgress * Math.max(8, h - 6);
             const grad = ctx.createLinearGradient(drawX, Math.max(y, sweepY - 14), drawX, sweepY);
             grad.addColorStop(0, "rgba(129, 140, 248, 0)");
             grad.addColorStop(
               1,
-              actionStatus === "UNKNOWN_VISITOR" ? "rgba(244, 63, 94, 0.25)" : "rgba(129, 140, 248, 0.28)"
+              actionStatus === "UNKNOWN_VISITOR" ? "rgba(244, 63, 94, 0.25)" : "rgba(129, 140, 248, 0.30)"
             );
             ctx.fillStyle = grad;
-            ctx.fillRect(drawX + 2, Math.max(y + 2, sweepY - 14), Math.max(0, w - 4), Math.min(14, sweepY - y));
+            ctx.fillRect(drawX + 3, Math.max(y + 2, sweepY - 14), Math.max(0, w - 6), Math.min(14, sweepY - y));
 
             ctx.strokeStyle = actionStatus === "UNKNOWN_VISITOR" ? "#FDA4AF" : "#E0E7FF";
-            ctx.lineWidth = 1.15;
-            ctx.globalAlpha = 0.85;
+            ctx.lineWidth = 1.6;
+            ctx.globalAlpha = 0.9;
             ctx.beginPath();
-            ctx.moveTo(drawX + 2, sweepY);
-            ctx.lineTo(drawX + w - 2, sweepY);
+            ctx.moveTo(drawX + 3, sweepY);
+            ctx.lineTo(drawX + w - 3, sweepY);
             ctx.stroke();
           }
 
           // Interconnected 26-node web edges across the face
-          ctx.lineWidth = 0.8;
+          ctx.lineWidth = 1.05;
           for (let i = 0; i < FACE_MESH_EDGES.length; i++) {
             const [aIdx, bIdx] = FACE_MESH_EDGES[i];
             const a = meshNodes[aIdx];
@@ -640,10 +653,10 @@ export default function ContinuousEntrancePage() {
             const mx = (a.nx + b.nx) * 0.5;
             const my = (a.ny + b.ny) * 0.5;
             const prox = isActiveTrack
-              ? Math.max(0, 1 - Math.hypot(mx - sx, my - sy) / Math.max(42, w * 0.62))
-              : 0.42;
+              ? Math.max(0, 1 - Math.hypot(mx - sx, my - sy) / Math.max(46, w * 0.65))
+              : 0.45;
             ctx.strokeStyle = isActiveTrack ? strokeColor : "#10B981";
-            ctx.globalAlpha = isActiveTrack ? 0.16 + prox * 0.6 : 0.34;
+            ctx.globalAlpha = isActiveTrack ? 0.22 + prox * 0.52 : 0.4;
             ctx.beginPath();
             ctx.moveTo(a.nx, a.ny);
             ctx.lineTo(b.nx, b.ny);
@@ -654,12 +667,12 @@ export default function ContinuousEntrancePage() {
           for (let i = 0; i < meshNodes.length; i++) {
             const pt = meshNodes[i];
             const prox = isActiveTrack
-              ? Math.max(0, 1 - Math.hypot(pt.nx - sx, pt.ny - sy) / Math.max(42, w * 0.62))
+              ? Math.max(0, 1 - Math.hypot(pt.nx - sx, pt.ny - sy) / Math.max(46, w * 0.65))
               : 0.5;
             ctx.fillStyle = isConfirmedLock ? "#34D399" : "#FFFFFF";
-            ctx.globalAlpha = isActiveTrack ? 0.3 + prox * 0.7 : 0.78;
+            ctx.globalAlpha = isActiveTrack ? 0.44 + prox * 0.52 : 0.85;
             ctx.beginPath();
-            ctx.arc(pt.nx, pt.ny, 1.35 + prox * 1.25, 0, Math.PI * 2);
+            ctx.arc(pt.nx, pt.ny, 1.8 + prox * 1.1, 0, Math.PI * 2);
             ctx.fill();
           }
 
@@ -670,11 +683,11 @@ export default function ContinuousEntrancePage() {
               .sort((a, b) => a.d - b.d);
 
             ctx.strokeStyle = actionStatus === "UNKNOWN_VISITOR" ? "#FECDD3" : "#E0E7FF";
-            ctx.lineWidth = 1.05;
+            ctx.lineWidth = 1.3;
             for (let leg = 0; leg < 8; leg++) {
               const target = meshNodes[sorted[leg].idx];
-              const { kx, ky } = getSpiderKneePoint(sx, sy, target.nx, target.ny, leg, Math.max(6, w * 0.085));
-              ctx.globalAlpha = Math.max(0.28, 0.9 - sorted[leg].d / Math.max(52, w * 0.85));
+              const { kx, ky } = getSpiderKneePoint(sx, sy, target.nx, target.ny, leg, Math.max(5, w * 0.06));
+              ctx.globalAlpha = Math.max(0.36, 0.92 - sorted[leg].d / Math.max(56, w * 0.85));
               ctx.beginPath();
               ctx.moveTo(sx, sy);
               ctx.lineTo(kx, ky);
@@ -682,10 +695,10 @@ export default function ContinuousEntrancePage() {
               ctx.stroke();
             }
 
-            const haloR = 5.5 + Math.sin(phase * 5) * 1.1;
-            ctx.globalAlpha = 0.75;
+            const haloR = 5.4 + Math.sin(phase * 2.0) * 0.5;
+            ctx.globalAlpha = 0.82;
             ctx.strokeStyle = strokeColor;
-            ctx.lineWidth = 1.1;
+            ctx.lineWidth = 1.5;
             ctx.beginPath();
             ctx.arc(sx, sy, haloR, 0, Math.PI * 2);
             ctx.stroke();
@@ -693,7 +706,7 @@ export default function ContinuousEntrancePage() {
             ctx.globalAlpha = 0.98;
             ctx.fillStyle = "#FFFFFF";
             ctx.beginPath();
-            ctx.arc(sx, sy, 2.3, 0, Math.PI * 2);
+            ctx.arc(sx, sy, 2.5, 0, Math.PI * 2);
             ctx.fill();
           }
           ctx.globalAlpha = 1;
@@ -727,21 +740,24 @@ export default function ContinuousEntrancePage() {
           }
         }
 
-        const tagWidth = Math.max(178, w);
+        const tagWidth = Math.max(186, w);
         const tagX = Math.max(0, Math.min(canvas.width - tagWidth, drawX));
-        const tagY = y >= 34 ? y - 30 : Math.min(canvas.height - 30, y + h + 4);
-        ctx.fillStyle = "rgba(11, 15, 23, 0.90)";
-        ctx.fillRect(tagX, tagY, tagWidth, 28);
+        const tagY = y >= 36 ? y - 32 : Math.min(canvas.height - 32, y + h + 4);
+        ctx.fillStyle = "rgba(11, 15, 23, 0.94)";
+        ctx.fillRect(tagX, tagY, tagWidth, 30);
+        ctx.strokeStyle = strokeColor;
+        ctx.lineWidth = 1.2;
+        ctx.strokeRect(tagX, tagY, tagWidth, 30);
         ctx.fillStyle = strokeColor;
-        ctx.fillRect(tagX, tagY, 3, 28);
+        ctx.fillRect(tagX, tagY, 4, 30);
 
-        ctx.fillStyle = "#f8fafc";
-        ctx.font = "600 11px Inter, sans-serif";
-        ctx.fillText(name, tagX + 8, tagY + 13);
+        ctx.fillStyle = "#ffffff";
+        ctx.font = "700 11.5px Inter, sans-serif";
+        ctx.fillText(name, tagX + 9, tagY + 13.5);
 
-        ctx.fillStyle = "#94a3b8";
-        ctx.font = "500 9px monospace";
-        ctx.fillText(sub, tagX + 8, tagY + 24);
+        ctx.fillStyle = "#cbd5e1";
+        ctx.font = "600 9px monospace";
+        ctx.fillText(sub, tagX + 9, tagY + 25.5);
 
         if (face && actionStatus === "CONFIRMED" && face.attendance_action) {
           ctx.fillStyle = face.attendance_action === "CHECK_IN" ? "rgba(5, 150, 105, 0.92)" : "rgba(79, 70, 229, 0.92)";

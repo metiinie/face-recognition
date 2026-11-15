@@ -248,6 +248,30 @@ export function CameraCapture({
     };
   }, [startCamera, stopCamera]);
 
+  const updateTargetBoxWithDeadband = useCallback((next: FaceRect) => {
+    const prev = targetBoxRef.current;
+    if (!prev) {
+      targetBoxRef.current = next;
+      renderBoxRef.current = { ...next };
+      return;
+    }
+    const prevCx = prev.x + prev.w * 0.5;
+    const prevCy = prev.y + prev.h * 0.5;
+    const nextCx = next.x + next.w * 0.5;
+    const nextCy = next.y + next.h * 0.5;
+    const centerDist = Math.hypot(nextCx - prevCx, nextCy - prevCy);
+    const sizeDelta = Math.abs(next.w - prev.w) + Math.abs(next.h - prev.h);
+    if (centerDist < 11 && sizeDelta < 14) {
+      return;
+    }
+    targetBoxRef.current = {
+      x: prev.x * 0.6 + next.x * 0.4,
+      y: prev.y * 0.6 + next.y * 0.4,
+      w: prev.w * 0.6 + next.w * 0.4,
+      h: prev.h * 0.6 + next.h * 0.4,
+    };
+  }, []);
+
   useEffect(() => {
     if (!faceBbox) return;
     const video = videoRef.current;
@@ -257,23 +281,19 @@ export function CameraCapture({
       video?.videoWidth || 640,
       video?.videoHeight || 480
     );
-    const hadTarget = targetBoxRef.current !== null;
     const rect = { x: mapped.x, y: mapped.y, w: mapped.w, h: mapped.h };
-    targetBoxRef.current = rect;
+    updateTargetBoxWithDeadband(rect);
     neuralAnchorRef.current = {
       box: rect,
       clientCenterX: null,
       clientCenterY: null,
       ts: performance.now(),
     };
-    if (!hadTarget) {
-      renderBoxRef.current = { ...rect };
-    }
     missedFramesRef.current = 0;
     neuralMissRef.current = 0;
     faceDetectedRef.current = true;
     setFaceDetected(true);
-  }, [faceBbox, mirrored]);
+  }, [faceBbox, mirrored, updateTargetBoxWithDeadband]);
 
   // Background ~350ms UltraFace ONNX detector for exact tight head bounding box regardless of background/skin tone
   useEffect(() => {
@@ -330,11 +350,7 @@ export function CameraCapture({
             clientCenterY: null,
             ts: performance.now(),
           };
-          const hadTarget = targetBoxRef.current !== null;
-          targetBoxRef.current = rect;
-          if (!hadTarget) {
-            renderBoxRef.current = { ...rect };
-          }
+          updateTargetBoxWithDeadband(rect);
           neuralMissRef.current = 0;
           missedFramesRef.current = 0;
           if (!faceDetectedRef.current) {
@@ -363,7 +379,7 @@ export function CameraCapture({
       cancelled = true;
       clearInterval(timer);
     };
-  }, [streamActive, mirrored]);
+  }, [streamActive, mirrored, updateTargetBoxWithDeadband]);
 
   useEffect(() => {
     if (!streamActive) {
@@ -395,32 +411,28 @@ export function CameraCapture({
           const detCenterY = detected.y + detected.h * 0.5;
 
           if (anchorFresh && anchor) {
-            // Keep UltraFace tight dimensions and track immediate local head delta smoothly
+            // Keep UltraFace tight dimensions and apply deadband-gated delta tracking
             if (anchor.clientCenterX === null || anchor.clientCenterY === null) {
               anchor.clientCenterX = detCenterX;
               anchor.clientCenterY = detCenterY;
-              targetBoxRef.current = { ...anchor.box };
+              updateTargetBoxWithDeadband({ ...anchor.box });
             } else {
               const dx = Math.max(-24, Math.min(24, detCenterX - anchor.clientCenterX));
               const dy = Math.max(-18, Math.min(18, detCenterY - anchor.clientCenterY));
-              targetBoxRef.current = {
+              updateTargetBoxWithDeadband({
                 x: Math.max(8, Math.min(640 - anchor.box.w - 8, anchor.box.x + dx)),
                 y: Math.max(8, Math.min(480 - anchor.box.h - 8, anchor.box.y + dy)),
                 w: anchor.box.w,
                 h: anchor.box.h,
-              };
+              });
             }
           } else {
-            const hadTarget = targetBoxRef.current !== null;
-            targetBoxRef.current = {
+            updateTargetBoxWithDeadband({
               x: detected.x,
               y: detected.y,
               w: detected.w,
               h: detected.h,
-            };
-            if (!hadTarget) {
-              renderBoxRef.current = { ...targetBoxRef.current };
-            }
+            });
           }
 
           missedFramesRef.current = 0;
@@ -431,7 +443,7 @@ export function CameraCapture({
         } else {
           if (anchorFresh && anchor) {
             // Neural detector still sees the face cleanly even if heuristic missed
-            targetBoxRef.current = { ...anchor.box };
+            updateTargetBoxWithDeadband({ ...anchor.box });
             missedFramesRef.current = 0;
             return;
           }
@@ -456,7 +468,7 @@ export function CameraCapture({
       cancelled = true;
       clearInterval(timer);
     };
-  }, [streamActive, mirrored, effectiveScanState]);
+  }, [streamActive, mirrored, effectiveScanState, updateTargetBoxWithDeadband]);
 
   useEffect(() => {
     if (!autoScanActive || !streamActive || isProcessing) return;
@@ -525,7 +537,7 @@ export function CameraCapture({
 
       const target = targetBoxRef.current ?? DEFAULT_FACE_BOX;
       const cur = renderBoxRef.current;
-      const lerp = prefersReducedMotion ? 1 : Math.min(1, dt * 15);
+      const lerp = prefersReducedMotion ? 1 : Math.min(1, dt * 6.5);
       cur.x += (target.x - cur.x) * lerp;
       cur.y += (target.y - cur.y) * lerp;
       cur.w += (target.w - cur.w) * lerp;
@@ -535,7 +547,7 @@ export function CameraCapture({
       const by = cur.y;
       const bw = cur.w;
       const bh = cur.h;
-      const scale = Math.max(0.65, Math.min(1.1, bw / 145));
+      const scale = Math.max(0.75, Math.min(1.15, bw / 140));
 
       // Tight L-brackets hugging only the detected face contour
       const pad = isScanning ? 2 : 4;
@@ -543,7 +555,7 @@ export function CameraCapture({
       const top = Math.max(8, by - pad);
       const right = Math.min(632, bx + bw + pad);
       const bottom = Math.min(472, by + bh + pad);
-      const arm = Math.max(12, Math.min(20, (right - left) * 0.14));
+      const arm = Math.max(15, Math.min(24, (right - left) * 0.16));
 
       bracketTLRef.current?.setAttribute(
         "d",
@@ -565,42 +577,42 @@ export function CameraCapture({
       const midX = (left + right) * 0.5;
       const midY = (top + bottom) * 0.5;
       if (tickTopRef.current) {
-        tickTopRef.current.setAttribute("x1", (midX - 5).toFixed(1));
-        tickTopRef.current.setAttribute("x2", (midX + 5).toFixed(1));
+        tickTopRef.current.setAttribute("x1", (midX - 6).toFixed(1));
+        tickTopRef.current.setAttribute("x2", (midX + 6).toFixed(1));
         tickTopRef.current.setAttribute("y1", top.toFixed(1));
         tickTopRef.current.setAttribute("y2", top.toFixed(1));
       }
       if (tickBottomRef.current) {
-        tickBottomRef.current.setAttribute("x1", (midX - 5).toFixed(1));
-        tickBottomRef.current.setAttribute("x2", (midX + 5).toFixed(1));
+        tickBottomRef.current.setAttribute("x1", (midX - 6).toFixed(1));
+        tickBottomRef.current.setAttribute("x2", (midX + 6).toFixed(1));
         tickBottomRef.current.setAttribute("y1", bottom.toFixed(1));
         tickBottomRef.current.setAttribute("y2", bottom.toFixed(1));
       }
       if (tickLeftRef.current) {
         tickLeftRef.current.setAttribute("x1", left.toFixed(1));
         tickLeftRef.current.setAttribute("x2", left.toFixed(1));
-        tickLeftRef.current.setAttribute("y1", (midY - 5).toFixed(1));
-        tickLeftRef.current.setAttribute("y2", (midY + 5).toFixed(1));
+        tickLeftRef.current.setAttribute("y1", (midY - 6).toFixed(1));
+        tickLeftRef.current.setAttribute("y2", (midY + 6).toFixed(1));
       }
       if (tickRightRef.current) {
         tickRightRef.current.setAttribute("x1", right.toFixed(1));
         tickRightRef.current.setAttribute("x2", right.toFixed(1));
-        tickRightRef.current.setAttribute("y1", (midY - 5).toFixed(1));
-        tickRightRef.current.setAttribute("y2", (midY + 5).toFixed(1));
+        tickRightRef.current.setAttribute("y1", (midY - 6).toFixed(1));
+        tickRightRef.current.setAttribute("y2", (midY + 6).toFixed(1));
       }
 
-      // Compact floating process pill neatly anchored above forehead (never overlapping top/bottom viewport pills)
-      const pillW = Math.min(188, Math.max(114, stageTitleText.length * 5.6 + 26));
-      const pillH = 20;
+      // Bold floating process pill neatly anchored above forehead (never overlapping top/bottom viewport pills)
+      const pillW = Math.min(212, Math.max(126, stageTitleText.length * 6.5 + 32));
+      const pillH = 24;
       if (faceHudRectRef.current) {
         faceHudRectRef.current.setAttribute("width", pillW.toFixed(1));
       }
       if (faceHudGroupRef.current) {
         const hudX = Math.max(10, Math.min(640 - pillW - 10, bx + bw * 0.5 - pillW * 0.5));
         const hudY =
-          top >= 68
-            ? top - pillH - 6
-            : Math.min(416 - pillH, bottom + 6);
+          top >= 72
+            ? top - pillH - 7
+            : Math.min(416 - pillH, bottom + 7);
         faceHudGroupRef.current.setAttribute(
           "transform",
           `translate(${hudX.toFixed(1)}, ${hudY.toFixed(1)})`
@@ -610,14 +622,14 @@ export function CameraCapture({
         faceHudTitleRef.current.textContent = stageTitleText;
       }
 
-      // Inset optical scanline sweep cleanly confined within the face width
+      // Calm bidirectional optical scanline sweep cleanly confined within the face width
       if (scanBeamRef.current && scanLineRef.current) {
-        const sweepFreq = isScanning ? 0.9 : 0.48;
-        const sweepT = ((now / 1000) * sweepFreq) % 1;
+        const sweepRad = (now / 1000) * (isScanning ? 1.85 : 1.1);
+        const sweepT = prefersReducedMotion ? 0.5 : 0.5 - 0.5 * Math.cos(sweepRad);
         const insetX = bx + bw * 0.08;
         const insetW = Math.max(24, bw * 0.84);
         const beamY = by + 4 + sweepT * Math.max(16, bh - 8);
-        const beamH = Math.min(18, bh * 0.12);
+        const beamH = Math.min(22, bh * 0.14);
         scanBeamRef.current.setAttribute("x", insetX.toFixed(1));
         scanBeamRef.current.setAttribute("y", Math.max(by + 2, beamY - beamH).toFixed(1));
         scanBeamRef.current.setAttribute("width", insetW.toFixed(1));
@@ -628,7 +640,7 @@ export function CameraCapture({
         scanLineRef.current.setAttribute("y2", beamY.toFixed(1));
       }
 
-      // Advance spider phase and project 26 landmarks tightly across the detected face
+      // Advance dynamic spider phase and project 26 bold landmarks tightly across the detected face
       const phaseSpeed = prefersReducedMotion ? 0 : isScanning ? 3.2 : 1.55;
       crawlerPhaseRef.current += dt * phaseSpeed;
       const phase = crawlerPhaseRef.current;
@@ -642,7 +654,7 @@ export function CameraCapture({
       if (spiderRingRef.current) {
         spiderRingRef.current.setAttribute("cx", sx.toFixed(1));
         spiderRingRef.current.setAttribute("cy", sy.toFixed(1));
-        const ringR = (isScanning ? 5.2 : 4.2) * scale + Math.sin(phase * 5) * 0.8;
+        const ringR = (isScanning ? 5.8 : 4.8) * scale + Math.sin(phase * 5) * 0.8;
         spiderRingRef.current.setAttribute("r", ringR.toFixed(1));
       }
 
@@ -664,17 +676,17 @@ export function CameraCapture({
         if (circleEl) {
           circleEl.setAttribute("cx", cx.toFixed(1));
           circleEl.setAttribute("cy", cy.toFixed(1));
-          const baseR = (anchor ? 1.85 : 1.3) * scale;
-          circleEl.setAttribute("r", (baseR + prox * (isScanning ? 1.25 : 0.8) * scale).toFixed(2));
+          const baseR = (anchor ? 2.4 : 1.75) * scale;
+          circleEl.setAttribute("r", (baseR + prox * (isScanning ? 1.35 : 0.85) * scale).toFixed(2));
           circleEl.setAttribute(
             "fill-opacity",
-            ((isScanning ? 0.34 : 0.24) + prox * (isScanning ? 0.62 : 0.55)).toFixed(2)
+            ((isScanning ? 0.54 : 0.44) + prox * (isScanning ? 0.41 : 0.36)).toFixed(2)
           );
         }
       }
 
       distances.sort((a, b) => a.d - b.d);
-      const legReachMax = Math.max(68, bw * 0.68);
+      const legReachMax = Math.max(72, bw * 0.72);
       const maxKneeBend = Math.min(8, bw * 0.055);
       for (let legIdx = 0; legIdx < SPIDER_LEG_COUNT; legIdx++) {
         const pathEl = legPathRefs.current[legIdx];
@@ -687,8 +699,8 @@ export function CameraCapture({
           `M ${sx.toFixed(1)} ${sy.toFixed(1)} L ${kx.toFixed(1)} ${ky.toFixed(1)} L ${pt.cx.toFixed(1)} ${pt.cy.toFixed(1)}`
         );
         const legOpacity = Math.max(
-          0.22,
-          (1 - targetNode.d / legReachMax) * (isScanning ? 0.88 : 0.65)
+          0.38,
+          (1 - targetNode.d / legReachMax) * (isScanning ? 0.92 : 0.75)
         );
         pathEl.setAttribute("stroke-opacity", legOpacity.toFixed(2));
       }
@@ -707,10 +719,10 @@ export function CameraCapture({
         const my = (a.cy + b.cy) * 0.5;
         const midDist = Math.hypot(mx - sx, my - sy);
         const edgeProx = Math.max(0, 1 - midDist / proxRadius);
-        const baseOpacity = isScanning ? 0.14 : 0.09;
-        const edgeOpacity = baseOpacity + edgeProx * (isScanning ? 0.5 : 0.35);
+        const baseOpacity = isScanning ? 0.22 : 0.16;
+        const edgeOpacity = baseOpacity + edgeProx * (isScanning ? 0.52 : 0.38);
         edgeEl.setAttribute("stroke-opacity", edgeOpacity.toFixed(2));
-        edgeEl.setAttribute("stroke-width", (0.55 + edgeProx * 0.65).toFixed(2));
+        edgeEl.setAttribute("stroke-width", (0.85 + edgeProx * 0.75).toFixed(2));
       }
     };
 
@@ -796,71 +808,71 @@ export function CameraCapture({
                       y1={DEFAULT_FACE_BOX.y}
                       y2={DEFAULT_FACE_BOX.y}
                       stroke={isScanning ? "#A5B4FC" : "#E2E8F0"}
-                      strokeWidth={isScanning ? "1.35" : "0.95"}
-                      strokeOpacity="0.85"
+                      strokeWidth={isScanning ? "2.0" : "1.4"}
+                      strokeOpacity="0.92"
                     />
                   </g>
                 )}
 
-                {/* 4 Tight L-Shaped Brackets hugging only the user's face */}
+                {/* 4 Bold L-Shaped Brackets hugging only the user's face */}
                 <g>
                   <path
                     ref={bracketTLRef}
                     d="M 248 172 L 248 152 L 268 152"
                     stroke={bracketStroke}
-                    strokeWidth={isScanning ? "2.1" : "1.8"}
+                    strokeWidth={isScanning ? "3.2" : "2.8"}
                     strokeLinecap="square"
                   />
                   <path
                     ref={bracketTRRef}
                     d="M 372 152 L 392 152 L 392 172"
                     stroke={bracketStroke}
-                    strokeWidth={isScanning ? "2.1" : "1.8"}
+                    strokeWidth={isScanning ? "3.2" : "2.8"}
                     strokeLinecap="square"
                   />
                   <path
                     ref={bracketBLRef}
                     d="M 248 308 L 248 328 L 268 328"
                     stroke={bracketStroke}
-                    strokeWidth={isScanning ? "2.1" : "1.8"}
+                    strokeWidth={isScanning ? "3.2" : "2.8"}
                     strokeLinecap="square"
                   />
                   <path
                     ref={bracketBRRef}
                     d="M 372 328 L 392 328 L 392 308"
                     stroke={bracketStroke}
-                    strokeWidth={isScanning ? "2.1" : "1.8"}
+                    strokeWidth={isScanning ? "3.2" : "2.8"}
                     strokeLinecap="square"
                   />
 
                   {isScanning && (
-                    <g stroke="#A5B4FC" strokeWidth="1.2" strokeOpacity="0.6">
-                      <line ref={tickTopRef} x1="315" y1="152" x2="325" y2="152" />
-                      <line ref={tickBottomRef} x1="315" y1="328" x2="325" y2="328" />
-                      <line ref={tickLeftRef} x1="248" y1="235" x2="248" y2="245" />
-                      <line ref={tickRightRef} x1="392" y1="235" x2="392" y2="245" />
+                    <g stroke="#A5B4FC" strokeWidth="2.0" strokeOpacity="0.85">
+                      <line ref={tickTopRef} x1="314" y1="152" x2="326" y2="152" />
+                      <line ref={tickBottomRef} x1="314" y1="328" x2="326" y2="328" />
+                      <line ref={tickLeftRef} x1="248" y1="234" x2="248" y2="246" />
+                      <line ref={tickRightRef} x1="392" y1="234" x2="392" y2="246" />
                     </g>
                   )}
                 </g>
 
-                {/* Compact Floating Single-Line Process Pill above forehead */}
-                <g ref={faceHudGroupRef} transform="translate(244, 126)">
+                {/* Bold Floating Single-Line Process Pill above forehead */}
+                <g ref={faceHudGroupRef} transform="translate(238, 122)">
                   <rect
                     ref={faceHudRectRef}
                     x="0"
                     y="0"
-                    width="152"
-                    height="20"
-                    rx="10"
-                    fill="rgba(7, 10, 15, 0.80)"
+                    width="164"
+                    height="24"
+                    rx="7"
+                    fill="rgba(7, 10, 15, 0.92)"
                     stroke={bracketStroke}
-                    strokeOpacity="0.45"
-                    strokeWidth="0.9"
+                    strokeOpacity="0.85"
+                    strokeWidth="1.5"
                   />
                   <circle
-                    cx="11"
-                    cy="10"
-                    r="2.6"
+                    cx="12"
+                    cy="12"
+                    r="3.4"
                     fill={
                       isMatched
                         ? "#10B981"
@@ -873,19 +885,19 @@ export function CameraCapture({
                   />
                   <text
                     ref={faceHudTitleRef}
-                    x="19"
-                    y="13"
-                    fill="#F8FAFC"
-                    fontSize="8.5"
-                    fontWeight="600"
-                    letterSpacing="0.03em"
+                    x="21"
+                    y="15.5"
+                    fill="#FFFFFF"
+                    fontSize="10"
+                    fontWeight="800"
+                    letterSpacing="0.04em"
                     fontFamily="ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace"
                   >
                     {stageTitleText}
                   </text>
                 </g>
 
-                {/* Fine Geodesic Spider-Web Mesh & Crawling 8-Leg Scanner */}
+                {/* Bold Crisp Geodesic Spider-Web Mesh & Crawling 8-Leg Scanner */}
                 {showWebMesh && (
                   <g>
                     {FACE_MESH_EDGES.map(([aIdx, bIdx], eIdx) => {
@@ -902,8 +914,8 @@ export function CameraCapture({
                           x2={DEFAULT_FACE_BOX.x + b.x * DEFAULT_FACE_BOX.w}
                           y2={DEFAULT_FACE_BOX.y + b.y * DEFAULT_FACE_BOX.h}
                           stroke={isScanning ? "#A5B4FC" : landmarkColor}
-                          strokeWidth="0.65"
-                          strokeOpacity={isMatched ? "0.42" : isError ? "0.22" : "0.14"}
+                          strokeWidth="0.95"
+                          strokeOpacity={isMatched ? "0.52" : isError ? "0.28" : "0.22"}
                         />
                       );
                     })}
@@ -917,10 +929,10 @@ export function CameraCapture({
                           }}
                           d="M 320 240 L 320 240"
                           stroke={isScanning ? "#E0E7FF" : "#CBD5E1"}
-                          strokeWidth={isScanning ? "0.95" : "0.8"}
+                          strokeWidth={isScanning ? "1.35" : "1.15"}
                           strokeLinecap="round"
                           strokeLinejoin="round"
-                          strokeOpacity="0.65"
+                          strokeOpacity="0.78"
                           fill="none"
                         />
                       ))}
@@ -933,9 +945,9 @@ export function CameraCapture({
                         }}
                         cx={DEFAULT_FACE_BOX.x + pt.x * DEFAULT_FACE_BOX.w}
                         cy={DEFAULT_FACE_BOX.y + pt.y * DEFAULT_FACE_BOX.h}
-                        r={pt.anchor ? 1.85 : 1.3}
+                        r={pt.anchor ? 2.4 : 1.75}
                         fill={landmarkColor}
-                        fillOpacity={isMatched ? 0.9 : isError ? 0.45 : 0.6}
+                        fillOpacity={isMatched ? 0.95 : isError ? 0.52 : 0.72}
                       />
                     ))}
 
@@ -945,17 +957,17 @@ export function CameraCapture({
                           ref={spiderRingRef}
                           cx="320"
                           cy="240"
-                          r="4.6"
+                          r="5.4"
                           stroke={isScanning ? "#818CF8" : "#E2E8F0"}
-                          strokeWidth="1.0"
-                          strokeOpacity={isScanning ? "0.85" : "0.6"}
-                          fill={isScanning ? "rgba(129, 140, 248, 0.14)" : "rgba(255, 255, 255, 0.08)"}
+                          strokeWidth="1.5"
+                          strokeOpacity={isScanning ? "0.9" : "0.7"}
+                          fill={isScanning ? "rgba(129, 140, 248, 0.18)" : "rgba(255, 255, 255, 0.1)"}
                         />
                         <circle
                           ref={spiderCoreRef}
                           cx="320"
                           cy="240"
-                          r={isScanning ? "2.1" : "1.8"}
+                          r={isScanning ? "2.8" : "2.4"}
                           fill="#FFFFFF"
                         />
                       </g>
