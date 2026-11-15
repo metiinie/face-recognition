@@ -474,8 +474,27 @@ export default function KioskPage() {
             onCapture={handleCapture}
             isProcessing={isProcessing}
             autoScanIntervalMs={1600}
-            guideText="Position face inside the corner viewfinder"
+            guideText="Position your face anywhere in frame for live tracking"
             captureButtonText="Manual Shot"
+            faceBbox={recognition?.face_bbox || null}
+            processStageLabel={
+              isProcessing
+                ? "STAGE 3/5 · LIVENESS & EMBEDDING MATCH"
+                : recognition?.matched && recognition.employee
+                ? `VERIFIED · ${recognition.employee.first_name.toUpperCase()} ${recognition.employee.last_name.toUpperCase()}`
+                : feedbackError
+                ? "PROCESS HALTED · CHECK QUALITY / POSITION"
+                : null
+            }
+            processStageSubtext={
+              isProcessing
+                ? "Analyzing 128-D face geometry & anti-spoof..."
+                : recognition?.matched && recognition.employee
+                ? `${recognition.employee.employee_number} · Match ${Math.round((recognition.match_score ?? 0) * 100)}%`
+                : feedbackError
+                ? feedbackError.slice(0, 46)
+                : null
+            }
             scanState={
               isProcessing
                 ? "scanning"

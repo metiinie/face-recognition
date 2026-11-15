@@ -97,6 +97,7 @@ export default function EmployeesPage() {
     quality_score: number;
     scan_sequence: ScanSequenceStep[];
     latency_ms?: number;
+    face_bbox?: { x: number; y: number; w: number; h: number } | null;
   } | null>(null);
   const [wizardBusy, setWizardBusy] = useState(false);
   const [wizardError, setWizardError] = useState<string | null>(null);
@@ -308,7 +309,10 @@ export default function EmployeesPage() {
     setWizardError(null);
     setWizardNotice(null);
     try {
-      const res = await api.enrollFace(wizardEmployee.id, wizardCaptureB64, { consent_verified: true });
+      const res = await api.enrollFace({
+        employee_id: wizardEmployee.id,
+        image_base64: wizardCaptureB64,
+      });
       await refreshWizardEmployee(wizardEmployee.id);
       setWizardNotice(res.message || "Step 3 complete: AES-encrypted biometric template stored.");
       setWizardStep(4);
@@ -1156,8 +1160,15 @@ export default function EmployeesPage() {
               <CameraCapture
                 onCapture={handleCaptureForEnrollment}
                 isProcessing={isSubmittingEnroll}
-                guideText="Center face inside the corner brackets"
+                guideText="Position candidate face anywhere in camera view"
                 captureButtonText="Capture Enrollment Photo"
+                processStageLabel={
+                  isSubmittingEnroll
+                    ? "ENCRYPTING BIOMETRIC TEMPLATE..."
+                    : enrollImageB64
+                    ? "FRAME LOCKED · READY TO ENROLL"
+                    : "ENROLLMENT · FACE GEOMETRY LOCK"
+                }
                 scanState={
                   isSubmittingEnroll
                     ? "scanning"
@@ -1792,14 +1803,21 @@ export default function EmployeesPage() {
                   {allowEnrollBiometrics ? (
                     <>
                       <CameraCapture
-                        title="Step 3: Live Optical Enrollment Capture"
-                        subtitle={`Center ${wizardEmployee.first_name} in steady lighting without hats or glasses.`}
+                        guideText={`Step 3: Track ${wizardEmployee.first_name}'s face in steady lighting without hats or glasses.`}
                         onCapture={(b64) => {
                           setWizardCaptureB64(b64);
                           setWizardError(null);
                         }}
-                        isBusy={wizardBusy}
-                        actionLabel="Lock Enrollment Frame"
+                        isProcessing={wizardBusy}
+                        captureButtonText="Lock Enrollment Frame"
+                        processStageLabel={
+                          wizardBusy
+                            ? "STAGE 3/5 · ENCRYPTING TEMPLATE"
+                            : wizardCaptureB64
+                            ? "STAGE 3/5 · ENROLLMENT FRAME LOCKED"
+                            : "STAGE 3/5 · BIOMETRIC TEMPLATE CAPTURE"
+                        }
+                        scanState={wizardBusy ? "scanning" : wizardCaptureB64 ? "matched" : "idle"}
                       />
                       <div className="flex items-center justify-between pt-2 border-t border-[#EAECEF]">
                         {wizardEmployee.has_active_template ? (
@@ -1899,14 +1917,37 @@ export default function EmployeesPage() {
                 <div className="space-y-3 text-xs">
                   {allowEnrollBiometrics ? (
                     <CameraCapture
-                      title="Step 5: Commissioning Verification Scan (Dry-Run)"
-                      subtitle={`Verify live end-to-end 5-stage optical match against ${wizardEmployee.employee_number} without punching attendance.`}
+                      guideText={`Step 5: Verify live 5-stage optical match for ${wizardEmployee.employee_number} without punching attendance.`}
                       onCapture={(b64) => {
                         setWizardVerifyB64(b64);
                         setWizardError(null);
                       }}
-                      isBusy={wizardBusy}
-                      actionLabel="Capture Verification Frame"
+                      isProcessing={wizardBusy}
+                      captureButtonText="Capture Verification Frame"
+                      faceBbox={wizardVerifyResult?.face_bbox || null}
+                      processStageLabel={
+                        wizardBusy
+                          ? "STAGE 5/5 · VERIFYING LIVE IDENTITY"
+                          : wizardVerifyResult
+                          ? wizardVerifyResult.verified
+                            ? `STAGE 5/5 · VERIFIED (${Math.round(wizardVerifyResult.match_score * 100)}%)`
+                            : "STAGE 5/5 · VERIFICATION FAILED"
+                          : "STAGE 5/5 · LIVE IDENTIFICATION TEST"
+                      }
+                      processStageSubtext={
+                        wizardVerifyResult
+                          ? wizardVerifyResult.message.slice(0, 48)
+                          : undefined
+                      }
+                      scanState={
+                        wizardBusy
+                          ? "scanning"
+                          : wizardVerifyResult
+                          ? wizardVerifyResult.verified
+                            ? "matched"
+                            : "error"
+                          : "idle"
+                      }
                     />
                   ) : (
                     <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-slate-600">

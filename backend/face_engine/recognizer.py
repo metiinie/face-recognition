@@ -587,6 +587,7 @@ def _extract_embedding_from_pil(img: Image.Image) -> tuple[list[float], dict]:
 
     y_idx, x_idx = skin_mask.nonzero()
 
+    face_bbox = None
     if len(onnx_faces) > 0:
         faces_count = len(onnx_faces)
         primary = onnx_faces[0]
@@ -595,6 +596,12 @@ def _extract_embedding_from_pil(img: Image.Image) -> tuple[list[float], dict]:
         scale_x = img_rgb.width / img.width
         scale_y = img_rgb.height / img.height
         bx_s, by_s, bw_s, bh_s = bx * scale_x, by * scale_y, bw * scale_x, bh * scale_y
+        face_bbox = {
+            "x": round(max(0.0, bx_s) / max(1, img_rgb.width), 4),
+            "y": round(max(0.0, by_s) / max(1, img_rgb.height), 4),
+            "w": round(max(1.0, bw_s) / max(1, img_rgb.width), 4),
+            "h": round(max(1.0, bh_s) / max(1, img_rgb.height), 4),
+        }
         cx = bx_s + bw_s / 2.0
         cy = by_s + bh_s / 2.0
         side = max(bw_s, bh_s) * 1.25
@@ -612,6 +619,12 @@ def _extract_embedding_from_pil(img: Image.Image) -> tuple[list[float], dict]:
         x_min, x_max = np.percentile(x_idx, [2, 98])
         h = y_max - y_min
         w = x_max - x_min
+        face_bbox = {
+            "x": round(float(max(0.0, x_min)) / max(1, img_rgb.width), 4),
+            "y": round(float(max(0.0, y_min)) / max(1, img_rgb.height), 4),
+            "w": round(float(max(1.0, w)) / max(1, img_rgb.width), 4),
+            "h": round(float(max(1.0, h)) / max(1, img_rgb.height), 4),
+        }
         cy = (y_min + y_max) / 2.0
         cx = (x_min + x_max) / 2.0
         side = max(h, w) * 1.25
@@ -742,6 +755,7 @@ def _extract_embedding_from_pil(img: Image.Image) -> tuple[list[float], dict]:
         "spoof_type": spoof_type,
         "faces_count": faces_count,
         "face_detected": face_detected,
+        "face_bbox": face_bbox,
         "obstructed": obstructed,
         "aligned_neural_embedding": aligned_neural_emb,
         "neural_embedding": neural_emb,
@@ -913,6 +927,8 @@ def analyze_and_extract_embedding(capture_payload: dict) -> dict:
     if "liveness_score" in img_quality:
         quality_details["liveness_score"] = img_quality["liveness_score"]
         quality_details["liveness_passed"] = img_quality["liveness_passed"]
+    if img_quality.get("face_bbox"):
+        quality_details["face_bbox"] = img_quality["face_bbox"]
 
     # 3. Validate quality and biometric integrity rules (AT-03, AT-06, Liveness, Face Counts)
     faces_count = img_quality.get("faces_count", 1)
@@ -1049,6 +1065,7 @@ def recognize_face_candidate(capture_payload: dict, decrypt_fn) -> dict:
       }
     """
     extraction = analyze_and_extract_embedding(capture_payload)
+    detected_bbox = (extraction.get("quality_details") or {}).get("face_bbox")
     if not extraction["usable"]:
         return {
             "matched": False,
@@ -1059,6 +1076,7 @@ def recognize_face_candidate(capture_payload: dict, decrypt_fn) -> dict:
             "message": extraction["rejection_message"],
             "rejection_code": extraction["rejection_code"],
             "quality_details": extraction["quality_details"],
+            "face_bbox": detected_bbox,
         }
 
     probe_embedding = extraction["embedding"]
@@ -1104,6 +1122,7 @@ def recognize_face_candidate(capture_payload: dict, decrypt_fn) -> dict:
             ),
             "rejection_code": "UNKNOWN_FACE",
             "quality_details": extraction["quality_details"],
+            "face_bbox": detected_bbox,
         }
 
     if best_score_clamped < match_threshold:
@@ -1120,6 +1139,7 @@ def recognize_face_candidate(capture_payload: dict, decrypt_fn) -> dict:
             ),
             "rejection_code": "UNCERTAIN_MATCH",
             "quality_details": extraction["quality_details"],
+            "face_bbox": detected_bbox,
         }
 
     employee = best_template.employee
@@ -1137,6 +1157,7 @@ def recognize_face_candidate(capture_payload: dict, decrypt_fn) -> dict:
             ),
             "rejection_code": "EMPLOYEE_INACTIVE",
             "quality_details": extraction["quality_details"],
+            "face_bbox": detected_bbox,
         }
 
     if not employee.consent_verified:
@@ -1153,6 +1174,7 @@ def recognize_face_candidate(capture_payload: dict, decrypt_fn) -> dict:
             ),
             "rejection_code": "CONSENT_NOT_VERIFIED",
             "quality_details": extraction["quality_details"],
+            "face_bbox": detected_bbox,
         }
 
     return {
@@ -1164,6 +1186,7 @@ def recognize_face_candidate(capture_payload: dict, decrypt_fn) -> dict:
         "message": f"Identity verified: {employee.full_name} ({employee.employee_number}). Please confirm Check-In or Check-Out.",
         "rejection_code": None,
         "quality_details": extraction["quality_details"],
+        "face_bbox": detected_bbox,
     }
 
 

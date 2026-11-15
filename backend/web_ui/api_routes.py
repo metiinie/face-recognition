@@ -922,6 +922,7 @@ def api_verify_employee_identification(emp_id: int):
         "scan_sequence": scan_sequence,
         "lifecycle": lifecycle,
         "latency_ms": elapsed_ms,
+        "face_bbox": rec_result.get("face_bbox"),
     }), 200
 
 
@@ -1784,6 +1785,7 @@ def api_face_recognize():
             "match_score": rec_result.get("recognition_score", 0.0),
             "scan_sequence": scan_sequence,
             "latency_ms": elapsed_ms,
+            "face_bbox": rec_result.get("face_bbox"),
         })
 
     emp = rec_result["employee"]
@@ -1809,6 +1811,7 @@ def api_face_recognize():
         "liveness_passed": True,
         "scan_sequence": scan_sequence,
         "latency_ms": elapsed_ms,
+        "face_bbox": rec_result.get("face_bbox"),
     })
 
 

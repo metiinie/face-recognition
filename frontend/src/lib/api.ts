@@ -461,6 +461,7 @@ export interface RecognitionResult {
   rejection_message?: string;
   scan_sequence?: ScanSequenceStep[];
   latency_ms?: number;
+  face_bbox?: { x: number; y: number; w: number; h: number } | null;
 }
 
 export interface AttendanceConfirmResponse {
@@ -679,6 +680,7 @@ export const api = {
     scan_sequence: ScanSequenceStep[];
     lifecycle: CandidateLifecycle;
     latency_ms?: number;
+    face_bbox?: { x: number; y: number; w: number; h: number } | null;
   }> {
     return request(`/api/employees/${empId}/verify-identification`, {
       method: "POST",

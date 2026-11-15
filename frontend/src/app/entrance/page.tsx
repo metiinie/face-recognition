@@ -8,6 +8,8 @@ import {
   FACE_MESH_EDGES,
   getNormalizedSpiderPos,
   getSpiderKneePoint,
+  detectFaceInVideoFrame,
+  DetectedFaceBox,
 } from "@/lib/faceMesh";
 import {
   api,
@@ -114,6 +116,10 @@ export default function ContinuousEntrancePage() {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const overlayCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const scratchCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const localFaceRef = useRef<DetectedFaceBox | null>(null);
+  const localMissCountRef = useRef<number>(0);
+  const smoothedBoxesRef = useRef<Record<string, { x: number; y: number; w: number; h: number }>>({});
   const isStreamingRef = useRef<boolean>(false);
   const isProcessingRef = useRef<boolean>(false);
   const isMountedRef = useRef<boolean>(true);
@@ -353,323 +359,455 @@ export default function ContinuousEntrancePage() {
     };
   }, [startCamera, stopCamera]);
 
-  // Draw Bounding Boxes on Overlay Canvas
-  const drawOverlays = useCallback((faces: ContinuousFaceResult[]) => {
-    const canvas = overlayCanvasRef.current;
-    const video = videoRef.current;
-    if (!canvas || !video) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
+  // Smoothly draw live Bounding Boxes, 26-Node Mesh, Spider Crawler & On-Face Process HUD
+  const drawOverlays = useCallback(
+    (faces: ContinuousFaceResult[]) => {
+      const canvas = overlayCanvasRef.current;
+      const video = videoRef.current;
+      if (!canvas || !video) return;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
 
-    if (canvas.width !== video.videoWidth || canvas.height !== video.videoHeight) {
-      canvas.width = video.videoWidth || 640;
-      canvas.height = video.videoHeight || 480;
-    }
-
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-
-    const sw = streamDimsRef.current.w || canvas.width;
-    const sh = streamDimsRef.current.h || canvas.height;
-    const scaleX = canvas.width / sw;
-    const scaleY = canvas.height / sh;
-
-    faces.forEach((face) => {
-      const bx = Math.round(face.bounding_box.x * scaleX);
-      const by = Math.round(face.bounding_box.y * scaleY);
-      const bw = Math.round(face.bounding_box.w * scaleX);
-      const bh = Math.round(face.bounding_box.h * scaleY);
-      const drawX = isMirrored ? Math.max(0, canvas.width - (bx + bw)) : bx;
-      const y = by;
-      const w = bw;
-      const h = bh;
-
-      // Color scheme based on status:
-      // Neutral default for NONE / unknown / unconfirmed faces (never default to green or confirmed)
-      let strokeColor = "#64748b"; // Neutral slate-500
-      let fillColor = "rgba(100, 116, 139, 0.10)";
-      let tagText = "DETECTING...";
-
-      const actionStatus = face.action_status || "NONE";
-
-      if (actionStatus === "CONFIRMED") {
-        // Green — Passage confirmed
-        strokeColor = "#10b981"; // emerald-500
-        fillColor = "rgba(16, 185, 129, 0.16)";
-        tagText = face.attendance_action === "CHECK_OUT" ? "CHECK-OUT CONFIRMED" : "PASSAGE CONFIRMED";
-      } else if (actionStatus === "REJECTED") {
-        // Red — Recognition rejected
-        strokeColor = "#ef4444"; // red-500
-        fillColor = "rgba(239, 68, 68, 0.20)";
-        tagText = "RECOGNITION REJECTED";
-      } else if (actionStatus === "INACTIVE_BLOCKED") {
-        // Red — Employee inactive
-        strokeColor = "#dc2626"; // red-600
-        fillColor = "rgba(220, 38, 38, 0.20)";
-        tagText = "EMPLOYEE INACTIVE";
-      } else if (actionStatus === "SPOOF_BLOCKED") {
-        // Red — Presentation attack / spoof detected
-        strokeColor = "#dc2626"; // red-600
-        fillColor = "rgba(220, 38, 38, 0.22)";
-        tagText = "SPOOF ATTACK BLOCKED";
-      } else if (actionStatus === "CONSENT_BLOCKED" || face.status === "CONSENT_NOT_VERIFIED") {
-        // Red — Biometric consent unverified / revoked
-        strokeColor = "#dc2626"; // red-600
-        fillColor = "rgba(220, 38, 38, 0.22)";
-        tagText = "CONSENT NOT VERIFIED";
-      } else if (actionStatus === "COOLDOWN_ACTIVE") {
-        // Amber — Please wait (Cooldown active)
-        strokeColor = "#f59e0b"; // amber-500
-        fillColor = "rgba(245, 158, 11, 0.15)";
-        tagText = "PLEASE WAIT (COOLDOWN)";
-      } else if (actionStatus === "ACQUIRING_TRACK") {
-        // Blue — Tracking
-        strokeColor = "#0284c7"; // sky-600
-        fillColor = "rgba(2, 132, 199, 0.15)";
-        const targetFrames = gateStatus?.min_persistence_frames || 3;
-        tagText = `TRACKING (${face.frames_seen || 1}/${targetFrames} FRAMES)`;
-      } else if (actionStatus === "ALREADY_PUNCHED_IN_PASSAGE") {
-        strokeColor = "#059669"; // teal/emerald-600
-        fillColor = "rgba(5, 150, 105, 0.14)";
-        tagText = "PASSAGE ALREADY RECORDED";
-      } else if (actionStatus === "ALREADY_CHECKED_IN") {
-        strokeColor = "#0891b2"; // cyan-600
-        fillColor = "rgba(8, 145, 178, 0.14)";
-        tagText = "ALREADY CHECKED IN";
-      } else if (actionStatus === "NO_OPEN_SESSION") {
-        strokeColor = "#db2777"; // pink-600
-        fillColor = "rgba(219, 39, 119, 0.14)";
-        tagText = "NO OPEN SESSION (CANNOT EXIT)";
-      } else if (actionStatus === "STATIONARY_LINGER") {
-        strokeColor = "#7c3aed"; // violet-600
-        fillColor = "rgba(124, 58, 237, 0.14)";
-        tagText = "STEP FORWARD TO REGISTER";
-      } else if (actionStatus === "UNKNOWN_VISITOR" || face.status === "UNKNOWN_FACE") {
-        strokeColor = "#f43f5e"; // rose-500
-        fillColor = "rgba(244, 63, 94, 0.16)";
-        tagText = "UNKNOWN VISITOR";
-      } else if (
-        actionStatus === "UNCERTAIN_TRACK" ||
-        actionStatus === "UNCERTAIN_CANDIDATE" ||
-        face.status === "UNCERTAIN_MATCH"
-      ) {
-        strokeColor = "#eab308"; // yellow-500
-        fillColor = "rgba(234, 179, 8, 0.15)";
-        tagText = "IDENTITY UNCERTAIN (STEP CLOSER)";
-      } else {
-        // Neutral — Detecting (NONE, uncommitted, or unknown)
-        strokeColor = "#64748b";
-        fillColor = "rgba(100, 116, 139, 0.10)";
-        tagText = "DETECTING...";
+      const cw = video.videoWidth || 640;
+      const ch = video.videoHeight || 480;
+      if (canvas.width !== cw || canvas.height !== ch) {
+        canvas.width = cw;
+        canvas.height = ch;
       }
 
-      // Crisp unobstructed corner-bracket box (Image 3 style)
-      ctx.lineWidth = 1.25;
-      ctx.strokeStyle = strokeColor;
-      ctx.globalAlpha = 0.38;
-      ctx.strokeRect(drawX, y, w, h);
-      ctx.globalAlpha = 1;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-      ctx.fillStyle = fillColor;
-      ctx.fillRect(drawX, y, w, h);
+      // Build unified render targets: use server faces when present, or real-time local face tracker when streaming
+      const localDet = localFaceRef.current;
+      const usingLocalFallback = faces.length === 0 && localDet !== null && isStreamingRef.current;
 
-      // Sharp L-shaped corner markers
-      const cornerLen = Math.min(18, Math.max(10, Math.round(w * 0.16)));
-      ctx.lineWidth = 2.5;
-      ctx.strokeStyle = strokeColor;
-      // Top-left
-      ctx.beginPath();
-      ctx.moveTo(drawX, y + cornerLen);
-      ctx.lineTo(drawX, y);
-      ctx.lineTo(drawX + cornerLen, y);
-      ctx.stroke();
-      // Top-right
-      ctx.beginPath();
-      ctx.moveTo(drawX + w - cornerLen, y);
-      ctx.lineTo(drawX + w, y);
-      ctx.lineTo(drawX + w, y + cornerLen);
-      ctx.stroke();
-      // Bottom-left
-      ctx.beginPath();
-      ctx.moveTo(drawX, y + h - cornerLen);
-      ctx.lineTo(drawX, y + h);
-      ctx.lineTo(drawX + cornerLen, y + h);
-      ctx.stroke();
-      // Bottom-right
-      ctx.beginPath();
-      ctx.moveTo(drawX + w - cornerLen, y + h);
-      ctx.lineTo(drawX + w, y + h);
-      ctx.lineTo(drawX + w, y + h - cornerLen);
-      ctx.stroke();
+      const renderItems: Array<{
+        key: string;
+        targetX: number;
+        targetY: number;
+        targetW: number;
+        targetH: number;
+        face: ContinuousFaceResult | null;
+      }> = [];
 
-      // Articulated 8-leg spider-web scan overlay for every person detected in frame
-      const isActiveTrack =
-        actionStatus === "NONE" ||
-        actionStatus === "ACQUIRING_TRACK" ||
-        actionStatus === "UNCERTAIN_TRACK" ||
-        actionStatus === "UNCERTAIN_CANDIDATE" ||
-        actionStatus === "UNKNOWN_VISITOR";
-      const isConfirmedLock =
-        actionStatus === "CONFIRMED" ||
-        actionStatus === "ALREADY_CHECKED_IN" ||
-        actionStatus === "ALREADY_PUNCHED_IN_PASSAGE";
+      if (usingLocalFallback && localDet) {
+        const lx = (localDet.x / 640) * canvas.width;
+        const ly = (localDet.y / 480) * canvas.height;
+        const lw = (localDet.w / 640) * canvas.width;
+        const lh = (localDet.h / 480) * canvas.height;
+        renderItems.push({
+          key: "local-face",
+          targetX: lx,
+          targetY: ly,
+          targetW: lw,
+          targetH: lh,
+          face: null,
+        });
+      } else {
+        const sw = streamDimsRef.current.w || canvas.width;
+        const sh = streamDimsRef.current.h || canvas.height;
+        const scaleX = canvas.width / sw;
+        const scaleY = canvas.height / sh;
 
-      if (isActiveTrack || isConfirmedLock) {
-        const phase = performance.now() * 0.0028 + face.track_id * 1.35;
-        const normPos = getNormalizedSpiderPos(phase);
-        const sx = drawX + normPos.x * w;
-        const sy = y + normPos.y * h;
+        faces.forEach((face) => {
+          const bx = Math.round(face.bounding_box.x * scaleX);
+          const by = Math.round(face.bounding_box.y * scaleY);
+          const bw = Math.round(face.bounding_box.w * scaleX);
+          const bh = Math.round(face.bounding_box.h * scaleY);
+          let targetX = isMirrored ? Math.max(0, canvas.width - (bx + bw)) : bx;
+          let targetY = by;
+          let targetW = bw;
+          let targetH = bh;
 
-        const meshNodes = FACE_MESH_NODES.map((pt) => ({
-          nx: drawX + pt.x * w,
-          ny: y + pt.y * h,
-        }));
+          // If single face & live local tracker is locked onto the same person, blend for instant 60fps follow
+          if (faces.length === 1 && localDet && isStreamingRef.current) {
+            const lx = (localDet.x / 640) * canvas.width;
+            const ly = (localDet.y / 480) * canvas.height;
+            const lw = (localDet.w / 640) * canvas.width;
+            const lh = (localDet.h / 480) * canvas.height;
+            const dist = Math.hypot(
+              lx + lw * 0.5 - (targetX + targetW * 0.5),
+              ly + lh * 0.5 - (targetY + targetH * 0.5)
+            );
+            if (dist < canvas.width * 0.32) {
+              targetX = targetX * 0.45 + lx * 0.55;
+              targetY = targetY * 0.45 + ly * 0.55;
+              targetW = targetW * 0.55 + lw * 0.45;
+              targetH = targetH * 0.55 + lh * 0.45;
+            }
+          }
 
-        // Horizontal optical scanline sweep across active tracked face
-        if (isActiveTrack) {
-          const sweepProgress = (phase * 0.42) % 1;
-          const sweepY = y + sweepProgress * h;
-          const grad = ctx.createLinearGradient(drawX, Math.max(y, sweepY - 14), drawX, sweepY);
-          grad.addColorStop(0, "rgba(129, 140, 248, 0)");
-          grad.addColorStop(1, actionStatus === "UNKNOWN_VISITOR" ? "rgba(244, 63, 94, 0.25)" : "rgba(129, 140, 248, 0.28)");
-          ctx.fillStyle = grad;
-          ctx.fillRect(drawX + 2, Math.max(y + 2, sweepY - 14), Math.max(0, w - 4), Math.min(14, sweepY - y));
+          renderItems.push({
+            key: `track-${face.track_id}`,
+            targetX,
+            targetY,
+            targetW,
+            targetH,
+            face,
+          });
+        });
+      }
 
-          ctx.strokeStyle = actionStatus === "UNKNOWN_VISITOR" ? "#FDA4AF" : "#E0E7FF";
-          ctx.lineWidth = 1.15;
-          ctx.globalAlpha = 0.85;
-          ctx.beginPath();
-          ctx.moveTo(drawX + 2, sweepY);
-          ctx.lineTo(drawX + w - 2, sweepY);
-          ctx.stroke();
+      if (renderItems.length === 0) {
+        return;
+      }
+
+      // Exponential smoothing per tracked face box so corners + spider glide with the real face
+      const activeKeys = new Set<string>();
+      const nextSmoothed: Record<string, { x: number; y: number; w: number; h: number }> = {};
+
+      renderItems.forEach((item) => {
+        activeKeys.add(item.key);
+        const prev = smoothedBoxesRef.current[item.key];
+        const smoothed = prev
+          ? {
+              x: prev.x + (item.targetX - prev.x) * 0.28,
+              y: prev.y + (item.targetY - prev.y) * 0.28,
+              w: prev.w + (item.targetW - prev.w) * 0.28,
+              h: prev.h + (item.targetH - prev.h) * 0.28,
+            }
+          : { x: item.targetX, y: item.targetY, w: item.targetW, h: item.targetH };
+        nextSmoothed[item.key] = smoothed;
+
+        const drawX = Math.round(smoothed.x);
+        const y = Math.round(smoothed.y);
+        const w = Math.max(40, Math.round(smoothed.w));
+        const h = Math.max(48, Math.round(smoothed.h));
+        const face = item.face;
+
+        let strokeColor = "#38BDF8"; // Sky blue when face locked locally
+        let fillColor = "rgba(56, 189, 248, 0.10)";
+        let tagText = "STEP 1/5 · FACE DETECTED";
+
+        const actionStatus = face?.action_status || "LOCAL_DETECT";
+
+        if (!face) {
+          strokeColor = "#38BDF8";
+          fillColor = "rgba(56, 189, 248, 0.11)";
+          tagText = "STEP 1/5 · LOCALIZING FACE";
+        } else if (actionStatus === "CONFIRMED") {
+          strokeColor = "#10b981";
+          fillColor = "rgba(16, 185, 129, 0.16)";
+          tagText = face.attendance_action === "CHECK_OUT" ? "STEP 5/5 · CHECK-OUT CONFIRMED" : "STEP 5/5 · PASSAGE CONFIRMED";
+        } else if (actionStatus === "REJECTED") {
+          strokeColor = "#ef4444";
+          fillColor = "rgba(239, 68, 68, 0.20)";
+          tagText = "RECOGNITION REJECTED";
+        } else if (actionStatus === "INACTIVE_BLOCKED") {
+          strokeColor = "#dc2626";
+          fillColor = "rgba(220, 38, 38, 0.20)";
+          tagText = "EMPLOYEE INACTIVE";
+        } else if (actionStatus === "SPOOF_BLOCKED") {
+          strokeColor = "#dc2626";
+          fillColor = "rgba(220, 38, 38, 0.22)";
+          tagText = "STEP 3/5 · SPOOF BLOCKED";
+        } else if (actionStatus === "CONSENT_BLOCKED" || face.status === "CONSENT_NOT_VERIFIED") {
+          strokeColor = "#dc2626";
+          fillColor = "rgba(220, 38, 38, 0.22)";
+          tagText = "STEP 4/5 · CONSENT NOT VERIFIED";
+        } else if (actionStatus === "COOLDOWN_ACTIVE") {
+          strokeColor = "#f59e0b";
+          fillColor = "rgba(245, 158, 11, 0.15)";
+          tagText = "PLEASE WAIT (COOLDOWN)";
+        } else if (actionStatus === "ACQUIRING_TRACK") {
+          strokeColor = "#0284c7";
+          fillColor = "rgba(2, 132, 199, 0.15)";
+          const targetFrames = gateStatus?.min_persistence_frames || 3;
+          tagText = `STEP 2/5 · TRACKING (${face.frames_seen || 1}/${targetFrames})`;
+        } else if (actionStatus === "ALREADY_PUNCHED_IN_PASSAGE") {
+          strokeColor = "#059669";
+          fillColor = "rgba(5, 150, 105, 0.14)";
+          tagText = "STEP 5/5 · PASSAGE RECORDED";
+        } else if (actionStatus === "ALREADY_CHECKED_IN") {
+          strokeColor = "#0891b2";
+          fillColor = "rgba(8, 145, 178, 0.14)";
+          tagText = "STEP 5/5 · ALREADY CHECKED IN";
+        } else if (actionStatus === "NO_OPEN_SESSION") {
+          strokeColor = "#db2777";
+          fillColor = "rgba(219, 39, 119, 0.14)";
+          tagText = "NO OPEN SESSION (CANNOT EXIT)";
+        } else if (actionStatus === "STATIONARY_LINGER") {
+          strokeColor = "#7c3aed";
+          fillColor = "rgba(124, 58, 237, 0.14)";
+          tagText = "STEP FORWARD TO REGISTER";
+        } else if (actionStatus === "UNKNOWN_VISITOR" || face.status === "UNKNOWN_FACE") {
+          strokeColor = "#f43f5e";
+          fillColor = "rgba(244, 63, 94, 0.16)";
+          tagText = "STEP 3/5 · UNKNOWN VISITOR";
+        } else if (
+          actionStatus === "UNCERTAIN_TRACK" ||
+          actionStatus === "UNCERTAIN_CANDIDATE" ||
+          face.status === "UNCERTAIN_MATCH"
+        ) {
+          strokeColor = "#eab308";
+          fillColor = "rgba(234, 179, 8, 0.15)";
+          tagText = "STEP 3/5 · VERIFYING ALIGNMENT";
+        } else {
+          strokeColor = "#818CF8";
+          fillColor = "rgba(129, 140, 248, 0.12)";
+          tagText = "STEP 1/5 · ANALYZING FACE";
         }
 
-        // Interconnected 26-node web edges across the face
-        ctx.lineWidth = 0.8;
-        for (let i = 0; i < FACE_MESH_EDGES.length; i++) {
-          const [aIdx, bIdx] = FACE_MESH_EDGES[i];
-          const a = meshNodes[aIdx];
-          const b = meshNodes[bIdx];
-          const mx = (a.nx + b.nx) * 0.5;
-          const my = (a.ny + b.ny) * 0.5;
-          const prox = isActiveTrack
-            ? Math.max(0, 1 - Math.hypot(mx - sx, my - sy) / Math.max(42, w * 0.62))
-            : 0.42;
-          ctx.strokeStyle = isActiveTrack ? strokeColor : "#10B981";
-          ctx.globalAlpha = isActiveTrack ? 0.16 + prox * 0.6 : 0.34;
-          ctx.beginPath();
-          ctx.moveTo(a.nx, a.ny);
-          ctx.lineTo(b.nx, b.ny);
-          ctx.stroke();
-        }
+        // Crisp unobstructed corner-bracket box directly around detected face
+        ctx.lineWidth = 1.25;
+        ctx.strokeStyle = strokeColor;
+        ctx.globalAlpha = 0.38;
+        ctx.strokeRect(drawX, y, w, h);
+        ctx.globalAlpha = 1;
 
-        // Anatomical facial landmark dots
-        for (let i = 0; i < meshNodes.length; i++) {
-          const pt = meshNodes[i];
-          const prox = isActiveTrack
-            ? Math.max(0, 1 - Math.hypot(pt.nx - sx, pt.ny - sy) / Math.max(42, w * 0.62))
-            : 0.5;
-          ctx.fillStyle = isConfirmedLock ? "#34D399" : "#FFFFFF";
-          ctx.globalAlpha = isActiveTrack ? 0.3 + prox * 0.7 : 0.78;
-          ctx.beginPath();
-          ctx.arc(pt.nx, pt.ny, 1.35 + prox * 1.25, 0, Math.PI * 2);
-          ctx.fill();
-        }
+        ctx.fillStyle = fillColor;
+        ctx.fillRect(drawX, y, w, h);
 
-        // 8-leg articulated crawling spider sensor across each scanning face
-        if (isActiveTrack) {
-          const sorted = meshNodes
-            .map((pt, idx) => ({ idx, d: Math.hypot(pt.nx - sx, pt.ny - sy) }))
-            .sort((a, b) => a.d - b.d);
+        // Sharp L-shaped corner markers
+        const cornerLen = Math.min(18, Math.max(10, Math.round(w * 0.16)));
+        ctx.lineWidth = 2.5;
+        ctx.strokeStyle = strokeColor;
+        ctx.beginPath();
+        ctx.moveTo(drawX, y + cornerLen);
+        ctx.lineTo(drawX, y);
+        ctx.lineTo(drawX + cornerLen, y);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(drawX + w - cornerLen, y);
+        ctx.lineTo(drawX + w, y);
+        ctx.lineTo(drawX + w, y + cornerLen);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(drawX, y + h - cornerLen);
+        ctx.lineTo(drawX, y + h);
+        ctx.lineTo(drawX + cornerLen, y + h);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(drawX + w - cornerLen, y + h);
+        ctx.lineTo(drawX + w, y + h);
+        ctx.lineTo(drawX + w, y + h - cornerLen);
+        ctx.stroke();
 
-          ctx.strokeStyle = actionStatus === "UNKNOWN_VISITOR" ? "#FECDD3" : "#E0E7FF";
-          ctx.lineWidth = 1.05;
-          for (let leg = 0; leg < 8; leg++) {
-            const target = meshNodes[sorted[leg].idx];
-            const { kx, ky } = getSpiderKneePoint(sx, sy, target.nx, target.ny, leg, Math.max(6, w * 0.085));
-            ctx.globalAlpha = Math.max(0.28, 0.9 - sorted[leg].d / Math.max(52, w * 0.85));
+        // Articulated 8-leg spider-web scan overlay strictly on detected face coordinates
+        const isActiveTrack =
+          !face ||
+          actionStatus === "NONE" ||
+          actionStatus === "ACQUIRING_TRACK" ||
+          actionStatus === "UNCERTAIN_TRACK" ||
+          actionStatus === "UNCERTAIN_CANDIDATE" ||
+          actionStatus === "UNKNOWN_VISITOR";
+        const isConfirmedLock =
+          Boolean(face) &&
+          (actionStatus === "CONFIRMED" ||
+            actionStatus === "ALREADY_CHECKED_IN" ||
+            actionStatus === "ALREADY_PUNCHED_IN_PASSAGE");
+
+        if (isActiveTrack || isConfirmedLock) {
+          const trackSeed = face ? face.track_id * 1.35 : 0.4;
+          const phase = performance.now() * 0.0028 + trackSeed;
+          const normPos = getNormalizedSpiderPos(phase);
+          const sx = drawX + normPos.x * w;
+          const sy = y + normPos.y * h;
+
+          const meshNodes = FACE_MESH_NODES.map((pt) => ({
+            nx: drawX + pt.x * w,
+            ny: y + pt.y * h,
+          }));
+
+          // Horizontal optical scanline sweep across active tracked face
+          if (isActiveTrack) {
+            const sweepProgress = (phase * 0.42) % 1;
+            const sweepY = y + sweepProgress * h;
+            const grad = ctx.createLinearGradient(drawX, Math.max(y, sweepY - 14), drawX, sweepY);
+            grad.addColorStop(0, "rgba(129, 140, 248, 0)");
+            grad.addColorStop(
+              1,
+              actionStatus === "UNKNOWN_VISITOR" ? "rgba(244, 63, 94, 0.25)" : "rgba(129, 140, 248, 0.28)"
+            );
+            ctx.fillStyle = grad;
+            ctx.fillRect(drawX + 2, Math.max(y + 2, sweepY - 14), Math.max(0, w - 4), Math.min(14, sweepY - y));
+
+            ctx.strokeStyle = actionStatus === "UNKNOWN_VISITOR" ? "#FDA4AF" : "#E0E7FF";
+            ctx.lineWidth = 1.15;
+            ctx.globalAlpha = 0.85;
             ctx.beginPath();
-            ctx.moveTo(sx, sy);
-            ctx.lineTo(kx, ky);
-            ctx.lineTo(target.nx, target.ny);
+            ctx.moveTo(drawX + 2, sweepY);
+            ctx.lineTo(drawX + w - 2, sweepY);
             ctx.stroke();
           }
 
-          // Outer spider halo & optical core
-          const haloR = 5.5 + Math.sin(phase * 5) * 1.1;
-          ctx.globalAlpha = 0.75;
-          ctx.strokeStyle = strokeColor;
-          ctx.lineWidth = 1.1;
-          ctx.beginPath();
-          ctx.arc(sx, sy, haloR, 0, Math.PI * 2);
-          ctx.stroke();
+          // Interconnected 26-node web edges across the face
+          ctx.lineWidth = 0.8;
+          for (let i = 0; i < FACE_MESH_EDGES.length; i++) {
+            const [aIdx, bIdx] = FACE_MESH_EDGES[i];
+            const a = meshNodes[aIdx];
+            const b = meshNodes[bIdx];
+            const mx = (a.nx + b.nx) * 0.5;
+            const my = (a.ny + b.ny) * 0.5;
+            const prox = isActiveTrack
+              ? Math.max(0, 1 - Math.hypot(mx - sx, my - sy) / Math.max(42, w * 0.62))
+              : 0.42;
+            ctx.strokeStyle = isActiveTrack ? strokeColor : "#10B981";
+            ctx.globalAlpha = isActiveTrack ? 0.16 + prox * 0.6 : 0.34;
+            ctx.beginPath();
+            ctx.moveTo(a.nx, a.ny);
+            ctx.lineTo(b.nx, b.ny);
+            ctx.stroke();
+          }
 
-          ctx.globalAlpha = 0.98;
-          ctx.fillStyle = "#FFFFFF";
-          ctx.beginPath();
-          ctx.arc(sx, sy, 2.3, 0, Math.PI * 2);
-          ctx.fill();
+          // Anatomical facial landmark dots
+          for (let i = 0; i < meshNodes.length; i++) {
+            const pt = meshNodes[i];
+            const prox = isActiveTrack
+              ? Math.max(0, 1 - Math.hypot(pt.nx - sx, pt.ny - sy) / Math.max(42, w * 0.62))
+              : 0.5;
+            ctx.fillStyle = isConfirmedLock ? "#34D399" : "#FFFFFF";
+            ctx.globalAlpha = isActiveTrack ? 0.3 + prox * 0.7 : 0.78;
+            ctx.beginPath();
+            ctx.arc(pt.nx, pt.ny, 1.35 + prox * 1.25, 0, Math.PI * 2);
+            ctx.fill();
+          }
+
+          // 8-leg articulated crawling spider sensor across each scanning face
+          if (isActiveTrack) {
+            const sorted = meshNodes
+              .map((pt, idx) => ({ idx, d: Math.hypot(pt.nx - sx, pt.ny - sy) }))
+              .sort((a, b) => a.d - b.d);
+
+            ctx.strokeStyle = actionStatus === "UNKNOWN_VISITOR" ? "#FECDD3" : "#E0E7FF";
+            ctx.lineWidth = 1.05;
+            for (let leg = 0; leg < 8; leg++) {
+              const target = meshNodes[sorted[leg].idx];
+              const { kx, ky } = getSpiderKneePoint(sx, sy, target.nx, target.ny, leg, Math.max(6, w * 0.085));
+              ctx.globalAlpha = Math.max(0.28, 0.9 - sorted[leg].d / Math.max(52, w * 0.85));
+              ctx.beginPath();
+              ctx.moveTo(sx, sy);
+              ctx.lineTo(kx, ky);
+              ctx.lineTo(target.nx, target.ny);
+              ctx.stroke();
+            }
+
+            const haloR = 5.5 + Math.sin(phase * 5) * 1.1;
+            ctx.globalAlpha = 0.75;
+            ctx.strokeStyle = strokeColor;
+            ctx.lineWidth = 1.1;
+            ctx.beginPath();
+            ctx.arc(sx, sy, haloR, 0, Math.PI * 2);
+            ctx.stroke();
+
+            ctx.globalAlpha = 0.98;
+            ctx.fillStyle = "#FFFFFF";
+            ctx.beginPath();
+            ctx.arc(sx, sy, 2.3, 0, Math.PI * 2);
+            ctx.fill();
+          }
+          ctx.globalAlpha = 1;
         }
-        ctx.globalAlpha = 1;
-      }
 
-      // Top Tag Badge
-      let name = tagText;
-      let sub = `Track #${face.track_id} • ${face.motion_direction || "ACQUIRING"}`;
+        // Top Tag Badge attached directly to this person's face box
+        let name = tagText;
+        let sub = face
+          ? `Track #${face.track_id} • ${face.motion_direction || "ACQUIRING"}`
+          : `Live Lock (${drawX}, ${y}) • Running liveness check...`;
 
-      if (face.employee) {
-        if (actionStatus === "CONFIRMED") {
-          name = `${face.employee.full_name} • ${face.attendance_action === "CHECK_OUT" ? "OUT" : "IN"}`;
-          sub = `${face.employee.employee_number} • ${Math.round(face.recognition_score * 100)}% • ${face.motion_direction || "APPROACHING"}`;
-        } else if (actionStatus === "INACTIVE_BLOCKED") {
-          name = `${face.employee.full_name} (INACTIVE)`;
-          sub = `ACCESS BLOCKED • ${face.employee.employee_number}`;
-        } else if (actionStatus === "REJECTED") {
-          name = `${face.employee.full_name} (REJECTED)`;
-          sub = `RECOGNITION REJECTED • ${face.employee.employee_number}`;
-        } else if (actionStatus === "COOLDOWN_ACTIVE") {
-          name = `${face.employee.full_name} (COOLDOWN)`;
-          sub = `PLEASE WAIT • ${face.employee.employee_number}`;
-        } else if (actionStatus === "ACQUIRING_TRACK") {
-          name = `${face.employee.full_name} (TRACKING)`;
-          sub = `Acquiring ${face.frames_seen || 1}/${gateStatus?.min_persistence_frames || 3} • ${face.employee.employee_number}`;
-        } else {
-          name = face.employee.full_name;
-          sub = `${face.employee.employee_number} • ${Math.round(face.recognition_score * 100)}% • ${tagText}`;
+        if (face?.employee) {
+          if (actionStatus === "CONFIRMED") {
+            name = `${face.employee.full_name} • ${face.attendance_action === "CHECK_OUT" ? "OUT" : "IN"}`;
+            sub = `STEP 5/5 • ${face.employee.employee_number} • ${Math.round(face.recognition_score * 100)}% • ${face.motion_direction || "APPROACHING"}`;
+          } else if (actionStatus === "INACTIVE_BLOCKED") {
+            name = `${face.employee.full_name} (INACTIVE)`;
+            sub = `ACCESS BLOCKED • ${face.employee.employee_number}`;
+          } else if (actionStatus === "REJECTED") {
+            name = `${face.employee.full_name} (REJECTED)`;
+            sub = `RECOGNITION REJECTED • ${face.employee.employee_number}`;
+          } else if (actionStatus === "COOLDOWN_ACTIVE") {
+            name = `${face.employee.full_name} (COOLDOWN)`;
+            sub = `PLEASE WAIT • ${face.employee.employee_number}`;
+          } else if (actionStatus === "ACQUIRING_TRACK") {
+            name = `${face.employee.full_name} · STEP 2/5`;
+            sub = `Tracking ${face.frames_seen || 1}/${gateStatus?.min_persistence_frames || 3} • ${face.employee.employee_number}`;
+          } else {
+            name = face.employee.full_name;
+            sub = `${face.employee.employee_number} • ${Math.round(face.recognition_score * 100)}% • ${tagText}`;
+          }
         }
-      }
 
-      const tagWidth = Math.max(150, w);
-      const tagY = Math.max(0, y - 30);
-      ctx.fillStyle = "rgba(11, 15, 23, 0.88)";
-      ctx.fillRect(drawX, tagY, tagWidth, 28);
-      ctx.fillStyle = strokeColor;
-      ctx.fillRect(drawX, tagY, 3, 28);
+        const tagWidth = Math.max(178, w);
+        const tagX = Math.max(0, Math.min(canvas.width - tagWidth, drawX));
+        const tagY = y >= 34 ? y - 30 : Math.min(canvas.height - 30, y + h + 4);
+        ctx.fillStyle = "rgba(11, 15, 23, 0.90)";
+        ctx.fillRect(tagX, tagY, tagWidth, 28);
+        ctx.fillStyle = strokeColor;
+        ctx.fillRect(tagX, tagY, 3, 28);
 
-      ctx.fillStyle = "#f8fafc";
-      ctx.font = "600 11px Inter, sans-serif";
-      ctx.fillText(name, drawX + 8, tagY + 13);
+        ctx.fillStyle = "#f8fafc";
+        ctx.font = "600 11px Inter, sans-serif";
+        ctx.fillText(name, tagX + 8, tagY + 13);
 
-      ctx.fillStyle = "#94a3b8";
-      ctx.font = "500 9px monospace";
-      ctx.fillText(sub, drawX + 8, tagY + 24);
+        ctx.fillStyle = "#94a3b8";
+        ctx.font = "500 9px monospace";
+        ctx.fillText(sub, tagX + 8, tagY + 24);
 
-      if (actionStatus === "CONFIRMED" && face.attendance_action) {
-        ctx.fillStyle = face.attendance_action === "CHECK_IN" ? "rgba(5, 150, 105, 0.92)" : "rgba(79, 70, 229, 0.92)";
-        ctx.fillRect(drawX, y + h + 2, Math.max(120, w * 0.85), 18);
-        ctx.fillStyle = "#ffffff";
-        ctx.font = "600 9.5px monospace";
-        ctx.fillText(
-          `${face.attendance_action} ${face.is_late ? "(LATE)" : "(ON TIME)"}`,
-          drawX + 6,
-          y + h + 14
-        );
-      }
-    });
-  }, [isMirrored]);
+        if (face && actionStatus === "CONFIRMED" && face.attendance_action) {
+          ctx.fillStyle = face.attendance_action === "CHECK_IN" ? "rgba(5, 150, 105, 0.92)" : "rgba(79, 70, 229, 0.92)";
+          ctx.fillRect(drawX, y + h + 2, Math.max(132, w * 0.85), 18);
+          ctx.fillStyle = "#ffffff";
+          ctx.font = "600 9.5px monospace";
+          ctx.fillText(
+            `${face.attendance_action} ${face.is_late ? "(LATE)" : "(ON TIME)"}`,
+            drawX + 6,
+            y + h + 14
+          );
+        }
+      });
 
-  // Animate live spider-mesh bounding overlays cleanly while faces are tracked
+      smoothedBoxesRef.current = nextSmoothed;
+    },
+    [isMirrored, gateStatus]
+  );
+
+  // Instant ~12 Hz client-side face locator so bounding box & spider track movement immediately
   useEffect(() => {
-    if (detectedFaces.length === 0) return;
+    if (!isStreaming) {
+      localFaceRef.current = null;
+      localMissCountRef.current = 0;
+      return;
+    }
+
+    let cancelled = false;
+    let busy = false;
+    const probeLocal = async () => {
+      if (cancelled || busy || !videoRef.current || !scratchCanvasRef.current) return;
+      busy = true;
+      try {
+        const det = await detectFaceInVideoFrame(
+          videoRef.current,
+          scratchCanvasRef.current,
+          isMirrored
+        );
+        if (cancelled) return;
+        if (det) {
+          localFaceRef.current = det;
+          localMissCountRef.current = 0;
+        } else {
+          localMissCountRef.current += 1;
+          if (localMissCountRef.current >= 3) {
+            localFaceRef.current = null;
+          }
+        }
+      } finally {
+        busy = false;
+      }
+    };
+
+    void probeLocal();
+    const timer = setInterval(() => {
+      void probeLocal();
+    }, 85);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [isStreaming, isMirrored]);
+
+  // Animate live spider-mesh bounding overlays smoothly whenever stream or tracked faces are active
+  useEffect(() => {
+    if (!isStreaming && detectedFaces.length === 0) return;
 
     const prefersReducedMotion =
       typeof window !== "undefined" &&
@@ -687,7 +825,7 @@ export default function ContinuousEntrancePage() {
     };
     rafId = requestAnimationFrame(renderLoop);
     return () => cancelAnimationFrame(rafId);
-  }, [isMirrored, detectedFaces, drawOverlays]);
+  }, [isStreaming, isMirrored, detectedFaces, drawOverlays]);
 
   const clearOverlays = () => {
     const canvas = overlayCanvasRef.current;
@@ -1257,30 +1395,21 @@ export default function ContinuousEntrancePage() {
                 ref={overlayCanvasRef}
                 className="absolute inset-0 w-full h-full pointer-events-none z-10"
               />
+              <canvas ref={scratchCanvasRef} className="hidden" />
 
-              {/* Wide Multi-Person Optical Perimeter Sweep when watching without locked tracks */}
-              {isStreaming && detectedFaces.length === 0 && (
-                <div className="pointer-events-none absolute left-[13.125%] right-[13.125%] top-[11.25%] bottom-[11.25%] z-10 overflow-hidden rounded-sm">
-                  <div className="animate-biometric-watch absolute inset-x-2 h-6">
-                    <div className="h-full w-full bg-gradient-to-b from-transparent to-indigo-400/15" />
-                    <div className="h-px w-full bg-gradient-to-r from-transparent via-white/70 to-transparent" />
-                  </div>
-                </div>
-              )}
-
-              {/* Image-3 L-Shaped Viewfinder Corner Brackets framing the multi-person aperture */}
-              {(isStreaming || detectedFaces.length > 0) && !insecureContextInfo && (
+              {/* Subtle outer standby corner guides only while searching without server tracks */}
+              {isStreaming && detectedFaces.length === 0 && !insecureContextInfo && (
                 <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
                   <svg className="h-full w-full" viewBox="0 0 640 480" fill="none">
                     <g
-                      stroke={detectedFaces.length > 0 ? "#818CF8" : "rgba(255,255,255,0.6)"}
-                      strokeWidth="2.5"
+                      stroke="rgba(148,163,184,0.38)"
+                      strokeWidth="1.75"
                       strokeLinecap="square"
                     >
-                      <path d="M 84 90 L 84 54 L 120 54" />
-                      <path d="M 520 54 L 556 54 L 556 90" />
-                      <path d="M 84 390 L 84 426 L 120 426" />
-                      <path d="M 520 426 L 556 426 L 556 390" />
+                      <path d="M 28 56 L 28 28 L 56 28" />
+                      <path d="M 584 28 L 612 28 L 612 56" />
+                      <path d="M 28 424 L 28 452 L 56 452" />
+                      <path d="M 584 452 L 612 452 L 612 424" />
                     </g>
                   </svg>
                 </div>
