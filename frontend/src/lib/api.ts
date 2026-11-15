@@ -454,6 +454,7 @@ export interface RecognitionResult {
     job_category: string;
   };
   match_score?: number;
+  match_threshold?: number;
   recognition_token?: string;
   quality_score?: number;
   liveness_passed?: boolean;
@@ -680,6 +681,9 @@ export const api = {
     employee_id: number;
     image_base64: string;
     quality_mode?: string;
+    station_id?: string;
+    supervisor_username?: string;
+    supervisor_password?: string;
   }): Promise<any> {
     return request("/api/station/quick-enroll", {
       method: "POST",

@@ -6,7 +6,14 @@ import { CameraCapture } from "@/components/CameraCapture";
 import { Card } from "@/components/ui/Card";
 import { Badge } from "@/components/ui/Badge";
 import { Button } from "@/components/ui/Button";
-import { api, RecognitionResult, AttendanceConfirmResponse, StationRecord } from "@/lib/api";
+import {
+  api,
+  ApiError,
+  getStoredToken,
+  RecognitionResult,
+  AttendanceConfirmResponse,
+  StationRecord,
+} from "@/lib/api";
 import { FACE_MESH_NODES, FACE_MESH_EDGES } from "@/lib/faceMesh";
 import {
   CheckCircle2,
@@ -25,6 +32,20 @@ import {
   Hand,
   RefreshCw,
 } from "lucide-react";
+
+const KIOSK_REMEMBERED_KEY = "eipc_kiosk_remembered_user";
+
+interface RememberedKioskProfile {
+  id: number;
+  employee_number: string;
+  first_name: string;
+  last_name: string;
+  department_name?: string;
+  job_category?: string;
+  last_seen_at: string;
+  last_score?: number;
+  last_action?: string;
+}
 
 export default function KioskPage() {
   const [stationId, setStationId] = useState("ST-ICT-01");
@@ -148,9 +169,42 @@ export default function KioskPage() {
   // Quick Biometric Enrollment State
   const [showEnrollModal, setShowEnrollModal] = useState(false);
   const [enrollTargetEmpId, setEnrollTargetEmpId] = useState<number | "">("");
+  const [supervisorUsername, setSupervisorUsername] = useState("");
+  const [supervisorPassword, setSupervisorPassword] = useState("");
+  const [requiresSupervisorAuth, setRequiresSupervisorAuth] = useState(false);
   const [isSubmittingEnroll, setIsSubmittingEnroll] = useState(false);
   const [enrollSuccess, setEnrollSuccess] = useState<string | null>(null);
   const [enrollError, setEnrollError] = useState<string | null>(null);
+
+  // Remembered Terminal Identity ("Remember me after you scan me")
+  const [rememberedProfile, setRememberedProfile] = useState<RememberedKioskProfile | null>(null);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const raw = localStorage.getItem(KIOSK_REMEMBERED_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as RememberedKioskProfile;
+        if (parsed && parsed.id && parsed.employee_number) {
+          setRememberedProfile(parsed);
+          setEnrollTargetEmpId((prev) => (prev === "" ? parsed.id : prev));
+          setClaimedEmpNumber((prev) => prev || parsed.employee_number);
+        }
+      }
+    } catch { }
+  }, []);
+
+  const persistRememberedProfile = useCallback((profile: RememberedKioskProfile | null) => {
+    setRememberedProfile(profile);
+    if (typeof window === "undefined") return;
+    try {
+      if (profile) {
+        localStorage.setItem(KIOSK_REMEMBERED_KEY, JSON.stringify(profile));
+      } else {
+        localStorage.removeItem(KIOSK_REMEMBERED_KEY);
+      }
+    } catch { }
+  }, []);
 
   // HR Review / Assistance state
   const [showHelpDrawer, setShowHelpDrawer] = useState(false);
@@ -184,9 +238,26 @@ export default function KioskPage() {
 
       if (!res.matched) {
         setFeedbackError(res.rejection_message || fallbackErrorMessage);
-      } else if (res.recognition_token && touchlessAutoPunch) {
-        // Trigger hands-free auto-confirm countdown
-        setAutoConfirmCountdown(2);
+      } else {
+        if (res.employee) {
+          persistRememberedProfile({
+            id: res.employee.id,
+            employee_number: res.employee.employee_number,
+            first_name: res.employee.first_name,
+            last_name: res.employee.last_name,
+            department_name: res.employee.department_name,
+            job_category: res.employee.job_category,
+            last_seen_at: new Date().toISOString(),
+            last_score: res.match_score,
+            last_action: rememberedProfile?.last_action,
+          });
+          setEnrollTargetEmpId(res.employee.id);
+          setClaimedEmpNumber(res.employee.employee_number);
+        }
+        if (res.recognition_token && touchlessAutoPunch) {
+          // Trigger hands-free auto-confirm countdown
+          setAutoConfirmCountdown(2);
+        }
       }
     } catch (err: any) {
       console.error("Recognition call failed:", err);
@@ -216,12 +287,37 @@ export default function KioskPage() {
       await api.quickEnrollFace({
         employee_id: Number(enrollTargetEmpId),
         image_base64: lastCapturedImage,
+        station_id: stationId,
+        ...(supervisorUsername.trim() ? { supervisor_username: supervisorUsername.trim() } : {}),
+        ...(supervisorPassword ? { supervisor_password: supervisorPassword } : {}),
       });
+      const enrolledEmp = employees.find((e) => e.id === Number(enrollTargetEmpId));
+      if (enrolledEmp) {
+        persistRememberedProfile({
+          id: enrolledEmp.id,
+          employee_number: enrolledEmp.employee_number,
+          first_name: enrolledEmp.first_name || enrolledEmp.full_name || "",
+          last_name: enrolledEmp.last_name || "",
+          department_name: enrolledEmp.department_name || enrolledEmp.department || "",
+          job_category: enrolledEmp.job_category,
+          last_seen_at: new Date().toISOString(),
+          last_action: "ENROLLED",
+        });
+        setClaimedEmpNumber(enrolledEmp.employee_number);
+      }
+      setRequiresSupervisorAuth(false);
+      setSupervisorPassword("");
       setShowEnrollModal(false);
-      setEnrollSuccess("Biometric template enrolled successfully! Rescanning now...");
+      setEnrollSuccess("Biometric template enrolled & remembered! Re-verifying scan now...");
       setFeedbackError(null);
-      handleCapture(lastCapturedImage);
+      await handleCapture(lastCapturedImage);
     } catch (err: any) {
+      if (
+        (err instanceof ApiError && (err.status === 403 || err.code === "TEMPLATE_OVERWRITE_FORBIDDEN")) ||
+        String(err?.message || "").includes("requires an authorized operator")
+      ) {
+        setRequiresSupervisorAuth(true);
+      }
       setEnrollError(err.message || "Failed to enroll biometric face template.");
     } finally {
       setIsSubmittingEnroll(false);
@@ -255,6 +351,19 @@ export default function KioskPage() {
         event_type: action,
       });
       setAttendanceOutcome(outcome);
+      if (recognition.employee) {
+        persistRememberedProfile({
+          id: recognition.employee.id,
+          employee_number: recognition.employee.employee_number,
+          first_name: recognition.employee.first_name,
+          last_name: recognition.employee.last_name,
+          department_name: recognition.employee.department_name,
+          job_category: recognition.employee.job_category,
+          last_seen_at: outcome.timestamp || new Date().toISOString(),
+          last_score: recognition.match_score,
+          last_action: outcome.event_type,
+        });
+      }
     } catch (err: any) {
       console.error("Attendance confirmation error:", err);
       // Offline fallback buffer (E4)
@@ -688,7 +797,7 @@ export default function KioskPage() {
                   })}
                 </div>
                 {recognition?.scan_sequence && recognition.scan_sequence.length > 0 && (
-                  <p className="mt-2 text-[11px] text-slate-500 truncate">
+                  <p className="mt-2 text-[11px] text-slate-600 leading-relaxed">
                     {(
                       sequenceSteps.find((s) => s.status === "FAILED") ||
                       sequenceSteps[sequenceSteps.length - 1]
@@ -794,6 +903,29 @@ export default function KioskPage() {
               <p className="mt-1.5 text-xs text-slate-500 max-w-xs mx-auto leading-relaxed">
                 Look naturally toward the camera. Your frame is verified automatically for liveness and identity.
               </p>
+              {rememberedProfile && (
+                <div className="mt-4 rounded-lg border border-indigo-200/80 bg-[#EEF2FF]/70 px-3 py-2.5 text-left flex items-center justify-between gap-2">
+                  <div className="min-w-0">
+                    <div className="text-[10px] font-semibold uppercase tracking-wider text-[#4338CA]">
+                      Remembered on Terminal
+                    </div>
+                    <div className="text-xs font-semibold text-slate-900 truncate">
+                      {rememberedProfile.first_name} {rememberedProfile.last_name} ({rememberedProfile.employee_number})
+                    </div>
+                    <div className="text-[10px] text-slate-500 truncate">
+                      {rememberedProfile.last_action ? `Last: ${rememberedProfile.last_action} · ` : ""}
+                      {new Date(rememberedProfile.last_seen_at).toLocaleTimeString()}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => persistRememberedProfile(null)}
+                    className="text-[11px] font-medium text-slate-500 hover:text-slate-800 shrink-0 underline"
+                  >
+                    Forget
+                  </button>
+                </div>
+              )}
               <div className="mt-5 pt-4 border-t border-[#EAECEF] flex items-center justify-between text-[11px] text-slate-400">
                 <span>Touchless: {touchlessAutoPunch ? "2s Auto-Punch" : "Manual Confirm"}</span>
                 <button
@@ -987,14 +1119,26 @@ export default function KioskPage() {
                 {feedbackError}
               </p>
 
-              {recognition && typeof recognition.match_score === "number" && recognition.match_score > 0 && (
+              {recognition && typeof recognition.match_score === "number" && (
                 <div className="flex items-center justify-between text-[11px] text-slate-500 bg-[#FAFBFD] px-3 py-2 rounded-lg border border-[#EAECEF] tabular-nums">
                   <span>
-                    Score: <strong className="font-mono text-slate-900">{(recognition.match_score * 100).toFixed(1)}%</strong>
+                    Best Match Score:{" "}
+                    <strong className="font-mono text-slate-900">
+                      {(recognition.match_score * 100).toFixed(1)}%
+                    </strong>
                   </span>
                   <span>
-                    Threshold: <strong className="font-mono text-slate-700">35.0%</strong>
+                    Required:{" "}
+                    <strong className="font-mono text-slate-700">
+                      {((recognition.match_threshold ?? 0.35) * 100).toFixed(1)}%
+                    </strong>
                   </span>
+                </div>
+              )}
+
+              {recognition && !recognition.matched && lastCapturedImage && (
+                <div className="rounded-lg border border-indigo-200/80 bg-[#EEF2FF]/70 p-2.5 text-[11px] text-indigo-900 leading-relaxed">
+                  Step 04 blocked because this face snapshot did not match an active enrolled template above threshold. Click <strong>Quick Enroll</strong> below to link and remember your face for this terminal.
                 </div>
               )}
 
@@ -1105,83 +1249,133 @@ export default function KioskPage() {
       </div>
 
       {/* Quick Biometric Enrollment Modal */}
-      {showEnrollModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-[2px]">
-          <div className="w-full max-w-md rounded-xl border border-[#E5E7EB] bg-white p-5 shadow-xl space-y-4">
-            <div className="flex items-center justify-between border-b border-[#EAECEF] pb-3">
-              <div>
-                <h3 className="font-semibold text-slate-900 text-sm">Quick Biometric Enrollment</h3>
-                <p className="text-[11px] text-slate-500 mt-0.5">
-                  Link the captured snapshot to an active staff profile.
-                </p>
-              </div>
-              <button
-                onClick={() => setShowEnrollModal(false)}
-                className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-              >
-                ✕
-              </button>
-            </div>
+      {showEnrollModal && (() => {
+        const selectedEnrollEmp = employees.find((e) => e.id === Number(enrollTargetEmpId));
+        const hasSessionToken = typeof window !== "undefined" && Boolean(getStoredToken());
+        const showSupervisorFields =
+          !hasSessionToken && (Boolean(selectedEnrollEmp?.has_active_template) || requiresSupervisorAuth);
 
-            {lastCapturedImage ? (
-              <div className="relative aspect-[4/3] w-full rounded-lg overflow-hidden border border-[#E5E7EB] bg-[#0B0F17]">
-                <img
-                  src={lastCapturedImage}
-                  alt="Captured face snapshot"
-                  className="w-full h-full object-cover"
-                />
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-[2px]">
+            <div className="w-full max-w-md rounded-xl border border-[#E5E7EB] bg-white p-5 shadow-xl space-y-4">
+              <div className="flex items-center justify-between border-b border-[#EAECEF] pb-3">
+                <div>
+                  <h3 className="font-semibold text-slate-900 text-sm">Quick Biometric Enrollment</h3>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    Link and remember the captured face snapshot on an active staff profile.
+                  </p>
+                </div>
+                <button
+                  onClick={() => setShowEnrollModal(false)}
+                  className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+                >
+                  ✕
+                </button>
               </div>
-            ) : (
-              <div className="p-3.5 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-800">
-                Position your face in the camera and click <strong>Manual Shot</strong> first to capture a frame.
+
+              {lastCapturedImage ? (
+                <div className="relative aspect-[4/3] w-full rounded-lg overflow-hidden border border-[#E5E7EB] bg-[#0B0F17]">
+                  <img
+                    src={lastCapturedImage}
+                    alt="Captured face snapshot"
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+              ) : (
+                <div className="p-3.5 rounded-lg bg-amber-50 border border-amber-200 text-xs text-amber-800">
+                  Position your face in the camera and click <strong>Manual Shot</strong> first to capture a frame.
+                </div>
+              )}
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-slate-700">Employee Profile</label>
+                <select
+                  value={enrollTargetEmpId}
+                  onChange={(e) => {
+                    setEnrollTargetEmpId(e.target.value ? Number(e.target.value) : "");
+                    setEnrollError(null);
+                  }}
+                  className="h-9 w-full rounded-lg border border-[#E5E7EB] px-2.5 text-xs font-medium text-slate-800 bg-white focus:border-[#4F46E5] focus:outline-none focus:ring-2 focus:ring-indigo-500/15"
+                >
+                  <option value="">— Select Employee Name &amp; ID —</option>
+                  {employees.map((emp) => (
+                    <option key={emp.id} value={emp.id}>
+                      {emp.employee_number} — {emp.first_name || emp.full_name} {emp.last_name || ""} (
+                      {emp.department_name || emp.department || "Staff"})
+                    </option>
+                  ))}
+                </select>
+                {selectedEnrollEmp?.has_active_template && (
+                  <p className="text-[11px] text-amber-700">
+                    This profile already has an active biometric template and will be updated with your new scan.
+                  </p>
+                )}
               </div>
-            )}
 
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-slate-700">Employee Profile</label>
-              <select
-                value={enrollTargetEmpId}
-                onChange={(e) => setEnrollTargetEmpId(e.target.value ? Number(e.target.value) : "")}
-                className="h-9 w-full rounded-lg border border-[#E5E7EB] px-2.5 text-xs font-medium text-slate-800 bg-white focus:border-[#4F46E5] focus:outline-none focus:ring-2 focus:ring-indigo-500/15"
-              >
-                <option value="">— Select Employee Name &amp; ID —</option>
-                {employees.map((emp) => (
-                  <option key={emp.id} value={emp.id}>
-                    {emp.employee_number} — {emp.first_name || emp.full_name} {emp.last_name || ""} (
-                    {emp.department_name || emp.department || "Staff"})
-                  </option>
-                ))}
-              </select>
-            </div>
+              {showSupervisorFields && (
+                <div className="rounded-lg border border-[#EAECEF] bg-[#FAFBFD] p-3 space-y-2.5">
+                  <div className="text-[11px] font-semibold text-slate-700">
+                    Operator / HR Authorization Required to Update Existing Profile
+                  </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-[10px] font-medium text-slate-600">Operator Username</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. gate_op or hr_officer"
+                        value={supervisorUsername}
+                        onChange={(e) => setSupervisorUsername(e.target.value)}
+                        className="mt-1 h-8 w-full rounded-lg border border-[#E5E7EB] bg-white px-2.5 text-xs focus:border-[#4F46E5] focus:outline-none focus:ring-2 focus:ring-indigo-500/15"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] font-medium text-slate-600">Password</label>
+                      <input
+                        type="password"
+                        placeholder="Operator password"
+                        value={supervisorPassword}
+                        onChange={(e) => setSupervisorPassword(e.target.value)}
+                        className="mt-1 h-8 w-full rounded-lg border border-[#E5E7EB] bg-white px-2.5 text-xs focus:border-[#4F46E5] focus:outline-none focus:ring-2 focus:ring-indigo-500/15"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
 
-            {enrollError && (
-              <div className="p-2.5 rounded-lg border border-rose-200 bg-rose-50 text-rose-800 text-xs">
-                {enrollError}
+              {enrollError && (
+                <div className="p-2.5 rounded-lg border border-rose-200 bg-rose-50 text-rose-800 text-xs">
+                  {enrollError}
+                </div>
+              )}
+
+              <div className="flex justify-end gap-2 pt-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setShowEnrollModal(false)}
+                  disabled={isSubmittingEnroll}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  variant="primary"
+                  size="sm"
+                  onClick={handleConfirmEnrollment}
+                  isLoading={isSubmittingEnroll}
+                  disabled={
+                    !enrollTargetEmpId ||
+                    !lastCapturedImage ||
+                    isSubmittingEnroll ||
+                    (showSupervisorFields && (!supervisorUsername.trim() || !supervisorPassword))
+                  }
+                >
+                  Save &amp; Remember Face
+                </Button>
               </div>
-            )}
-
-            <div className="flex justify-end gap-2 pt-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setShowEnrollModal(false)}
-                disabled={isSubmittingEnroll}
-              >
-                Cancel
-              </Button>
-              <Button
-                variant="primary"
-                size="sm"
-                onClick={handleConfirmEnrollment}
-                isLoading={isSubmittingEnroll}
-                disabled={!enrollTargetEmpId || !lastCapturedImage || isSubmittingEnroll}
-              >
-                Save Enrollment
-              </Button>
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }
