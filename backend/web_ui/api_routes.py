@@ -48,6 +48,7 @@ from backend.face_engine.recognizer import (
 from backend.face_enrollment.service import (
     decrypt_embedding,
     enroll_employee_face,
+    record_adaptive_face_memory,
     revoke_employee_templates,
     purge_employee_biometrics,
     apply_biometric_retention_policy,
@@ -1821,6 +1822,7 @@ def api_face_recognize():
             "rejection_message": rec_result.get("message"),
             "quality_score": rec_result.get("quality_score", 0.0),
             "match_score": rec_result.get("recognition_score", 0.0),
+            "match_threshold": float(current_app.config.get("RECOGNITION_MATCH_THRESHOLD", 0.35)),
             "scan_sequence": scan_sequence,
             "latency_ms": elapsed_ms,
             "face_bbox": rec_result.get("face_bbox"),
@@ -1829,6 +1831,14 @@ def api_face_recognize():
     emp = rec_result["employee"]
     score = rec_result["recognition_score"]
     resolved_station_id = station.id if station else 1
+
+    if data.get("image_base64") and rec_result.get("probe_embedding"):
+        record_adaptive_face_memory(
+            employee_id=emp.id,
+            probe_embedding=rec_result.get("probe_embedding"),
+            quality_score=rec_result.get("quality_score", 0.85),
+            match_score=score,
+        )
 
     token = issue_recognition_token(emp.id, resolved_station_id, score)
 
@@ -1844,6 +1854,7 @@ def api_face_recognize():
             "job_category": emp.job_category,
         },
         "match_score": score,
+        "match_threshold": float(rec_result.get("match_threshold", current_app.config.get("RECOGNITION_MATCH_THRESHOLD", 0.35))),
         "recognition_token": token,
         "quality_score": rec_result.get("quality_score", 0.9),
         "liveness_passed": True,

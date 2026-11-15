@@ -154,6 +154,25 @@ def enroll_employee_face(
         session.add(new_template)
         session.flush()
 
+        # In live optical mode, also retain the crop-aligned SFace representation if distinct
+        # from the 5-landmark embedding so subsequent scans remain resilient across pose/lighting.
+        if not current_app.config.get("TESTING", False) and capture_payload.get("image_base64"):
+            aligned_vec = extraction.get("aligned_neural_embedding")
+            crop_vec = extraction.get("neural_embedding")
+            if aligned_vec and crop_vec and cosine_similarity(aligned_vec, crop_vec) < 0.85:
+                session.add(
+                    FaceTemplate(
+                        employee_id=employee.id,
+                        template_data=encrypt_embedding(crop_vec),
+                        model_name=model_name,
+                        model_version=model_version,
+                        quality_score=extraction["quality_score"],
+                        status="ACTIVE",
+                        enrolled_by="ENROLL_CROP_FALLBACK",
+                        enrolled_at=utc_now(),
+                    )
+                )
+
         record_audit_log(
             action="FACE_TEMPLATE_ENROLLED",
             target_type="EMPLOYEE",
@@ -171,6 +190,70 @@ def enroll_employee_face(
 
     invalidate_template_cache()
     return new_template, None
+
+
+def record_adaptive_face_memory(
+    employee_id: int,
+    probe_embedding: list[float] | None,
+    quality_score: float,
+    match_score: float,
+) -> bool:
+    """
+    In live (non-TESTING) optical recognition, remember distinct high-confidence face samples
+    (0.48 <= match_score < 0.86) as bounded adaptive templates (max 2 per employee) so the
+    system continues recognizing the employee reliably across changing lighting and camera angles.
+    """
+    if current_app.config.get("TESTING", False):
+        return False
+    if not probe_embedding or len(probe_embedding) != 128:
+        return False
+    if match_score < 0.48 or match_score >= 0.86:
+        return False
+
+    try:
+        emp = db.session.get(Employee, employee_id)
+        if not emp or emp.status != "ACTIVE" or not emp.consent_verified:
+            return False
+
+        model_name = current_app.config.get("FACE_MODEL_NAME", "EIPC-Vision-Embedder")
+        model_version = current_app.config.get("FACE_MODEL_VERSION", "1.0.0")
+        encrypted_blob = encrypt_embedding([round(float(x), 6) for x in probe_embedding])
+
+        with transactional_session() as session:
+            existing_adaptive = (
+                FaceTemplate.query.filter_by(
+                    employee_id=employee_id,
+                    status="ACTIVE",
+                    enrolled_by="ADAPTIVE_MEMORY",
+                    model_name=model_name,
+                    model_version=model_version,
+                )
+                .order_by(FaceTemplate.enrolled_at.asc(), FaceTemplate.id.asc())
+                .all()
+            )
+            while len(existing_adaptive) >= 2:
+                oldest = existing_adaptive.pop(0)
+                oldest.status = "REPLACED"
+                oldest.revoked_at = utc_now()
+                oldest.revoke_reason = "Rotated by newer adaptive live scan memory"
+
+            session.add(
+                FaceTemplate(
+                    employee_id=employee_id,
+                    template_data=encrypted_blob,
+                    model_name=model_name,
+                    model_version=model_version,
+                    quality_score=round(float(quality_score or 0.85), 3),
+                    status="ACTIVE",
+                    enrolled_by="ADAPTIVE_MEMORY",
+                    enrolled_at=utc_now(),
+                )
+            )
+
+        invalidate_template_cache()
+        return True
+    except Exception:
+        return False
 
 
 def revoke_employee_templates(

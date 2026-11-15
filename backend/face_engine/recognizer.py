@@ -111,8 +111,8 @@ def _get_yunet_detector(width: int = 320, height: int = 320):
     return None
 
 
-def _run_yunet_detect(bgr_arr: np.ndarray):
-    """Thread-safe YuNet detection holding _YUNET_LOCK across setInputSize and detect."""
+def _run_yunet_detect(bgr_arr: np.ndarray, score_threshold: float = 0.40):
+    """Thread-safe YuNet detection holding _YUNET_LOCK across setInputSize, threshold, and detect."""
     if cv2 is None or bgr_arr is None or bgr_arr.ndim < 2:
         return None
     h, w = bgr_arr.shape[:2]
@@ -122,13 +122,44 @@ def _run_yunet_detect(bgr_arr: np.ndarray):
         det = _get_yunet_detector(w, h)
         if det is None:
             return None
-        _, faces = det.detect(bgr_arr)
+        if hasattr(det, "setScoreThreshold"):
+            try:
+                det.setScoreThreshold(float(score_threshold))
+            except Exception:
+                pass
+        try:
+            _, faces = det.detect(bgr_arr)
+        finally:
+            if score_threshold != 0.40 and hasattr(det, "setScoreThreshold"):
+                try:
+                    det.setScoreThreshold(0.40)
+                except Exception:
+                    pass
         return faces
+
+
+def _apply_clahe_rgb(pil_img: Image.Image) -> Image.Image | None:
+    """Apply mild CLAHE luminance normalization to handle dim or uneven webcam lighting."""
+    if cv2 is None:
+        return None
+    try:
+        rgb = np.asarray(pil_img.convert("RGB"), dtype=np.uint8)
+        lab = cv2.cvtColor(rgb, cv2.COLOR_RGB2LAB)
+        l_chan, a_chan, b_chan = cv2.split(lab)
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        l_norm = clahe.apply(l_chan)
+        merged = cv2.merge((l_norm, a_chan, b_chan))
+        rgb_norm = cv2.cvtColor(merged, cv2.COLOR_LAB2RGB)
+        return Image.fromarray(rgb_norm)
+    except Exception:
+        return None
 
 
 def extract_aligned_neural_embedding(face_img: Image.Image) -> list[float] | None:
     """
     Detect face and 5 landmarks using YuNet and extract canonical aligned 128-D SFace embedding.
+    Falls back to a neutral-padded canvas and softer YuNet score threshold when close-up
+    or low-light frames miss strict full-frame detection.
     """
     if cv2 is None:
         return None
@@ -138,14 +169,27 @@ def extract_aligned_neural_embedding(face_img: Image.Image) -> list[float] | Non
         h, w, _ = bgr_arr.shape
         if w < 16 or h < 16:
             return None
-        faces = _run_yunet_detect(bgr_arr)
+
+        target_bgr = bgr_arr
+        faces = _run_yunet_detect(target_bgr, score_threshold=0.40)
         if faces is None or len(faces) == 0:
-            return None
+            # Retry with border padding + lower confidence threshold for tight/dim crops
+            pad = max(24, int(min(w, h) * 0.20))
+            padded_bgr = cv2.copyMakeBorder(
+                bgr_arr, pad, pad, pad, pad, cv2.BORDER_CONSTANT, value=(128, 128, 128)
+            )
+            faces = _run_yunet_detect(padded_bgr, score_threshold=0.25)
+            if faces is not None and len(faces) > 0:
+                target_bgr = padded_bgr
+            else:
+                return None
+
+        best_face = max(faces, key=lambda yf: float(yf[-1]))
         with _SFACE_LOCK:
             rec = _get_sface_session()
             if rec is None or not hasattr(rec, "alignCrop") or not hasattr(rec, "feature"):
                 return None
-            aligned = rec.alignCrop(bgr_arr, faces[0])
+            aligned = rec.alignCrop(target_bgr, best_face)
             feat = rec.feature(aligned)[0]
         norm = float(np.linalg.norm(feat))
         if norm > 0:
@@ -515,6 +559,7 @@ def match_face_vectorized(
     decrypt_fn,
     model_name: str,
     model_version: str,
+    extra_neural_probes: list[list[float]] | None = None,
 ) -> tuple[float, FaceTemplate | None]:
     """
     Perform high-speed vectorized cosine matching against in-memory active templates.
@@ -530,30 +575,23 @@ def match_face_vectorized(
 
     # 1. Match neural embedding against neural templates via BLAS dot product
     if neural_mat is not None and len(neural_ids) > 0:
-        scores_neu = None
+        candidate_probes: list[list[float]] = []
         if probe_neural:
-            p_neu = np.asarray(probe_neural, dtype=np.float32)
-            n_neu = float(np.linalg.norm(p_neu))
-            if n_neu > 0 and p_neu.shape == (neural_mat.shape[1],):
-                p_neu = p_neu / n_neu
-                scores_neu = np.dot(neural_mat, p_neu)
-
-        scores_ali = None
+            candidate_probes.append(probe_neural)
         if probe_aligned:
-            p_ali = np.asarray(probe_aligned, dtype=np.float32)
-            n_ali = float(np.linalg.norm(p_ali))
-            if n_ali > 0 and p_ali.shape == (neural_mat.shape[1],):
-                p_ali = p_ali / n_ali
-                scores_ali = np.dot(neural_mat, p_ali)
+            candidate_probes.append(probe_aligned)
+        if extra_neural_probes:
+            for ep in extra_neural_probes:
+                if ep:
+                    candidate_probes.append(ep)
 
-        if scores_neu is not None and scores_ali is not None:
-            combined = np.maximum(scores_neu, scores_ali)
-        elif scores_neu is not None:
-            combined = scores_neu
-        elif scores_ali is not None:
-            combined = scores_ali
-        else:
-            combined = None
+        combined = None
+        for probe_vec in candidate_probes:
+            p_arr = np.asarray(probe_vec, dtype=np.float32)
+            p_norm = float(np.linalg.norm(p_arr))
+            if p_norm > 0 and p_arr.shape == (neural_mat.shape[1],):
+                scores_vec = np.dot(neural_mat, p_arr / p_norm)
+                combined = scores_vec if combined is None else np.maximum(combined, scores_vec)
 
         if combined is not None and len(combined) > 0:
             best_idx = int(np.argmax(combined))
@@ -807,6 +845,16 @@ def _extract_embedding_from_pil(img: Image.Image) -> tuple[list[float], dict]:
     if aligned_neural_emb is None and aligned_pil is not None:
         aligned_neural_emb = extract_aligned_neural_embedding(aligned_pil)
 
+    # 2b. Illumination-normalized auxiliary SFace probe for dim or shadowed frames
+    illum_neural_emb = None
+    clahe_img = _apply_clahe_rgb(img)
+    if clahe_img is not None:
+        illum_neural_emb = extract_aligned_neural_embedding(clahe_img)
+    if illum_neural_emb is None and aligned_pil is not None:
+        clahe_crop = _apply_clahe_rgb(aligned_pil)
+        if clahe_crop is not None:
+            illum_neural_emb = extract_aligned_neural_embedding(clahe_crop) or extract_neural_embedding(clahe_crop)
+
     # 3. Extract 128-D spatial gradient orientation descriptor (for legacy templates & dual-matching)
     gx = np.diff(gray, axis=1)
     gy = np.diff(gray, axis=0)
@@ -848,6 +896,7 @@ def _extract_embedding_from_pil(img: Image.Image) -> tuple[list[float], dict]:
         "obstructed": obstructed,
         "aligned_neural_embedding": aligned_neural_emb,
         "neural_embedding": neural_emb,
+        "illum_neural_embedding": illum_neural_emb,
         "gradient_embedding": gradient_emb,
     }
     return embedding, quality
@@ -1133,6 +1182,7 @@ def analyze_and_extract_embedding(capture_payload: dict) -> dict:
         "embedding": embedding,
         "aligned_neural_embedding": img_quality.get("aligned_neural_embedding"),
         "neural_embedding": img_quality.get("neural_embedding") or embedding,
+        "illum_neural_embedding": img_quality.get("illum_neural_embedding"),
         "gradient_embedding": img_quality.get("gradient_embedding") or embedding,
     }
 
@@ -1184,6 +1234,7 @@ def recognize_face_candidate(capture_payload: dict, decrypt_fn) -> dict:
     incompatible_count = len(all_active) - len(active_templates)
     probe_aligned = extraction.get("aligned_neural_embedding")
     probe_neural = extraction.get("neural_embedding") or probe_embedding
+    probe_illum = extraction.get("illum_neural_embedding")
     probe_gradient = extraction.get("gradient_embedding") or probe_embedding
 
     best_score, best_template = match_face_vectorized(
@@ -1193,6 +1244,7 @@ def recognize_face_candidate(capture_payload: dict, decrypt_fn) -> dict:
         decrypt_fn=decrypt_fn,
         model_name=current_model_name,
         model_version=current_model_version,
+        extra_neural_probes=[probe_illum] if probe_illum else None,
     )
 
     best_score_clamped = round(max(0.0, min(1.0, best_score)), 4)
@@ -1271,7 +1323,9 @@ def recognize_face_candidate(capture_payload: dict, decrypt_fn) -> dict:
         "status": "MATCHED",
         "employee": employee,
         "recognition_score": best_score_clamped,
+        "match_threshold": float(match_threshold),
         "quality_score": extraction["quality_score"],
+        "probe_embedding": probe_embedding,
         "message": f"Identity verified: {employee.full_name} ({employee.employee_number}). Please confirm Check-In or Check-Out.",
         "rejection_code": None,
         "quality_details": extraction["quality_details"],
